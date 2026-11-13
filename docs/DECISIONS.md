@@ -193,3 +193,9 @@ Format: **Decision**, **Why**, **Consequences**.
 **Decision:** A test that verifies behaviour a requirement states carries that requirement's ID. A test that verifies real behaviour no requirement states is a gap in the spec: the requirement is proposed to the maintainer first. Only a test that verifies no product behaviour at all is an infrastructure test with the `infra:` marker. No test carries an ID that is merely the closest fit. This replaces the scope given in D-043, which had counted the wiring of the app and whole areas such as the health endpoint as infrastructure.
 **Why:** The first use of the marker in milestone M0 put 114 tests under it, among them tests of the launcher flags, the health endpoint and the setting defaults. That hid gaps in the spec. Sorting those tests by this rule led to twelve new requirements (R-PL-10 to R-PL-13, R-IN-06, R-IN-07, R-SE-04, R-ER-04, R-LG-06 to R-LG-08, R-QA-07).
 **Consequences:** The `infra` marker stays rare. A missing requirement is found when its test is written, and is added to the spec instead of being hidden behind a marker or a borrowed ID.
+
+### D-047 The bundle identifier is io.github.mderis.yt-mirror and never changes
+**Decision:** The macOS app bundle uses the bundle identifier `io.github.mderis.yt-mirror`.
+**Why:** It follows the address of the project's website, which the maintainer controls. macOS ties an app's identity, its saved window state and its permissions to this identifier.
+**Consequences:** The identifier must never change, not even if the repository moves. A change would make macOS treat yt-mirror as a different app.
+

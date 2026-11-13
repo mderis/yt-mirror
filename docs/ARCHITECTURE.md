@@ -369,7 +369,7 @@ Requirements R-NA-01 to R-NA-09. Decision D-044. **Everything here is `VERIFY` (
 - A small program builds `yt-mirror.app` on the user's Mac: a folder with `Contents/Info.plist` (name `yt-mirror`, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/yt-mirror.icns` generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/yt-mirror`, the program macOS starts.
 - The same program is used by the installer (bundle in `~/Applications`, milestone M9) and by `./start` on a clone (bundle inside the clone, in the ignored `tools/` folder, milestone M1). `./start` then starts the app through the bundle, so a clone and an installed copy behave alike.
 - The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version or the icon source changed.
-- Proposed bundle identifier: `io.github.mderis.yt-mirror`, after the website address. To be confirmed by the maintainer in M1, because it should never change afterwards.
+- The bundle identifier is `io.github.mderis.yt-mirror` (D-047). It must never change: macOS ties an app's identity, its saved state and its permissions to it.
 - How the Python process takes over the identity of the bundle (so that the Dock, Cmd+Tab and Activity Monitor show "yt-mirror" and not "Python") is the first thing the Q-24 experiment has to show.
 
 **Menu bar (R-NA-03, R-NA-04, R-NA-09).**
