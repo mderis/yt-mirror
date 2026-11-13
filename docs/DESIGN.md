@@ -109,34 +109,66 @@ Fonts are bundled with the app in `fonts/`. The app must not load fonts from the
 | `font-text` | Inter, then the system font | All text |
 | `font-heading` | Space Grotesk, then the system font | Headings and the wordmark |
 | `font-mono` | The system monospace font | Technical details |
-| `font-size-body` | 14 px | Body text |
-| `font-size-meta` | 13 px | Metadata |
-| `font-size-label` | 12 px | Labels (uppercase) |
-| `font-size-dialog-title` | 22 px | Dialog titles |
-| `font-size-page-title` | 28 px | Page titles |
-| `font-weight-regular` | 400 | Text |
-| `font-weight-medium` | 500 | Emphasis, buttons |
-| `font-weight-semibold` | 600 | Headings, the wordmark |
-| `line-height-text` | 1.45 | Text |
-| `line-height-heading` | 1.1 | Headings |
 
-### 2.4 Shape, spacing, depth and motion tokens
+Font sizes. Utility classes use the token name, for example `text-title-sm`.
+
+| Token | Value | Use |
+|---|---|---|
+| `font-size-label` | 12 px | Uppercase labels, small tags |
+| `font-size-meta` | 13 px | Metadata lines, hints, chips |
+| `font-size-body` | 14 px | Default text |
+| `font-size-title-sm` | 15 px | Video titles in rows and cards |
+| `font-size-body-lg` | 16 px | Emphasised body, channel name in dialogs, website body |
+| `font-size-heading-sm` | 18 px | Section headings, wordmark |
+| `font-size-heading-md` | 22 px | Dialog titles, details panel title |
+| `font-size-heading-lg` | 28 px | Page titles |
+| `font-size-display-md` | 36 px | Website page titles |
+| `font-size-display-lg` | 52 px | Website hero only |
+
+### 2.4 Shape and spacing tokens
 
 | Token | Value | Use |
 |---|---|---|
 | `space` | 4 px | The spacing step. All spacing is a whole multiple of it (`p-4` is 16 px) |
-| `radius-control` | 8 px | Buttons, fields, menus |
-| `radius-card` | 12 px | Cards |
-| `radius-dialog` | 16 px | Dialogs |
-| `radius-pill` | fully round | Status chips |
+| `radius-xs` | 4 px | Duration badges, small tags |
+| `radius-sm` | 6 px | Menu items, view toggle, key caps |
+| `radius-md` | 8 px | Buttons, inputs, selects |
+| `radius-lg` | 12 px | Cards, menus, toasts, banners, info boxes |
+| `radius-xl` | 16 px | Dialogs |
+| `radius-full` | fully round | Status chips, pill buttons, avatars |
+
+### 2.5 The mockups predate the final scale
+
+The mockups in `docs/design/v1/` were drawn before the scale in sections 2.3 and 2.4 was fixed, and they are not edited. Where a mockup differs from the scale, the scale wins, with these rounding rules:
+
+| In a mockup | Use |
+|---|---|
+| Font size 11 px | `label` (12) |
+| Font size 19 px | `heading-sm` (18) |
+| Font size 20 px | `heading-md` (22) |
+| Font size 24 or 26 px | `heading-lg` (28) |
+| Font size 30 or 32 px | `heading-lg` (28) in the app, `display-md` (36) on the website |
+| Radius 10 or 14 px | `radius-lg` (12) |
+| Any pill value (14 px on chips, 22 px, 30 px) | `radius-full` |
+
+### 2.6 Line height, font weight, depth and motion tokens
+
+**Proposed in milestone M0, waiting for the maintainer's OK.** The mockups do not define these as rules. The values were read from the mockups and from rule 10 of section 3. Until they are approved, nothing may be built on them beyond the theme preview page.
+
+| Token | Value | Use |
+|---|---|---|
+| `line-height-heading` | 1.1 | `heading-lg`, `display-md`, `display-lg` |
+| `line-height-text` | 1.45 | Everything else by default |
+| `line-height-prose` | 1.6 | Long text: description, help, website body |
+| `font-weight-regular` | 400 | Text |
+| `font-weight-medium` | 500 | Buttons, emphasis, video titles |
+| `font-weight-semibold` | 600 | Headings, the wordmark |
 | `shadow-raised` | none (dark and light) | Menus, toasts |
 | `shadow-overlay` | none (dark and light) | Dialogs |
-| `duration-fast` | 150 ms | Hover, press |
-| `duration-base` | 200 ms | Panels, dialogs |
+| `duration-fast` | 150 ms | Hover, press, toggles |
+| `duration-base` | 200 ms | Menus, dialogs, panels, toasts |
 
-Both durations become 0 ms when the system "reduce motion" setting is on.
-
-**To review by the maintainer:** the mockups do not define the line heights, the font weights or the shadows as rules. The values above were read from the mockups in milestone M0: 1.45 and 1.1 are the line heights the mockups use for text and for large headings, 400, 500 and 600 are the weights they use, and no mockup uses a shadow (the designs separate layers with borders and surface colours), so both shadow tokens are `none`. The tokens exist so that a theme can add depth without touching a component.
+No mockup uses a shadow: the designs separate layers with borders and surface colours. The two shadow tokens exist so that a theme can add depth without touching a component. Both durations become 0 ms when the system "reduce motion" setting is on.
 
 Targets: interactive elements are at least 44 px high, except dense table and toolbar controls (36 px minimum).
 
