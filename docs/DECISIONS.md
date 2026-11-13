@@ -133,3 +133,9 @@ Format: **Decision**, **Why**, **Consequences**.
 
 ### D-034 Copyright holder
 **Decision:** The license names "Moslem Deris and contributors". The name is the one the maintainer uses publicly.
+
+### D-035 The minimum is macOS 15, the oldest version that is tested
+**Decision:** yt-mirror states macOS 15 as its minimum version. This answers open question Q-01.
+**Why:** The oldest macOS that can be tested is 15: it is the oldest runner GitHub offers, and the maintainer's Mac is newer. The tools publish lower minimums (uv: macOS 13, pyobjc: 10.13), but nobody has run yt-mirror there. Stating only what is tested is honest and can be checked.
+**Consequences:** CI runs on macOS 15 (Apple Silicon and Intel) and on the newest runner. The minimum is provisional until milestone M1 confirms that the chosen ffmpeg build and Deno run on macOS 15. It can be lowered later if someone tests an older Mac.
+

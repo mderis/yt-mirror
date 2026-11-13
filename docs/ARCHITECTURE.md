@@ -47,7 +47,7 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
 | HTTP client | httpx | YouTube API, channel feed, GitHub releases, tool downloads |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
-| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead |
+| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8 |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |
 | Frontend | Vue 3, TypeScript (strict), Vite | Single-page app, no server-side rendering |
 | Styling | Tailwind CSS with design tokens from [DESIGN.md](DESIGN.md) | Light and dark themes through CSS variables |
@@ -321,6 +321,16 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 - Blocking work (yt-dlp, ffmpeg, file operations, database writes from workers) runs in threads. Download workers are a fixed-size pool equal to the parallel downloads setting.
 - One writer at a time per database connection. Each unit of work is a short transaction.
 - One lock per channel serialises check, adoption and folder moves for that channel.
+
+### 7.8 The window (`app/window.py`)
+
+Checked with a probe against pywebview 6.2 on macOS in milestone M0 (open question Q-09):
+
+- **Minimum size:** the window is created with `min_size=(1100, 700)` (R-PL-03). macOS applies it when the user drags the window edge. Code can still resize below it, so the app never resizes the window itself.
+- **Closing:** a handler on the window's `closing` event can refuse the close by returning false. The quit confirmation of R-QU-12 uses this.
+- **External links:** a link with `target="_blank"` opens in the default browser. A plain link would load inside the app window, and `window.open` does nothing. So every link that leaves the app is written as an anchor with `target="_blank"`, and the frontend never calls `window.open`.
+- **Folder picker:** the native folder dialog opens and returns to Python. That it returns the chosen folder still has to be checked by hand once (Q-09).
+- **Developer tools:** `./start --debug` enables the WebKit inspector in the window.
 
 ## 8. HTTP API
 

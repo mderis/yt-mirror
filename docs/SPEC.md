@@ -34,7 +34,7 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 
 | ID | Requirement |
 |---|---|
-| R-PL-01 | Runs on macOS only, Apple Silicon and Intel. The minimum macOS version is decided during implementation (see OPEN-QUESTIONS Q-01) and stated in the README and website. |
+| R-PL-01 | Runs on macOS only, Apple Silicon and Intel. The minimum version is macOS 15, the oldest version the automated checks run on (see DECISIONS D-035). It is stated in the README and website. |
 | R-PL-02 | The UI runs in a dedicated app window (not a browser tab). A `--browser` flag opens it in the default browser instead. |
 | R-PL-03 | Minimum window size 1100 x 700 points. Layouts are not required to work below that. |
 | R-PL-04 | The local server listens on 127.0.0.1 only and must reject requests from other origins. |
