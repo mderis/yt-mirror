@@ -1,0 +1,10 @@
+# Requirements that can only be tested live or by hand (docs/TESTING.md rule 2).
+#
+# scripts/requirements_coverage.py treats a requirement listed here as
+# accounted for. Each entry needs the requirement ID and the reason:
+#
+#   requirements:
+#     - id: R-XX-00
+#       reason: Why no automated test can cover it, and where it is checked instead.
+
+requirements: []
