@@ -43,7 +43,7 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 | R-PL-07 | The app works with no Google account and no API key. |
 | R-PL-08 | No proxy setting in V1. The app must still honour the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables and system proxy behaviour of its HTTP libraries. |
 | R-PL-09 | Background work happens only while the app is running. There is no background service or scheduler in V1. |
-| R-PL-10 | Every call to the local API must carry a session token created at random at each start. The window receives it in its first address, where it is exchanged for a cookie that scripts cannot read. A missing or wrong token is refused. |
+| R-PL-10 | Every call to the local API must carry a session token created at random at each start. The window receives it in its first address, where it is exchanged for a cookie that scripts cannot read. A missing or wrong token is refused. The server also accepts the same token in an `Authorization: Bearer` header, which tools and tests use. No other credential opens the API. |
 | R-PL-11 | The local server serves the built interface and nothing else from the disk, and does not expose its API description. |
 | R-PL-12 | A health endpoint reports that the server runs, with the app version and the database schema version. |
 | R-PL-13 | The app stops cleanly on Ctrl+C or a termination signal, and a server that cannot start is reported, not a hang. |
@@ -352,7 +352,7 @@ Details: [RELEASE-AND-UPDATE.md](RELEASE-AND-UPDATE.md). Design: `Installer.html
 | R-IN-03 | On first start the app shows which tools it needs (Python environment, yt-dlp, ffmpeg, Deno), downloads the missing ones into the app folder with visible progress, verifies checksums, and offers a retry per failed step. |
 | R-IN-04 | On every start the app verifies the tools still work. A missing or broken tool produces a banner with an "Install now" button, never a crash. |
 | R-IN-05 | The whole app folder can be moved or copied to another location on a Mac and still works. Environment parts that contain absolute paths are rebuilt automatically on the next start. |
-| R-IN-06 | `./start` accepts `--dev`, `--debug`, `--browser`, `--doctor`, `--update` and `--help`. An unknown flag shows the usage and changes nothing. |
+| R-IN-06 | `./start` accepts `--dev`, `--debug`, `--browser`, `--doctor`, `--update` and `--help`. An unknown flag shows the usage and changes nothing. `--dev` reloads the interface on changes, `--debug` writes verbose logs and makes the developer tools available in the window, and `--doctor` only reports and changes nothing. |
 | R-IN-07 | `./start` prepares everything inside the app folder: a pinned uv verified by checksum before use, Python and packages in `tools/`, the interface built when missing. Each failure (no connection, checksum mismatch, Node.js missing) ends with a plain message. |
 | R-UP-01 | The app checks for a new yt-mirror release on open (setting). A banner announces it. The update dialog shows the version, the release notes, and what will happen. |
 | R-UP-02 | Updating: downloads and verifies the release, backs up the database, replaces the code, updates dependencies, migrates the database, restarts. Progress is shown per step. |
@@ -402,14 +402,14 @@ Full specification: [LOGGING.md](LOGGING.md).
 
 | ID | Requirement |
 |---|---|
-| R-LG-01 | Structured logs are written to `data/logs/`, rotated daily, kept 14 days. |
+| R-LG-01 | Structured logs are written to `data/logs/`, rotated daily, kept 14 days. Only the app's own daily log files are ever deleted. |
 | R-LG-02 | Each download has a job ID that ties together all its log lines, its activity entries and its yt-dlp and ffmpeg output. |
 | R-LG-03 | Every status change of a video is recorded in the database with time, old status, new status, reason and job ID. |
 | R-LG-04 | "Export debug report" produces one file with recent logs, settings (secrets redacted), tool versions, app version, database schema version and macOS version. |
-| R-LG-05 | "Run health check" tests tools, folders, permissions, network and the database, and shows the result with fix buttons. |
+| R-LG-05 | "Run health check" tests tools, folders, permissions, network and the database, and shows the result with fix buttons. It also shows the macOS version, the processor and the free disk space. |
 | R-LG-06 | Every log line has the required fields of [LOGGING.md](LOGGING.md) section 1, and each use case logs its start, end and errors with catalogue events. The console shows the same lines in a readable one-line form. |
-| R-LG-07 | Secrets never reach the log or the console. |
-| R-LG-08 | "Log detail" Normal writes info and above, Verbose and `--debug` write debug and above. |
+| R-LG-07 | Secrets never reach the log or the console. Nothing but secrets is removed from a line. |
+| R-LG-08 | "Log detail" Normal writes info and above, Verbose and `--debug` write debug and above. Lines written by libraries appear from warning at Normal and from info at Verbose. |
 
 ### 12.5 Help and reporting problems
 Design: `Help.html`, `ReportProblem.html`.
