@@ -45,11 +45,42 @@ When a mockup and [SPEC.md](SPEC.md) disagree, the spec wins and the mockup must
 | `SiteHome.html`, `SiteDocs.html` | Website | R-WS-* |
 | `AppIcon.html` | App icon and logo | |
 
-Not drawn, by decision: layouts narrower than the minimum window (R-PL-03), the native macOS folder picker, and the remaining website documentation pages (they use the `SiteDocs.html` template).
+Not drawn, by decision: layouts narrower than the minimum window (R-PL-03), the native macOS folder picker, the macOS menu bar (it is drawn by macOS, its content is in section 7), and the remaining website documentation pages (they use the `SiteDocs.html` template).
 
-## 2. Design tokens
+Not drawn yet: the About window (R-NA-05, section 7.2). It needs a mockup before milestone M7.
 
-Implement these as CSS variables and expose them through the Tailwind preset in `frontend/src/design/`. Components never use raw hex values.
+## 2. The theme center and its tokens
+
+Requirements: R-TH-01 to R-TH-09 in [SPEC.md](SPEC.md). Decision: D-036.
+
+Every visual value of the app lives in one folder, `frontend/src/design/`. Nothing outside that folder may contain a colour value, a font name, a pixel font size or a one-off spacing value.
+
+```
+frontend/src/design/
+  tokens.css        Every token as a CSS variable. Shared values, then one block per theme
+  theme.css         The Tailwind preset: maps the tokens to utility classes, and removes Tailwind's own palette and scales
+  themes.ts         The list of themes, and the few lines that pick one (system, light, dark)
+  fonts/            One folder per bundled font: the font files, their license, and a font.css that declares them
+  brand/icon.svg    The one source of the app icon and logo (section 5)
+  preview/          The theme preview page (development mode only)
+```
+
+### 2.1 Rules for tokens
+
+1. **Tokens are CSS variables** named `--ytm-<group>-<name>`. The groups are `color`, `font`, `font-size`, `font-weight`, `line-height`, `space`, `radius`, `shadow` and `duration`.
+2. **Names are semantic.** A name says what the value is for (`text-muted`, `surface-raised`, `accent`), never what it looks like (`blue-500`, `gray-2`).
+3. **A theme is one block.** `tokens.css` has one block of shared values and one block per theme, selected by the `data-theme` attribute on the root element. Every theme block defines exactly the same tokens. A test checks this.
+4. **"Same as system"** is not a third block. `themes.ts` reads the system setting and sets `data-theme` to `light` or `dark`, and follows the system when it changes.
+5. **Adding a theme** means adding one block to `tokens.css` and its name to `themes.ts`. No component changes.
+6. **Changing the app font** means putting the new font's folder into `fonts/` and changing the one `--ytm-font-text` line (or `--ytm-font-heading`). Every `font.css` in `fonts/` is loaded automatically.
+7. **The Tailwind preset** in `theme.css` is the only bridge to utility classes. Tailwind's default colours, font sizes, weights, radii and shadows are switched off there, so a class such as `bg-blue-500` or `text-sm` does not exist. In Tailwind 4 a preset is a CSS file, not a JavaScript file.
+8. **A lint check in CI** (`npm --prefix frontend run lint:theme`) fails when code outside the theme center uses a raw colour, a font name, a font size, a one-off spacing value, a Tailwind arbitrary value (`p-[13px]`), or a token that is not defined.
+9. **The website** imports the same `tokens.css` (R-TH-07, built in milestone M10). The file therefore contains plain CSS only, nothing that needs Tailwind or the app.
+10. **The theme preview page** (`./start --dev`, then `/theme-preview.html` on the development server) shows every token and every shared component in every theme side by side. It is the page the visual regression screenshots are taken from. A component is added to it in the same commit that creates the component.
+
+### 2.2 Colour tokens
+
+One value per theme. Utility classes use the token name, for example `bg-surface`, `text-text-muted`, `border-line`.
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
@@ -71,11 +102,85 @@ Implement these as CSS variables and expose them through the Tailwind preset in 
 | `neutral-bg` / `neutral-text` | `#22262E` / `#B4BBC7` | `#ECEEF2` / `#454D5A` | Queued, excluded |
 | `track` | `#2A303B` | `#DDE1E7` | Progress track, skeletons |
 
-Type: Inter for text, Space Grotesk (600) for headings and the wordmark, the system monospace font for technical details. Fonts are bundled with the app. The app must not load fonts from the network.
+### 2.3 Type tokens
 
-Sizes: body 14 px, metadata 13 px, labels 12 px uppercase, page title 28 px, dialog title 22 px.
-Shape: 8 px radius for controls, 12 to 16 px for cards and dialogs, pills for status chips.
-Spacing: multiples of 4 px.
+Fonts are bundled with the app in `fonts/`. The app must not load fonts from the network.
+
+| Token | Value | Use |
+|---|---|---|
+| `font-text` | Inter, then the system font | All text |
+| `font-heading` | Space Grotesk, then the system font | Headings and the wordmark |
+| `font-mono` | The system monospace font | Technical details |
+
+Font sizes. Utility classes use the token name, for example `text-title-sm`.
+
+| Token | Value | Use |
+|---|---|---|
+| `font-size-label` | 12 px | Uppercase labels, small tags |
+| `font-size-meta` | 13 px | Metadata lines, hints, chips |
+| `font-size-body` | 14 px | Default text |
+| `font-size-title-sm` | 15 px | Video titles in rows and cards |
+| `font-size-body-lg` | 16 px | Emphasised body, channel name in dialogs, website body |
+| `font-size-heading-sm` | 18 px | Section headings, wordmark |
+| `font-size-heading-md` | 22 px | Dialog titles, details panel title |
+| `font-size-heading-lg` | 28 px | Page titles |
+| `font-size-display-md` | 36 px | Website page titles |
+| `font-size-display-lg` | 52 px | Website hero only |
+
+### 2.4 Shape and spacing tokens
+
+| Token | Value | Use |
+|---|---|---|
+| `space` | 4 px | The spacing step. All spacing is a whole multiple of it (`p-4` is 16 px) |
+| `radius-xs` | 4 px | Duration badges, small tags |
+| `radius-sm` | 6 px | Menu items, view toggle, key caps |
+| `radius-md` | 8 px | Buttons, inputs, selects |
+| `radius-lg` | 12 px | Cards, menus, toasts, banners, info boxes |
+| `radius-xl` | 16 px | Dialogs |
+| `radius-full` | fully round | Status chips, pill buttons, avatars |
+
+### 2.5 The mockups predate the final scale
+
+The mockups in `docs/design/v1/` were drawn before the scale in sections 2.3 and 2.4 was fixed, and they are not edited. Where a mockup differs from the scale, the scale wins, with these rounding rules:
+
+| In a mockup | Use |
+|---|---|
+| Font size 11 px | `label` (12) |
+| Font size 19 px | `heading-sm` (18) |
+| Font size 20 px | `heading-md` (22) |
+| Font size 24 or 26 px | `heading-lg` (28) |
+| Font size 30 or 32 px | `heading-lg` (28) in the app, `display-md` (36) on the website |
+| Radius 10 or 14 px | `radius-lg` (12) |
+| Any pill value (14 px on chips, 22 px, 30 px) | `radius-full` |
+
+### 2.6 Line height, font weight and motion tokens
+
+Approved by the maintainer in milestone M0. The mockups do not define these as rules. The values were read from the mockups and from rule 10 of section 3.
+
+| Token | Value | Use |
+|---|---|---|
+| `line-height-heading` | 1.1 | `heading-lg`, `display-md`, `display-lg` |
+| `line-height-text` | 1.45 | Everything else by default |
+| `line-height-prose` | 1.6 | Long text: description, help, website body |
+| `font-weight-regular` | 400 | Text |
+| `font-weight-medium` | 500 | Buttons, emphasis, video titles |
+| `font-weight-semibold` | 600 | Headings, the wordmark |
+| `duration-fast` | 150 ms | Hover, press, toggles |
+| `duration-base` | 200 ms | Menus, dialogs, panels, toasts |
+
+Both durations become 0 ms when the system "reduce motion" setting is on.
+
+### 2.7 Shadow tokens
+
+One value per theme, like the colours. Utility classes: `shadow-raised`, `shadow-overlay`.
+
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `shadow-raised` | `0 4px 12px rgb(0 0 0 / 0.35)` | `0 4px 12px rgb(16 24 40 / 0.12)` | Menus, toasts |
+| `shadow-overlay` | `0 16px 48px rgb(0 0 0 / 0.5)` | `0 16px 48px rgb(16 24 40 / 0.2)` | Dialogs |
+
+Accepted by the maintainer in milestone M0. No mockup uses a shadow: the mockups separate layers with borders and surface colours only. Like the scale in sections 2.3 and 2.4, these tokens win where a mockup differs.
+
 Targets: interactive elements are at least 44 px high, except dense table and toolbar controls (36 px minimum).
 
 ## 3. Rules for all screens
@@ -99,11 +204,71 @@ The frontend builds these shared components first, each with tests and a story-l
 
 The icon in `AppIcon.html` is a draft and is expected to change. To make changing it a one-file job:
 
-- There is exactly one source file: `frontend/src/design/brand/icon.svg` (square, single colour on a rounded square).
+- There is exactly one source file: `frontend/src/design/brand/icon.svg` (square, single colour on a rounded square). It is part of the theme center (section 2).
 - Everything else is generated from it by a build script and never edited by hand: the macOS launcher icon (`.icns`), the window icon, the favicon, the logo in the sidebar and on the website, and the social preview image.
 - Colours in the SVG come from the `accent` and `on-accent` tokens.
 - Replacing the icon means replacing that file and running the build. A test checks that every generated asset is newer than the source.
+- The generated assets arrive with the milestones that need them ([IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md), D-045): the build script, its test and the macOS icon for the app bundle in M1, the favicon in M2, the social preview image in M10. Until then the app draws its logo directly from the source file.
 
 ## 6. Versioning of designs
 
 Each released version keeps its own folder: `docs/design/v1/`, later `docs/design/v2/`. A version's designs are frozen when it is released. Work on the next version starts by copying the folder.
+
+## 7. Native Mac app
+
+Requirements: R-NA-01 to R-NA-09 in [SPEC.md](SPEC.md). How it is built: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10. Not built in milestone M0.
+
+The app shows its own name and icon everywhere macOS shows an app: Dock, app switcher, menu bar, Activity Monitor. The icon comes from the one source file of section 5.
+
+### 7.1 Menu bar
+
+Labels are written as macOS writes them: title case, and three dots after an item that opens a dialog or window. An item is enabled only when it applies.
+
+| Menu | Item | Shortcut | Enabled when |
+|---|---|---|---|
+| yt-mirror | About yt-mirror | | Always |
+| | Check for Updates... | | Always |
+| | Settings... | Cmd+, | Always |
+| | Hide yt-mirror, Hide Others, Show All | Cmd+H, Option+Cmd+H | Standard macOS items |
+| | Quit yt-mirror | Cmd+Q | Always |
+| File | Add Channel... | Cmd+N | Always |
+| | Close Window | Cmd+W | Always. Closing the window quits (R-NA-06) |
+| Edit | Undo, Redo, Cut, Copy, Paste, Select All | Cmd+Z, Shift+Cmd+Z, Cmd+X, Cmd+C, Cmd+V, Cmd+A | Standard macOS items, for text fields. Outside a text field, Select All selects all shown videos |
+| View | List | | A channel is open. The current view has a check mark |
+| | Grid | | A channel is open. The current view has a check mark |
+| | Show Downloads | | Always |
+| | Show Activity | | Always |
+| | Reload | | Only with `./start --debug` |
+| Channel | Check Now | Cmd+R | A channel is open and no check of it is running |
+| | Check All Channels | | At least one channel is not paused |
+| | Mirror Everything Missing | | A channel is open and has eligible videos |
+| | Pause Channel (Resume Channel for a paused one) | | A channel is open |
+| | Open Folder | | A channel is open and its folder is available |
+| | Channel Settings... | | A channel is open |
+| Window | Minimize, Zoom, the window list | Cmd+M | Standard macOS items |
+| Help | yt-mirror Help | | Always |
+| | Keyboard Shortcuts | | Always |
+| | Report a Problem... | | Always |
+
+Wording follows [GLOSSARY.md](GLOSSARY.md): "Check", "Mirror", "Channel".
+
+### 7.2 About window
+
+Shows the app icon, the name "yt-mirror", the version, the license (MIT), and two links: the website and the repository. The links open in the default browser. No mockup exists yet.
+
+### 7.3 Menu bar shortcuts and in-app shortcuts
+
+The menu bar is the source of truth (R-NA-09). The mockup `Shortcuts.html` predates the menu bar and is not edited. Where it differs from this table, this table wins, and the in-app shortcut list is built from it.
+
+| Action | In `Shortcuts.html` | With the menu bar | What changes |
+|---|---|---|---|
+| Check channel now | R | Cmd+R (Channel, Check Now) | The in-app list shows Cmd+R. The plain R is dropped, so one action has one shortcut |
+| Select all shown | Cmd A | Cmd+A (Edit, Select All) | The same shortcut. In a text field it selects the text, elsewhere all shown videos |
+| Toggle list and grid | G | no shortcut (View, List and Grid) | No conflict. G stays |
+| Add channel | not listed | Cmd+N | Added to the in-app list |
+| Settings | not listed | Cmd+, | Added to the in-app list |
+| Close window, Quit | not listed | Cmd+W, Cmd+Q | Added to the in-app list |
+| Move, switch channel, filter, details, close panel, select, mirror, exclude, play, show in Finder | Arrow keys, 1 to 9, /, Enter, Esc, Space, Shift Click, M, X, P, F | no menu item | Unchanged. Single keys work only while no text field has the focus |
+
+Cmd+R is "Reload" in a web view by default. In yt-mirror it is "Check Now", and the debug-only "Reload" item has no shortcut.
+

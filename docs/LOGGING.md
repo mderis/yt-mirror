@@ -43,7 +43,7 @@ Rules:
 6. Exceptions are logged once, where they are handled, with `exc_info` and the mapped `error_code`.
 7. The console shows the same events in a readable one-line form.
 
-Levels by setting: "Normal" writes `info` and above. "Verbose" writes `debug` and above. `./start --debug` forces Verbose for one run.
+Levels by setting: "Normal" writes `info` and above. "Verbose" writes `debug` and above. `./start --debug` forces Verbose for one run. Lines from libraries (`app.external_log`) are written from `warning` at Normal and from `info` at Verbose.
 
 ## 2. Per-job logs
 
@@ -53,7 +53,7 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 
 | Area | Events |
 |---|---|
-| app | `app.started`, `app.stopping`, `app.crashed`, `app.config` (paths, versions, install kind) |
+| app | `app.started`, `app.stopping`, `app.crashed`, `app.config` (paths, versions, install kind), `app.external_log` (a line written by a library such as uvicorn or Alembic. Its text is in `msg`, its logger name in `component`) |
 | toolchain | `tool.check`, `tool.install.started`, `tool.install.finished`, `tool.install.failed`, `ytdlp.update.finished` |
 | channel | `channel.added`, `channel.removed`, `channel.paused`, `channel.resumed`, `channel.folder_moved` |
 | check | `check.started`, `check.finished` (counts: new, updated, gone, renamed, missing), `check.failed`, `check.retry_scheduled` |
@@ -94,6 +94,11 @@ Defined once in `backend/ytmirror/core/errors.py`. Each code has: a name, whethe
 | `TOOL_MISSING` | transient | ffmpeg, Deno or yt-dlp is not usable |
 | `CHANNEL_NOT_FOUND` | permanent | |
 | `INVALID_CHANNEL_INPUT` | permanent | What the user pasted is not a channel |
+| `UNAUTHORIZED` | permanent | A request to the local API came without the session token, or with a wrong one |
+| `ORIGIN_REJECTED` | permanent | A request to the local server came from another website or was addressed to another host (R-PL-04) |
+| `NOT_FOUND` | permanent | There is nothing at the requested address of the local server |
+| `INVALID_REQUEST` | permanent | A request to the local API is malformed |
+| `LOCAL_SERVER_UNREACHABLE` | transient | The window cannot reach the app's own local server (R-ER-04). This code is raised by the window, never sent by the server |
 | `API_KEY_INVALID`, `API_QUOTA_EXCEEDED` | transient | Never shown as an error dialog (R-DT-12) |
 | `UPDATE_FAILED`, `MIGRATION_FAILED`, `CHECKSUM_MISMATCH` | transient | |
 | `INTERNAL` | transient | Anything unclassified. Always logged at `error` with a stack trace |

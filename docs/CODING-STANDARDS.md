@@ -61,7 +61,7 @@ def file_name_for(title: str, video_id: str, taken: Collection[str]) -> str:
 - Server data lives in Pinia stores, updated from API responses and SSE events. Components do not call `fetch`.
 - API types are generated from the OpenAPI schema. Never write them by hand. (CI checks they are current)
 - All user-visible text comes from `src/i18n/`. No string literals in templates. (CI)
-- Styling uses Tailwind classes built on the design tokens. No raw hex colours in components. (CI)
+- Styling uses Tailwind classes built on the tokens of the theme center ([DESIGN.md](DESIGN.md) section 2). Outside `frontend/src/design/` there are no raw colour values, font names, font sizes, one-off spacing values or Tailwind arbitrary values (R-TH-06). (CI)
 - Every interactive element is a real `button`, `a`, or form control with an accessible name.
 - ESLint, Prettier and `vue-tsc` pass. (CI)
 
@@ -69,7 +69,7 @@ def file_name_for(title: str, video_id: str, taken: Collection[str]) -> str:
 
 - Test names read as sentences: `test_second_video_with_same_title_gets_id_suffix`.
 - Arrange, act, assert, with blank lines between. One behaviour per test.
-- Each test docstring starts with the requirement IDs it covers.
+- Each test docstring or title starts with the requirement IDs it covers, or with `infra:` when it verifies no product behaviour at all ([TESTING.md](TESTING.md) rule 1). No test borrows a requirement ID that is only the closest fit. Behaviour without a requirement is a gap in the spec and is raised with the maintainer.
 - Use builders (`make_video(status=...)`) for test data. No large inline fixtures.
 - See [TESTING.md](TESTING.md) for the rest.
 

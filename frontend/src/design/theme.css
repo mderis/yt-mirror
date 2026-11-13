@@ -1,0 +1,105 @@
+/*
+ * The Tailwind preset of yt-mirror (docs/DESIGN.md section 2.1, rule 7).
+ *
+ * It is the only bridge between the tokens in tokens.css and utility classes.
+ * Tailwind's own colours, font sizes, weights, radii, shadows and widths are
+ * switched off first, so a class such as bg-blue-500 or text-sm does not
+ * exist. What remains is built from tokens:
+ *
+ *   bg-surface  text-text-muted  border-line        colours
+ *   font-text  font-heading  font-mono              font families
+ *   text-body  text-heading-md                      font sizes
+ *   font-medium  leading-text                       weights, line heights
+ *   p-4  gap-2  w-64                                multiples of the spacing step
+ *   rounded-md  shadow-raised  duration-fast        radii, shadows, durations
+ *
+ * "inline" makes each class refer to the token itself, so a part of the page
+ * with its own data-theme attribute gets that theme's values.
+ */
+
+@theme inline {
+  --color-*: initial;
+  --font-*: initial;
+  --text-*: initial;
+  --font-weight-*: initial;
+  --leading-*: initial;
+  --tracking-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --text-shadow-*: initial;
+  --blur-*: initial;
+  --container-*: initial;
+  --breakpoint-*: initial;
+  --ease-*: initial;
+  --animate-*: initial;
+
+  --spacing: var(--ytm-space);
+
+  --color-bg: var(--ytm-color-bg);
+  --color-surface-side: var(--ytm-color-surface-side);
+  --color-surface: var(--ytm-color-surface);
+  --color-surface-raised: var(--ytm-color-surface-raised);
+  --color-line: var(--ytm-color-line);
+  --color-line-strong: var(--ytm-color-line-strong);
+  --color-text: var(--ytm-color-text);
+  --color-text-dim: var(--ytm-color-text-dim);
+  --color-text-muted: var(--ytm-color-text-muted);
+  --color-accent: var(--ytm-color-accent);
+  --color-on-accent: var(--ytm-color-on-accent);
+  --color-ok-bg: var(--ytm-color-ok-bg);
+  --color-ok-text: var(--ytm-color-ok-text);
+  --color-warn: var(--ytm-color-warn);
+  --color-warn-bg: var(--ytm-color-warn-bg);
+  --color-warn-text: var(--ytm-color-warn-text);
+  --color-err-bg: var(--ytm-color-err-bg);
+  --color-err-text: var(--ytm-color-err-text);
+  --color-neutral-bg: var(--ytm-color-neutral-bg);
+  --color-neutral-text: var(--ytm-color-neutral-text);
+  --color-track: var(--ytm-color-track);
+
+  --font-text: var(--ytm-font-text);
+  --font-heading: var(--ytm-font-heading);
+  --font-mono: var(--ytm-font-mono);
+  --default-font-family: var(--ytm-font-text);
+  --default-mono-font-family: var(--ytm-font-mono);
+
+  --text-label: var(--ytm-font-size-label);
+  --text-meta: var(--ytm-font-size-meta);
+  --text-body: var(--ytm-font-size-body);
+  --text-title-sm: var(--ytm-font-size-title-sm);
+  --text-body-lg: var(--ytm-font-size-body-lg);
+  --text-heading-sm: var(--ytm-font-size-heading-sm);
+  --text-heading-md: var(--ytm-font-size-heading-md);
+  --text-heading-lg: var(--ytm-font-size-heading-lg);
+  --text-display-md: var(--ytm-font-size-display-md);
+  --text-display-lg: var(--ytm-font-size-display-lg);
+
+  --font-weight-regular: var(--ytm-font-weight-regular);
+  --font-weight-medium: var(--ytm-font-weight-medium);
+  --font-weight-semibold: var(--ytm-font-weight-semibold);
+
+  --leading-heading: var(--ytm-line-height-heading);
+  --leading-text: var(--ytm-line-height-text);
+  --leading-prose: var(--ytm-line-height-prose);
+
+  --radius-xs: var(--ytm-radius-xs);
+  --radius-sm: var(--ytm-radius-sm);
+  --radius-md: var(--ytm-radius-md);
+  --radius-lg: var(--ytm-radius-lg);
+  --radius-xl: var(--ytm-radius-xl);
+  --radius-full: var(--ytm-radius-full);
+
+  --shadow-raised: var(--ytm-shadow-raised);
+  --shadow-overlay: var(--ytm-shadow-overlay);
+}
+
+/* Tailwind has no theme key for durations, so the two duration classes are defined here. */
+@utility duration-fast {
+  transition-duration: var(--ytm-duration-fast);
+}
+
+@utility duration-base {
+  transition-duration: var(--ytm-duration-base);
+}

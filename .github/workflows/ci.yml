@@ -1,0 +1,154 @@
+# Automated checks (docs/WORKFLOW.md section 6).
+#
+# Runs on every pull request (when opened and on every new commit) and on
+# every push to main. Everything runs on macOS, because file dates and the
+# launcher must be tested on the real system. Tests marked "live" never run here.
+#
+# Actions are pinned to a commit. The comment after each one names its version.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Keep equal to UV_VERSION in ./start. A backend test compares the two.
+  UV_VERSION: "0.13.8"
+
+jobs:
+  checks:
+    name: Lint, types, layer rules, repository rules
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install Python and packages
+        run: uv sync --frozen
+      - name: No em dashes in the repository
+        run: uv run python scripts/check_no_em_dash.py
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Type check
+        run: uv run pyright
+      - name: Layer rules
+        run: uv run lint-imports
+      - name: Modules name their tests
+        run: uv run python scripts/check_docstrings.py
+      - name: Requirement coverage (report only until milestone M11)
+        run: uv run python scripts/requirements_coverage.py | tee -a "$GITHUB_STEP_SUMMARY"
+
+  backend-tests:
+    name: Backend tests (${{ matrix.timezone }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two time zones, one with a non-hour offset, because of the date rules (docs/TESTING.md rule 4).
+        timezone: [UTC, Asia/Tehran]
+    env:
+      TZ: ${{ matrix.timezone }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install Python and packages
+        run: uv sync --frozen
+      - name: Tests with coverage
+        run: uv run pytest --cov --cov-report=term-missing:skip-covered --cov-report=json:coverage.json
+      - name: Coverage thresholds
+        run: uv run python scripts/check_coverage.py coverage.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+  frontend:
+    name: Frontend lint, types, tests, build, API types
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install packages
+        run: npm --prefix frontend ci
+      - name: Lint (ESLint, theme lint, Prettier)
+        run: npm --prefix frontend run lint
+      - name: Type check
+        run: npm --prefix frontend run typecheck
+      - name: Tests with coverage thresholds
+        run: npm --prefix frontend test
+      - name: Build
+        run: npm --prefix frontend run build
+      - name: Generated API types are current
+        run: |
+          uv sync --frozen
+          npm --prefix frontend run gen:api
+          git diff --exit-code -- frontend/src/api/schema.d.ts
+
+  e2e:
+    name: End-to-end tests (WebKit and Chromium)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+      - name: Install packages
+        run: |
+          npm --prefix frontend ci
+          npm --prefix e2e ci
+      - name: Lint the tests
+        run: npm --prefix e2e run lint
+      - name: Install browsers
+        working-directory: e2e
+        run: npx playwright install webkit chromium
+      - name: End-to-end tests
+        run: npm --prefix e2e test
+      - name: Keep the report and the screenshots when a test failed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-results
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+            e2e/tests/__screenshots__
+          retention-days: 14
+
+  fresh-clone:
+    name: Fresh clone starts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported macOS on both processor types, and the newest runner (D-035).
+        os: [macos-15, macos-15-intel, macos-26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Start with ./start, check the server, run ./start --doctor
+        run: scripts/smoke_test.sh

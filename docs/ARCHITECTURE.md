@@ -45,9 +45,9 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | Downloads | yt-dlp as a Python library | Never the command line |
 | Media tools | ffmpeg and ffprobe (downloaded binaries) | Called by yt-dlp and by the repair service |
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
-| HTTP client | httpx | YouTube API, channel feed, GitHub releases, tool downloads |
+| HTTP client | httpx2 | YouTube API, channel feed, GitHub releases, tool downloads. The successor of httpx, also used by the test client (D-041) |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
-| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead |
+| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10 and depend on Q-24 |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |
 | Frontend | Vue 3, TypeScript (strict), Vite | Single-page app, no server-side rendering |
 | Styling | Tailwind CSS with design tokens from [DESIGN.md](DESIGN.md) | Light and dark themes through CSS variables |
@@ -68,8 +68,8 @@ Version numbers are pinned in `uv.lock` and `package-lock.json`. The implementer
 ```
 yt-mirror/
   start                      Launcher for clones and for the installed app
-  install.sh                 Installer, also served by the website
-  pyproject.toml  uv.lock
+  install.sh                 Installer, also served by the website (milestone M9)
+  pyproject.toml  uv.lock  .python-version
   backend/
     ytmirror/
       core/                  Pure domain code. No I/O, no framework imports.
@@ -90,7 +90,9 @@ yt-mirror/
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
         github_releases.py   Release lookup and download
-        db/                  SQLAlchemy tables, repositories, session handling
+        system_clock.py      The real clock behind the Clock port
+        system_probe.py      Read-only facts about the Mac, for the environment report
+        db/                  SQLAlchemy engine and tables, repositories, the Alembic migrator
       services/
         channels.py          Add, remove, pause, settings, folder moves
         catalogue.py         Checks, new and removed detection, renames
@@ -102,37 +104,54 @@ yt-mirror/
         exclusions.py        Manual excludes and rule engine
         toolchain.py         Install, verify and update ffmpeg, Deno, yt-dlp
         updater.py           App updates, backup, migration, rollback
-        diagnostics.py       Health check, debug report
+        diagnostics.py       Health, environment report, health check, debug report
+        schema.py            Brings the database schema up to date at start
+        settings.py          The general settings
         activity.py          User-facing activity log
         events.py            In-process event bus feeding SSE and notifications
         scheduler.py         Periodic checks while the app is open
       api/
+        app.py               Builds the FastAPI app
         routers/             One router per resource
         schemas.py           Pydantic request and response models
+        security.py          Host, Origin and session token checks (section 9)
+        request_log.py       Request logging and the INTERNAL error boundary
         sse.py               Event stream
         errors.py            Error code to HTTP response mapping
       app/
         container.py         Composition root: builds adapters and services
-        main.py              Entry point, CLI flags, window, lifecycle
-        config.py            Paths and environment
+        main.py              Entry point, CLI flags, lifecycle
+        config.py            Paths, environment variables, options
+        logging_setup.py     The debug log pipeline
+        server.py            The HTTP server thread
+        window.py            The app window
+        doctor.py            Text of the environment report
+        bundle.py            Builds the macOS app bundle (section 7.10, from milestone M1)
+        menus.py             The menu bar, defined as data (section 7.10, from milestone M5)
+      tools/                 Developer programs: python -m ytmirror.tools.<name>
       migrations/            Alembic environment and versions
     tests/
       unit/  integration/  api/  migrations/  live/  fixtures/
+      untestable.yml         Requirements that only live or manual tests can cover
   frontend/
     src/
       api/                   Generated types and a thin typed client
-      stores/                Pinia stores (channels, videos, queue, settings, ui)
+      stores/                Pinia stores (app, channels, videos, queue, settings, ui)
       features/              One folder per feature: channel, queue, adopt, settings, ...
       components/            Shared presentational components
-      design/                Tokens, Tailwind preset, icons
+      design/                The theme center: tokens, Tailwind preset, fonts, brand icon, preview page
       i18n/                  All user-visible strings
+    tools/                   The theme lint and the API type generator
     tests/
-  e2e/                       Playwright tests and the fake YouTube data set
+  e2e/                       Playwright tests, their screenshots, and the fake YouTube data set
+  scripts/                   Developer and CI programs: uv wrapper, check scripts, smoke test
   docs/                      This documentation and the VitePress site
   .github/                   Workflows and issue templates
   data/                      (ignored) database, logs, backups, cache
   tools/                     (ignored) uv, Python, ffmpeg, Deno
 ```
+
+Modules appear in the milestone that needs them. A file listed here may not exist yet.
 
 ## 4. Layer rules
 
@@ -319,15 +338,61 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 ### 7.7 Concurrency
 - One asyncio event loop for HTTP and SSE.
 - Blocking work (yt-dlp, ffmpeg, file operations, database writes from workers) runs in threads. Download workers are a fixed-size pool equal to the parallel downloads setting.
-- One writer at a time per database connection. Each unit of work is a short transaction.
+- One writer at a time per database connection. Each unit of work is a short transaction on its own connection: connections are opened when needed and closed afterwards, not pooled (D-040).
 - One lock per channel serialises check, adoption and folder moves for that channel.
+
+### 7.8 The window (`app/window.py`)
+
+Checked with a probe against pywebview 6.2 on macOS in milestone M0 (open question Q-09):
+
+- **Minimum size:** the window is created with `min_size=(1100, 700)` (R-PL-03). macOS applies it when the user drags the window edge. Code can still resize below it, so the app never resizes the window itself.
+- **Closing:** a handler on the window's `closing` event can refuse the close by returning false. The quit confirmation of R-QU-12 uses this.
+- **External links:** a link with `target="_blank"` opens in the default browser. A plain link would load inside the app window, and `window.open` does nothing. So every link that leaves the app is written as an anchor with `target="_blank"`, and the frontend never calls `window.open`.
+- **Folder picker:** the native folder dialog opens and returns to Python. That it returns the chosen folder still has to be checked by hand once (Q-09).
+- **Developer tools:** `./start --debug` enables the WebKit inspector in the window.
+
+### 7.9 Starting the app (`start`, `app/main.py`)
+
+1. `./start` checks macOS and the processor, puts a pinned uv into `tools/` after verifying its SHA-256, and lets uv install the pinned Python and the locked packages into `tools/`.
+2. In a clone it builds the interface with Node.js when `frontend/dist` is missing or older than the sources (D-037). An installed copy ships the built interface.
+3. `python -m ytmirror.app.main` builds the container, brings the database up to date, starts the HTTP server in a thread on a free port of 127.0.0.1, and opens the window on the main thread with the first URL (section 9). When the window closes, the server stops and the process ends.
+
+Flags: `--debug` (verbose logs, developer tools in the window), `--browser` (default browser instead of the window, quit with Ctrl+C), `--doctor` (print the environment report and exit), `--update` (the updater arrives in milestone M9. Until then it says so and exits with code 2).
+
+`--dev` runs the Vite development server next to the backend. The window shows the development server, which reloads the interface on every change and passes `/api` calls on to the backend. Its origin is accepted only in this mode. Backend code is not reloaded: restart after changing Python. The theme preview page is at `/theme-preview.html` on the development server.
+
+### 7.10 Native Mac app (planned, not built yet)
+
+Requirements R-NA-01 to R-NA-09. Decision D-044. **Everything here is `VERIFY` (Q-24)** until the experiment of that question has shown that pywebview can do it from a locally built, unsigned bundle. Nothing of this section exists in the code of milestone M0, where the app still appears as "Python".
+
+**App bundle (R-NA-01, R-NA-02).**
+- A small program builds `yt-mirror.app` on the user's Mac: a folder with `Contents/Info.plist` (name `yt-mirror`, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/yt-mirror.icns` generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/yt-mirror`, the program macOS starts.
+- The same program is used by the installer (bundle in `~/Applications`, milestone M9) and by `./start` on a clone (bundle inside the clone, in the ignored `tools/` folder, milestone M1). `./start` then starts the app through the bundle, so a clone and an installed copy behave alike.
+- The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version or the icon source changed.
+- The bundle identifier is `io.github.mderis.yt-mirror` (D-047). It must never change: macOS ties an app's identity, its saved state and its permissions to it.
+- How the Python process takes over the identity of the bundle (so that the Dock, Cmd+Tab and Activity Monitor show "yt-mirror" and not "Python") is the first thing the Q-24 experiment has to show.
+
+**Menu bar (R-NA-03, R-NA-04, R-NA-09).**
+- The menus are defined in one module, `app/menus.py`, as data: title, shortcut, the command it sends, and the condition under which it is enabled. This is the source of truth for shortcuts.
+- A menu item and the matching control in the interface trigger the same command. The menu never contains logic of its own: it tells the frontend to run a command (for example "add channel"), and the frontend does what its own button would do.
+- The frontend tells the backend what is currently possible (is a channel open, is it paused, which view is shown), and the menus are enabled and titled from that.
+- The standard items (Hide, Hide Others, Minimize, Zoom, the window list, and the Edit menu for text fields) are the ones macOS provides. They are not reimplemented.
+- "Reload" exists only with `--debug`. It must not take Cmd+R, which belongs to "Check Now".
+
+**Quit, Dock and single instance (R-NA-06 to R-NA-08).**
+- There is one quit path in `app/main.py`. Cmd+Q, "Quit yt-mirror", Cmd+W, "Close Window" and the red window button all end in it. It is the place of the "quit while downloading" confirmation (R-QU-12, section 7.8: the window's close handler can refuse).
+- A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020).
+- A second start finds the running instance, asks it to bring its window to the front, and ends. How the instances find each other (a lock in `data/`, or what macOS offers for bundles) is decided by the Q-24 experiment.
+
+**`--browser` and tests.** With `--browser` and in automated tests there is no app window and no menu bar. Everything a menu item does must therefore also be reachable inside the interface (R-UI-13), which the menu design above guarantees.
 
 ## 8. HTTP API
 
-All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error": { "code", "message", "details" } }`.
+All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error": { "code", "message", "details" } }`. `message` is a short technical sentence. The text the user reads is written per code in the frontend (R-ER-02). `code` is one of the codes of [LOGGING.md](LOGGING.md) section 4, and the generated frontend types know them all. One code is never sent by the server: `LOCAL_SERVER_UNREACHABLE` is raised by the window itself when the server does not answer (R-ER-04).
 
 | Method and path | Purpose |
 |---|---|
+| GET `/health` | The server runs: app version and database schema version |
 | GET `/state` | App snapshot: channels with derived status, queue summary, banners, settings, versions |
 | GET `/events` | Server-Sent Events stream |
 | POST `/channels/lookup` | Resolve a URL or handle to a channel preview (R-CH-03) |
@@ -364,7 +429,9 @@ The OpenAPI schema generated by FastAPI is the contract. Frontend types are gene
 ## 9. Security
 
 - Bind to 127.0.0.1 on a random free port. Reject requests whose `Host` or `Origin` header is not that address (protects against DNS rebinding and other websites calling the local API).
-- A random session token is created at start, given to the window in the initial URL, and required on every API call.
+- A random session token is created at start and given to the window in the initial URL (`/?token=...`). The server answers that URL by setting the token as a cookie (`ytm_session`, HttpOnly, SameSite=Strict) and redirecting to `/`, so the token leaves the address bar and scripts cannot read it (D-038). Every `/api` call must carry the cookie. Tests and tools may send the same token as an `Authorization: Bearer` header instead. A wrong or missing token is answered with `UNAUTHORIZED`, a foreign Host or Origin with `ORIGIN_REJECTED`.
+- The interface files themselves need no token: they contain no secrets.
+- The OpenAPI schema and the interactive API docs are not served by the running app.
 - No remote content is rendered as HTML. Descriptions are shown as text.
 - File operations accept video and channel IDs, never paths from the client, except folder choices that come from the native folder picker.
 - Downloaded tools and releases are verified against SHA-256 checksums before use.
@@ -383,4 +450,17 @@ Every external dependency is behind a port, and each port has a fake in `backend
 | Releases | Serves fake release archives for updater tests |
 | Notifier, Clock, Random | Recorders and controllable values |
 
-The environment variable `YTM_FAKE_YOUTUBE=<fixtures dir>` starts the real app with the fake gateway. End-to-end tests and screenshot generation use it. See [TESTING.md](TESTING.md).
+The environment variable `YTM_FAKE_YOUTUBE=<fixtures dir>` starts the real app with the fake gateway. End-to-end tests and screenshot generation use it. See [TESTING.md](TESTING.md). It arrives with the gateway in milestone M2.
+
+Environment variables, all optional. Only `app/config.py` and `start` read them.
+
+| Variable | Read by | Purpose |
+|---|---|---|
+| `YTM_HOME` | app | The folder that holds `data/` and `tools/`. Set by `./start` |
+| `YTM_DATA_DIR` | app | A different data folder. For tests |
+| `YTM_PORT` | app, `start`, Vite | A fixed port instead of a free one. For tests and `--dev` |
+| `YTM_SESSION_TOKEN` | app | A fixed session token instead of a random one. For tests only |
+| `YTM_NO_WINDOW` | app | Serve without opening a window or a browser, until a stop signal. For tests |
+| `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
+| `YTM_UV_BASE_URL` | `start` | Where uv is downloaded from. For tests. The checksum is checked in every case |
+| `YTM_E2E_CHROME_CHANNEL` | Playwright | Use an installed Chrome where Playwright's Chromium cannot be downloaded |

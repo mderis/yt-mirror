@@ -1,0 +1,76 @@
+# Pre-commit hooks (docs/CODING-STANDARDS.md section 6): formatters, linters and fast tests.
+#
+# Turn them on once per clone:   scripts/uv run pre-commit install
+# Run them all by hand:          scripts/uv run pre-commit run --all-files
+#
+# Every hook is "local": it uses the tools of this repository, in the versions
+# pinned by uv.lock and package-lock.json. CI runs the full set of checks.
+repos:
+  - repo: local
+    hooks:
+      - id: no-em-dash
+        name: No em dashes (AGENTS.md rule 11)
+        entry: scripts/uv run python scripts/check_no_em_dash.py
+        language: system
+        types: [text]
+
+      - id: ruff-format
+        name: Format Python (Ruff)
+        entry: scripts/uv run ruff format
+        language: system
+        types: [python]
+
+      - id: ruff-check
+        name: Lint Python (Ruff)
+        entry: scripts/uv run ruff check --fix
+        language: system
+        types: [python]
+
+      - id: pyright
+        name: Type-check Python (Pyright)
+        entry: scripts/uv run pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: layers
+        name: Layer rules (import-linter)
+        entry: scripts/uv run lint-imports
+        language: system
+        files: ^(backend/ytmirror/|pyproject\.toml)
+        pass_filenames: false
+
+      - id: module-docstrings
+        name: Modules name their tests
+        entry: scripts/uv run python scripts/check_docstrings.py
+        language: system
+        files: ^(backend/ytmirror/|scripts/).*\.py$
+        pass_filenames: false
+
+      - id: backend-unit-tests
+        name: Fast backend tests
+        entry: scripts/uv run pytest -q backend/tests/unit
+        language: system
+        files: ^(backend/|scripts/|pyproject\.toml)
+        pass_filenames: false
+
+      - id: frontend-lint
+        name: Lint the frontend (ESLint, theme lint, Prettier)
+        entry: npm --prefix frontend run lint
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
+      - id: frontend-types
+        name: Type-check the frontend
+        entry: npm --prefix frontend run typecheck
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
+      - id: e2e-lint
+        name: Lint the end-to-end tests
+        entry: npm --prefix e2e run lint
+        language: system
+        files: ^e2e/
+        pass_filenames: false

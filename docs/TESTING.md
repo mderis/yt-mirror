@@ -18,8 +18,13 @@ Rule: a feature is not done until its tests exist, pass, and have been reviewed.
 
 ## 2. Rules
 
-1. Every test names the requirements it covers in its docstring or title: `"""R-FN-05: a second video with the same title gets the ID suffix."""`.
-2. A script (`scripts/requirements_coverage.py`) reads the IDs from [SPEC.md](SPEC.md) and from the tests and fails CI if a testable requirement has no test. Requirements that can only be tested live or by hand are listed in `tests/untestable.yml` with the reason.
+1. Every test says what it covers at the start of its docstring (Python) or its title (TypeScript). Which label a test gets is decided by this rule, in this order:
+   1. **The test verifies behaviour that a requirement states, even partly.** It starts with that requirement's ID: `"""R-FN-05: a second video with the same title gets the ID suffix."""`. The requirement must really state the behaviour. An ID that is merely the closest fit is not allowed.
+   2. **The test verifies real behaviour that a user or the maintainer relies on, but no requirement states it.** That is a gap in the spec, not an infrastructure test. Stop, propose a requirement to the maintainer, and label the test once the requirement is in [SPEC.md](SPEC.md). Such a test is never labelled `infra` and never borrows an ID.
+   3. **The test verifies no product behaviour at all.** Only this is an infrastructure test. It starts with `infra:` and names no requirement: `"""infra: the fake clock moves only when told."""`. This covers the clock and other test doubles, test builders and fixtures, the check scripts, the test harness itself including variables that exist only for tests, and temporary scaffolding that a later milestone replaces (the placeholder page, the `--update` stub).
+
+   A lint or check that a requirement itself demands is not infrastructure: the theme lint is tested under R-TH-06 and R-TH-09. In pytest, infrastructure tests also carry the marker `infra` (`uv run pytest -m infra`, or `-m "not infra"`).
+2. A script (`scripts/requirements_coverage.py`) reads the IDs from [SPEC.md](SPEC.md) and from the tests and fails CI if a testable requirement has no test. It ignores infrastructure tests: they never count as coverage. It fails when a test starts with neither a requirement ID nor `infra:`. Requirements that can only be tested live or by hand are listed in `backend/tests/untestable.yml` with the reason. Until milestone M11 the script only reports. From then on CI runs it with `--strict`. A test that names an ID the spec does not contain fails the script from the start.
 3. No test touches the network except those marked `live`.
 4. No test depends on the current time, time zone or locale. Use the Clock port. The suite runs in CI under at least two time zones (UTC and one with a non-hour offset such as Asia/Tehran) because of the date rules.
 5. No sleeps. Wait on events or use a fake clock.
@@ -40,7 +45,7 @@ Coverage is a floor, not the goal. The review in section 7 is what establishes t
 
 ## 4. The fake YouTube
 
-`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes.
+`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes. It arrives with the YouTube gateway in milestone M2.
 
 | Fixture channel | Purpose |
 |---|---|
@@ -71,6 +76,7 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 - **Adoption (R-AD-*)**: certain, proposed and ambiguous matches. Fix in place never re-encodes.
 - **Updater (R-UP-*)**: success, failure at each step with rollback, refusing a newer database.
 - **API security**: token required, foreign origins rejected.
+- **Theme (R-TH-*)**: every theme defines the same tokens, every token used in code is defined, code outside the theme center uses only tokens.
 
 ## 6. End-to-end flows (Playwright)
 
@@ -89,7 +95,18 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 13. Light and dark theme, list and grid, keyboard-only use of the main flow.
 14. Accessibility scan (axe) on every screen: no serious violations.
 
-Visual regression: Playwright screenshots of every screen in both themes are compared with stored baselines. The same run produces the website screenshots (R-WS-05).
+Visual regression: Playwright screenshots of every screen and of the theme preview page, in both themes, are compared with stored baselines (R-TH-09). The baselines are in `e2e/tests/__screenshots__/`, one per browser. After an intended visual change, update them with `npm --prefix e2e run test:update-screenshots`, look at the new images, and commit them.
+
+The end-to-end tests start the real app themselves with `./start`, without a window, using the test variables of [ARCHITECTURE.md](ARCHITECTURE.md) section 10.
+
+Where the browsers come from:
+
+| Browser | In CI | On a developer's Mac |
+|---|---|---|
+| WebKit | Playwright's own build | Playwright's own build. Its download works everywhere we know of, including the maintainer's Mac |
+| Chromium | Playwright's own build | Playwright's own build where it can be downloaded. Otherwise an installed Google Chrome: `YTM_E2E_CHROME_CHANNEL=chrome npm --prefix e2e test` |
+
+Playwright takes its Chromium from Google's "Chrome for Testing" download server, and that server refuses some locations with "not available in your location" (HTTP 403). This is the case on the maintainer's Mac. So there, Playwright's own Chromium runs only in CI, and local runs use the installed Chrome, which is a different version. The WebKit tests, the engine the app window uses, run locally and in CI alike. CI is the reference for the Chromium screenshots. The same run produces the website screenshots (R-WS-05).
 
 ## 7. Reviews
 

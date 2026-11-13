@@ -1,0 +1,25 @@
+{
+  "name": "yt-mirror-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "End-to-end tests of yt-mirror: the real backend and the real interface, driven through a browser.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:update-screenshots": "playwright test --update-snapshots",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit && prettier --check .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "prettier": "^3.10.1",
+    "typescript": "~5.9"
+  }
+}

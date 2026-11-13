@@ -1,0 +1,9 @@
+dist
+coverage
+node_modules
+package-lock.json
+# Generated from the OpenAPI schema by "npm run gen:api", which formats it itself.
+src/api/schema.d.ts
+# Third-party font declarations and licenses, kept as delivered.
+src/design/fonts/*/font.css
+src/design/fonts/*/LICENSE.txt

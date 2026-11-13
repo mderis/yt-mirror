@@ -34,7 +34,7 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 
 | ID | Requirement |
 |---|---|
-| R-PL-01 | Runs on macOS only, Apple Silicon and Intel. The minimum macOS version is decided during implementation (see OPEN-QUESTIONS Q-01) and stated in the README and website. |
+| R-PL-01 | Runs on macOS only, Apple Silicon and Intel. The minimum version is macOS 15, the oldest version the automated checks run on (see DECISIONS D-035). It is stated in the README and website. |
 | R-PL-02 | The UI runs in a dedicated app window (not a browser tab). A `--browser` flag opens it in the default browser instead. |
 | R-PL-03 | Minimum window size 1100 x 700 points. Layouts are not required to work below that. |
 | R-PL-04 | The local server listens on 127.0.0.1 only and must reject requests from other origins. |
@@ -43,6 +43,26 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 | R-PL-07 | The app works with no Google account and no API key. |
 | R-PL-08 | No proxy setting in V1. The app must still honour the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables and system proxy behaviour of its HTTP libraries. |
 | R-PL-09 | Background work happens only while the app is running. There is no background service or scheduler in V1. |
+| R-PL-10 | Every call to the local API must carry a session token created at random at each start. The window receives it in its first address, where it is exchanged for a cookie that scripts cannot read. A missing or wrong token is refused. The server also accepts the same token in an `Authorization: Bearer` header, which tools and tests use. No other credential opens the API. |
+| R-PL-11 | The local server serves the built interface and nothing else from the disk, and does not expose its API description. |
+| R-PL-12 | A health endpoint reports that the server runs, with the app version and the database schema version. |
+| R-PL-13 | The app stops cleanly on Ctrl+C or a termination signal, and a server that cannot start is reported, not a hang. |
+
+### 2.1 Native Mac app
+
+yt-mirror must feel like a native Mac app. Details: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10 and [DESIGN.md](DESIGN.md) section 7. Whether the window library can do all of this is open question Q-24, which is resolved before any of it is built.
+
+| ID | Requirement |
+|---|---|
+| R-NA-01 | **App identity.** The running app appears as "yt-mirror" with the yt-mirror icon in the Dock, the app switcher (Cmd+Tab), the menu bar and Activity Monitor. It must never appear as "Python". |
+| R-NA-02 | **App bundle.** Both the installer and `./start` on a clone create a real macOS app bundle locally, with an `Info.plist`, a bundle identifier, and an icon generated from the single icon source file ([DESIGN.md](DESIGN.md) section 5). The bundle is built on the user's Mac, so it needs no Apple signing. |
+| R-NA-03 | **Menu bar** with the standard macOS items and shortcuts. **yt-mirror:** About yt-mirror, Check for Updates..., Settings... (Cmd+,), Hide, Hide Others, Quit yt-mirror (Cmd+Q). **File:** Add Channel... (Cmd+N), Close Window (Cmd+W). **Edit:** Undo, Redo, Cut, Copy, Paste, Select All, so that text fields behave normally. **View:** List, Grid, Show Downloads, Show Activity, Reload (debug only). **Channel:** Check Now (Cmd+R), Check All Channels, Mirror Everything Missing, Pause Channel, Open Folder, Channel Settings.... **Window:** Minimize, Zoom, and the standard window list. **Help:** yt-mirror Help, Keyboard Shortcuts, Report a Problem.... |
+| R-NA-04 | A menu item is enabled only when it applies. For example the Channel menu needs an open channel, and "Pause Channel" reads "Resume Channel" for a paused one. |
+| R-NA-05 | **About window:** app name, version, license, and links to the website and the repository. |
+| R-NA-06 | Cmd+Q and closing the window both go through the same quit path, including the "quit while downloading" confirmation (R-QU-12). |
+| R-NA-07 | Clicking the Dock icon brings the window to the front. |
+| R-NA-08 | Only one instance can run. Starting the app again focuses the existing window. |
+| R-NA-09 | The menu bar shortcuts and the in-app shortcuts of `Shortcuts.html` must not conflict. Where they overlap, the menu bar is the source of truth and the in-app list is updated. |
 
 ---
 
@@ -223,8 +243,24 @@ Design: `Main.html`, `WebGrid.html`, `ListLight.html`, `GridLight.html`, `Detail
 | R-UI-10 | "Play" opens the file in the system default player. "Show in Finder" reveals and selects the file. |
 | R-UI-11 | Every action that can take more than half a second shows progress or a busy state on the control that started it. |
 | R-UI-12 | Destructive or bulk actions confirm with a toast that offers Undo for a few seconds, or with a dialog when they cannot be undone. |
-| R-UI-13 | Keyboard shortcuts as listed in `Shortcuts.html`. All functions are reachable by keyboard. |
+| R-UI-13 | Keyboard shortcuts as listed in `Shortcuts.html`, changed where the menu bar decides otherwise (R-NA-09, [DESIGN.md](DESIGN.md) section 7.3). All functions are reachable by keyboard. |
 | R-UI-14 | Accessibility: real buttons, links and form controls with labels, visible focus, text contrast of at least 4.5:1, and no information carried by colour alone. |
+
+### 7.1 Theme center
+
+Fonts, colours and every other visual value can be changed in one place. Details: [DESIGN.md](DESIGN.md) section 2.
+
+| ID | Requirement |
+|---|---|
+| R-TH-01 | One folder, `frontend/src/design/`, is the **theme center**. It holds everything visual: the tokens, the Tailwind preset that maps the tokens to utility classes, the bundled font files, and the brand icon source. No visual value is defined anywhere else. |
+| R-TH-02 | **Tokens** are named CSS variables. They cover every colour (light and dark), font family, font size, font weight, line height, the spacing step, radius, shadow and animation duration. |
+| R-TH-03 | Token names are semantic: they say what a value is for (`text-muted`, `surface-raised`, `accent`). A token is never named after its value (`blue-500`, `gray-2`). |
+| R-TH-04 | A **theme** is one block of token values. Light and dark are two blocks. Adding a third theme must need no change to any component. |
+| R-TH-05 | Changing the app font must take one changed line plus the font files. |
+| R-TH-06 | Components and feature code may use only tokens: no raw colour values, font names, pixel font sizes or one-off spacing values. A lint rule in CI enforces this. |
+| R-TH-07 | The website uses the same token file as the app, so the app and the site cannot drift apart. |
+| R-TH-08 | A theme preview page, available in development mode, shows every token and every shared component in both themes on one screen. |
+| R-TH-09 | A test fails if a token used in code is not defined. The visual regression screenshots cover both themes. |
 
 ---
 
@@ -301,6 +337,7 @@ There are **general settings** and **per-channel settings**. A channel uses the 
 | R-SE-01 | Settings save immediately. There is no global Save button. Channel settings use Save and Cancel because they can trigger large operations. |
 | R-SE-02 | A setting change that affects existing files always asks before touching them. |
 | R-SE-03 | Settings are stored in the database and included in the debug report (the API key is redacted). |
+| R-SE-04 | Every setting has the default of the table in section 10. A setting that was never stored, or whose stored value cannot be read, has its default. |
 
 ---
 
@@ -315,6 +352,8 @@ Details: [RELEASE-AND-UPDATE.md](RELEASE-AND-UPDATE.md). Design: `Installer.html
 | R-IN-03 | On first start the app shows which tools it needs (Python environment, yt-dlp, ffmpeg, Deno), downloads the missing ones into the app folder with visible progress, verifies checksums, and offers a retry per failed step. |
 | R-IN-04 | On every start the app verifies the tools still work. A missing or broken tool produces a banner with an "Install now" button, never a crash. |
 | R-IN-05 | The whole app folder can be moved or copied to another location on a Mac and still works. Environment parts that contain absolute paths are rebuilt automatically on the next start. |
+| R-IN-06 | `./start` accepts `--dev`, `--debug`, `--browser`, `--doctor`, `--update` and `--help`. An unknown flag shows the usage and changes nothing. `--dev` reloads the interface on changes, `--debug` writes verbose logs and makes the developer tools available in the window, and `--doctor` only reports and changes nothing. |
+| R-IN-07 | `./start` prepares everything inside the app folder: a pinned uv verified by checksum before use, Python and packages in `tools/`, the interface built when missing. Each failure (no connection, checksum mismatch, Node.js missing) ends with a plain message. |
 | R-UP-01 | The app checks for a new yt-mirror release on open (setting). A banner announces it. The update dialog shows the version, the release notes, and what will happen. |
 | R-UP-02 | Updating: downloads and verifies the release, backs up the database, replaces the code, updates dependencies, migrates the database, restarts. Progress is shown per step. |
 | R-UP-03 | If any step fails, the previous version and the database backup are restored and the app starts in the old version with an explanation. |
@@ -345,8 +384,9 @@ Design: `States.html` (the complete catalogue).
 | ID | Requirement |
 |---|---|
 | R-ER-01 | Every error shown to the user has four parts: what happened, what yt-mirror is doing about it, what the user can do, and technical details behind a disclosure (design: `ErrorDetails.html`). |
-| R-ER-02 | Every error has a stable code (see [LOGGING.md](LOGGING.md)). User text is written per code, never taken from a raw exception. |
+| R-ER-02 | Every error has a stable code (see [LOGGING.md](LOGGING.md)). User text is written per code, never taken from a raw exception. Every error response of the local API carries its code and its technical details. |
 | R-ER-03 | No error may leave a video, channel or the queue in a state the user cannot get out of from the UI. |
+| R-ER-04 | When the window cannot reach its own server it says so and offers a retry, under an error code of its own. |
 
 ### 12.3 Activity log
 Design: `Activity.html`.
@@ -362,11 +402,14 @@ Full specification: [LOGGING.md](LOGGING.md).
 
 | ID | Requirement |
 |---|---|
-| R-LG-01 | Structured logs are written to `data/logs/`, rotated daily, kept 14 days. |
+| R-LG-01 | Structured logs are written to `data/logs/`, rotated daily, kept 14 days. Only the app's own daily log files are ever deleted. |
 | R-LG-02 | Each download has a job ID that ties together all its log lines, its activity entries and its yt-dlp and ffmpeg output. |
 | R-LG-03 | Every status change of a video is recorded in the database with time, old status, new status, reason and job ID. |
 | R-LG-04 | "Export debug report" produces one file with recent logs, settings (secrets redacted), tool versions, app version, database schema version and macOS version. |
-| R-LG-05 | "Run health check" tests tools, folders, permissions, network and the database, and shows the result with fix buttons. |
+| R-LG-05 | "Run health check" tests tools, folders, permissions, network and the database, and shows the result with fix buttons. It also shows the macOS version, the processor and the free disk space. |
+| R-LG-06 | Every log line has the required fields of [LOGGING.md](LOGGING.md) section 1, and each use case logs its start, end and errors with catalogue events. The console shows the same lines in a readable one-line form. |
+| R-LG-07 | Secrets never reach the log or the console. Nothing but secrets is removed from a line. |
+| R-LG-08 | "Log detail" Normal writes info and above, Verbose and `--debug` write debug and above. Lines written by libraries appear from warning at Normal and from info at Verbose. |
 
 ### 12.5 Help and reporting problems
 Design: `Help.html`, `ReportProblem.html`.
@@ -389,6 +432,7 @@ Design: `Help.html`, `ReportProblem.html`.
 | R-QA-04 | Every database change is a migration with a test that upgrades a database from every earlier released version. |
 | R-QA-05 | The app starts and is usable within 3 seconds on a typical Mac with 20 channels and 20,000 videos in the database. |
 | R-QA-06 | A crash or forced quit at any moment must not corrupt the database or leave a half-written file that looks like a finished video. |
+| R-QA-07 | At start the app creates its database when missing and brings it to the current schema through the migrations. A current database is left alone. The database runs in WAL mode with foreign keys enforced. |
 
 ---
 
@@ -407,4 +451,4 @@ Design: `SiteHome.html`, `SiteDocs.html`, `AppIcon.html`.
 
 ## 15. Out of scope for V1
 
-Shorts and live streams. Playlists and single videos as sources. Windows and Linux. A proxy setting. Running in the background or on a schedule while the app is closed. Cookies or sign-in for members-only and age-restricted videos. SponsorBlock. Audio-only downloads. MP4 output. Comments. Multiple languages for subtitles or UI. Homebrew and a signed native app. See [ROADMAP.md](ROADMAP.md).
+Shorts and live streams. Playlists and single videos as sources. Windows and Linux. A proxy setting. Running in the background or on a schedule while the app is closed. Cookies or sign-in for members-only and age-restricted videos. SponsorBlock. Audio-only downloads. MP4 output. Comments. Multiple languages for subtitles or UI. Homebrew, and a signed and notarized app delivered as a DMG (the app bundle of V1 is built locally and unsigned, R-NA-02). See [ROADMAP.md](ROADMAP.md).

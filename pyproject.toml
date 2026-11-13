@@ -1,0 +1,168 @@
+[project]
+name = "yt-mirror"
+version = "0.1.0"
+description = "Keep folders on your Mac in sync with YouTube channels."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14"
+dependencies = [
+    "alembic>=1.20",
+    "fastapi>=0.162",
+    "python-ulid>=4.1",
+    "pywebview>=6.2",
+    "sqlalchemy>=2.1",
+    "structlog>=26.1",
+    "uvicorn>=0.40",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16",
+    "import-linter>=2.16",
+    "pre-commit>=4.0",
+    "pyright>=1.1.414",
+    "pytest>=9.0",
+    "pytest-cov>=7.0",
+    "pyyaml>=6.0",
+    "ruff>=0.17",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/ytmirror"]
+
+# --- Tests -------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend", "scripts"]
+addopts = ["--strict-markers", "--strict-config", "-m", "not live"]
+markers = [
+    "live: needs the real YouTube. Opt-in, never run in CI (docs/TESTING.md section 8).",
+    "infra: an infrastructure test that covers no requirement. Set from the docstring (docs/TESTING.md rule 1).",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["backend/ytmirror"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+# Thresholds per scope are checked by scripts/check_coverage.py (docs/TESTING.md section 3).
+
+# --- Lint and format ---------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["backend", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",  # pycodestyle, pyflakes
+    "I",            # import order
+    "N",            # naming
+    "UP",           # modern syntax
+    "B",            # likely bugs
+    "C4", "SIM",    # simpler code
+    "D",            # docstrings (CODING-STANDARDS section 2)
+    "T20",          # no print (CODING-STANDARDS section 3)
+    "TID251",       # banned calls, see below
+    "DTZ",          # no naive datetimes
+    "PTH",          # pathlib instead of os.path
+    "BLE",          # no blind except
+    "RUF",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"time.time".msg = "Time comes from the Clock port (CODING-STANDARDS section 3)."
+"time.monotonic".msg = "Time comes from the Clock port (CODING-STANDARDS section 3)."
+"datetime.datetime.now".msg = "Time comes from the Clock port (CODING-STANDARDS section 3)."
+"datetime.datetime.utcnow".msg = "Time comes from the Clock port (CODING-STANDARDS section 3)."
+"datetime.datetime.today".msg = "Time comes from the Clock port (CODING-STANDARDS section 3)."
+"datetime.date.today".msg = "Time comes from the Clock port (CODING-STANDARDS section 3)."
+
+[tool.ruff.lint.per-file-ignores]
+# The clock rule is for core and services. Everything else may read the system clock.
+"backend/ytmirror/adapters/**" = ["TID251"]
+"backend/ytmirror/api/**" = ["TID251"]
+"backend/ytmirror/app/**" = ["TID251"]
+"backend/ytmirror/tools/**" = ["TID251"]
+"backend/ytmirror/migrations/**" = ["TID251"]
+# Alembic requires migration file names that start with their number.
+"backend/ytmirror/migrations/versions/*" = ["N999"]
+"backend/tests/**" = ["TID251"]
+# Command line scripts talk to the terminal.
+"scripts/**" = ["TID251", "T20"]
+
+# --- Types -------------------------------------------------------------------
+
+[tool.pyright]
+include = ["backend", "scripts"]
+extraPaths = ["backend", "scripts"]
+typeCheckingMode = "strict"
+pythonVersion = "3.14"
+pythonPlatform = "Darwin"
+
+# --- Layer rules (docs/ARCHITECTURE.md section 4) ----------------------------
+
+[tool.importlinter]
+root_package = "ytmirror"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers: tools, app, api, services, ports, core. Each imports only what is below it"
+type = "layers"
+layers = [
+    "ytmirror.tools",
+    "ytmirror.app",
+    "ytmirror.api",
+    "ytmirror.services",
+    "ytmirror.ports",
+    "ytmirror.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "Services and the API never import an adapter or a migration"
+type = "forbidden"
+source_modules = ["ytmirror.services", "ytmirror.api", "ytmirror.ports", "ytmirror.core"]
+forbidden_modules = ["ytmirror.adapters", "ytmirror.migrations"]
+
+[[tool.importlinter.contracts]]
+name = "Adapters and migrations import only core and ports"
+type = "forbidden"
+source_modules = ["ytmirror.adapters", "ytmirror.migrations"]
+forbidden_modules = ["ytmirror.services", "ytmirror.api", "ytmirror.app", "ytmirror.tools"]
+
+[[tool.importlinter.contracts]]
+name = "An adapter never imports another adapter"
+type = "independence"
+modules = ["ytmirror.adapters.*"]
+
+[[tool.importlinter.contracts]]
+name = "Core and ports are pure: no framework, no database, no network, no logging"
+type = "forbidden"
+source_modules = ["ytmirror.core", "ytmirror.ports"]
+forbidden_modules = [
+    "alembic",
+    "fastapi",
+    "sqlalchemy",
+    "starlette",
+    "structlog",
+    "ulid",
+    "uvicorn",
+    "webview",
+]

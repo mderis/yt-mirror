@@ -1,0 +1,21 @@
+/*
+ * Element defaults of yt-mirror, built on the tokens.
+ * Components do not add global styles. They use utility classes.
+ */
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--ytm-color-bg);
+    color: var(--ytm-color-text);
+    font-family: var(--ytm-font-text);
+    font-size: var(--ytm-font-size-body);
+    font-weight: var(--ytm-font-weight-regular);
+    line-height: var(--ytm-line-height-text);
+  }
+}

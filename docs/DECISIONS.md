@@ -133,3 +133,69 @@ Format: **Decision**, **Why**, **Consequences**.
 
 ### D-034 Copyright holder
 **Decision:** The license names "Moslem Deris and contributors". The name is the one the maintainer uses publicly.
+
+### D-035 The minimum is macOS 15, the oldest version that is tested
+**Decision:** yt-mirror states macOS 15 as its minimum version. This answers open question Q-01.
+**Why:** The oldest macOS that can be tested is 15: it is the oldest runner GitHub offers, and the maintainer's Mac is newer. The tools publish lower minimums (uv: macOS 13, pyobjc: 10.13), but nobody has run yt-mirror there. Stating only what is tested is honest and can be checked.
+**Consequences:** CI runs on macOS 15 (Apple Silicon and Intel) and on the newest runner. The minimum is provisional until milestone M1 confirms that the chosen ffmpeg build and Deno run on macOS 15. It can be lowered later if someone tests an older Mac.
+
+### D-036 One theme center for every visual value
+**Decision:** Everything visual lives in `frontend/src/design/`: tokens as CSS variables with semantic names, the Tailwind preset, the bundled fonts and the brand icon source. A theme is one block of token values. Components may use only tokens, and a lint check in CI enforces it. The website uses the same token file. Requirements R-TH-01 to R-TH-09.
+**Why:** The maintainer wants to change fonts, colours and other visual values in one place. Values scattered through components cannot be changed safely, and a second copy for the website would drift.
+**Consequences:** Tailwind's default palette and scales are switched off, so only token-based classes exist. Fonts are committed as files with their licenses instead of coming from a package. "Same as system" is resolved by a few lines of script, because a media query would need the dark values twice. Each theme costs one block in `tokens.css`. The app-side parts are built in milestone M0, the website part (R-TH-07) in M10.
+
+### D-037 A clone builds the interface with Node.js until releases exist
+**Decision:** A plain `./start` in a clone builds `frontend/dist` with the local Node.js when it is missing or older than the sources, and stops with a clear message when Node.js is not installed. This changes one detail of D-022, which said a plain `./start` downloads the prebuilt bundle.
+**Why:** There is no release to download a bundle from before milestone M9, and a fresh clone must start from M0 on. A clone of an unpushed commit could never get a matching bundle anyway.
+**Consequences:** Developers need Node.js, as D-022 already said. Users of an installed copy still never do. Milestone M9 decides whether a clone should prefer a downloaded bundle when one matches.
+
+### D-038 The session token is exchanged for a cookie
+**Decision:** The token of the first URL is turned into an HttpOnly, SameSite=Strict cookie by the server, which then redirects to `/`. Every API call carries the cookie. A bearer header with the same token is accepted for tests and tools.
+**Why:** The architecture required the token on every API call but did not say how. A cookie works with the browser's event stream (SSE), survives a reload, keeps the token out of the address bar and out of reach of scripts. A custom header would need a hand-written stream reader and a place to keep the token.
+**Consequences:** The frontend contains no token handling at all. Cookies are not separated by port, so the cookie has a name of its own (`ytm_session`).
+
+### D-039 Versions chosen at the start of implementation
+**Decision:** Python 3.14 (managed by uv 0.13), FastAPI 0.162, SQLAlchemy 2.1, Alembic 1.20, structlog 26, pywebview 6.2, Node.js 26, Vue 3.5, Vite 8, Tailwind CSS 4.3, Vitest 5, Playwright 1.65, TypeScript 5.9. Exact versions are in `uv.lock` and the `package-lock.json` files.
+**Why:** ARCHITECTURE section 2 asks for the current stable versions at the start. TypeScript is the exception: 7.0 is current, but the API type generator supports 5.x only and the lint tooling stops below 6.1, so 5.9 is the newest version every tool accepts.
+**Consequences:** `requires-python` is 3.14 or newer: uv always installs the pinned Python, so older versions are never used and are not tested. The test client of FastAPI now needs `httpx2`, the successor of `httpx`. The first milestone that adds an HTTP client to the app itself (M1) decides between the two and updates ARCHITECTURE section 2.
+
+### D-040 One database connection per unit of work
+**Decision:** The SQLite engine uses no connection pool. A connection is opened for each unit of work and closed after it.
+**Why:** Opening SQLite is cheap. Without a pool no connection stays open when the app stops or crashes, which fits the crash safety goal (R-QA-06) and keeps tests free of leaked connections.
+**Consequences:** The WAL and foreign key settings are applied on every connection.
+
+### D-041 httpx2 is the HTTP client of the app
+**Decision:** The app uses `httpx2` for every HTTP call of its own: YouTube API, channel feed, GitHub releases, tool downloads. This settles the point D-039 left to milestone M1.
+**Why:** `httpx2` is the maintained successor of `httpx`, and FastAPI's test client already requires it. One HTTP library for the app and the tests is simpler than two.
+**Consequences:** ARCHITECTURE section 2 names `httpx2`. It moves from the development packages to the app's own packages in the milestone that makes the first HTTP call (M1).
+
+### D-042 The generated brand icons are built in three milestones
+**Decision:** The icon build script, its freshness test and the favicon belong to milestone M2, the macOS launcher icon (`.icns`) to M9, and the social preview image to M10.
+**Why:** DESIGN section 5 describes the generated assets but no milestone contained them. Each asset is built where it is first needed.
+**Consequences:** Until M2 the app has no favicon and draws its logo directly from `icon.svg`.
+
+### D-043 Infrastructure tests carry a marker instead of a requirement ID
+**Decision:** A test starts either with the requirement IDs it covers or with `infra:`. Tests of infrastructure (clock, scripts, tooling, wiring) use the marker and never borrow a requirement ID. The requirements coverage script ignores them, and fails on a test that has neither.
+**Why:** In milestone M0 infrastructure tests were given the closest requirement ID. That made requirements look covered that no test really checked, for example R-QA-01 through the tests of the coverage script itself.
+**Consequences:** The coverage report counts only real requirement tests. Every test must be labelled one way or the other, and CI checks it.
+
+### D-044 A native Mac app through a locally built app bundle
+**Decision:** yt-mirror appears and behaves as a native Mac app: its own name and icon everywhere, a real app bundle built on the user's Mac by the installer and by `./start`, a full menu bar, an About window, one quit path, one instance. Requirements R-NA-01 to R-NA-09. The parts are built in M1 (bundle, identity, one instance), M5 (menu bar, quit path), M7 (About window and the items of that milestone) and M9 (installer). Open question Q-24 is answered by experiment before any of it is built.
+**Why:** The audience includes non-technical users (D-027). An app that shows up as "Python" with a generic icon and without the usual menus does not feel trustworthy. Building the bundle locally keeps D-021: no Apple Developer account, no signing.
+**Consequences:** The window library must support custom menus, a custom app identity and single-instance behaviour from an unsigned bundle. If the experiment shows it cannot, work stops and the maintainer decides. The menu bar becomes the source of truth for shortcuts, and `Shortcuts.html` is read through DESIGN section 7.3. A signed, notarized DMG stays a roadmap item.
+
+### D-045 The icon build script and the macOS icon move to M1
+**Decision:** The icon build script, its freshness test and the macOS icon (`.icns`) are built in M1, together with the app bundle that needs them. The favicon stays in M2 and the social preview image in M10. This replaces the M2 and M9 parts of D-042.
+**Why:** The app bundle of M1 needs the icon (R-NA-01, R-NA-02), so the icon cannot wait for M9, and the script that makes it cannot wait for M2.
+**Consequences:** M2 only uses the script for the favicon. M9 reuses the bundle program of M1 for the installer.
+
+### D-046 Three groups decide how a test is labelled
+**Decision:** A test that verifies behaviour a requirement states carries that requirement's ID. A test that verifies real behaviour no requirement states is a gap in the spec: the requirement is proposed to the maintainer first. Only a test that verifies no product behaviour at all is an infrastructure test with the `infra:` marker. No test carries an ID that is merely the closest fit. This replaces the scope given in D-043, which had counted the wiring of the app and whole areas such as the health endpoint as infrastructure.
+**Why:** The first use of the marker in milestone M0 put 114 tests under it, among them tests of the launcher flags, the health endpoint and the setting defaults. That hid gaps in the spec. Sorting those tests by this rule led to twelve new requirements (R-PL-10 to R-PL-13, R-IN-06, R-IN-07, R-SE-04, R-ER-04, R-LG-06 to R-LG-08, R-QA-07).
+**Consequences:** The `infra` marker stays rare. A missing requirement is found when its test is written, and is added to the spec instead of being hidden behind a marker or a borrowed ID.
+
+### D-047 The bundle identifier is io.github.mderis.yt-mirror and never changes
+**Decision:** The macOS app bundle uses the bundle identifier `io.github.mderis.yt-mirror`.
+**Why:** It follows the address of the project's website, which the maintainer controls. macOS ties an app's identity, its saved window state and its permissions to this identifier.
+**Consequences:** The identifier must never change, not even if the repository moves. A change would make macOS treat yt-mirror as a different app.
+
