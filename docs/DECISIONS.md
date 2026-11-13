@@ -120,3 +120,13 @@ Format: **Decision**, **Why**, **Consequences**.
 **Decision:** The website is a VitePress site built from `docs/` and deployed to GitHub Pages.
 
 ### D-030 MIT license, public repository
+
+### D-031 Repository and website location
+**Decision:** The repository is https://github.com/mderis/yt-mirror. The website is its GitHub Pages site at https://mderis.github.io/yt-mirror/.
+
+### D-032 Auto-exclude rules also apply to downloaded videos
+**Decision:** A rule excludes matching videos whether or not they are already downloaded. Their files follow the "when excluding a downloaded video" setting (always ask, keep, delete).
+
+### D-033 The app tells users the YouTube API key is free
+**Decision:** Wherever the optional API key is mentioned (setting, guide, website), the text says that it costs nothing, needs no payment details, and has only a daily usage limit.
+**Why:** A request to "get an API key from Google Cloud" makes many people expect a bill.

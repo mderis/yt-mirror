@@ -16,20 +16,19 @@ Everything here must be resolved before or during the milestone named. When an i
 | Q-08 | Slow-path exact date fetching at one request per 2 seconds does not trigger YouTube rate limits for typical channels | Measure on a 1,000-video channel. Adjust the rate and the estimate shown in the UI | M4 |
 | Q-09 | pywebview on macOS supports what the UI needs: native folder picker, opening external links in the default browser, window minimum size, a close handler that can ask for confirmation | Prototype in M0 | M0 |
 | Q-10 | The mockups in `docs/design/v1/` render as intended | Visual review of every screen. Fix the canvas and regenerate the export | Before M5 |
-| Q-11 | The Google Cloud Console steps in the API key guide match the current console | Follow them once and correct the wording | M4 |
+| Q-11 | The Google Cloud Console steps in the API key guide match the current console. A third-party guide from 2026 lists the same six steps, but nobody has followed them in the console for this project yet | Follow them once and correct the wording | M4 |
 | Q-12 | Approximate dates from the flat channel listing are available for all videos | Check the listing output for old and new videos. If missing, show "date pending" instead of an approximate date | M2 |
 
 Facts already verified during planning (November 2026):
 - yt-dlp needs an external JavaScript runtime for full YouTube support since release 2025.11.12, and recommends Deno.
 - yt-dlp stopped setting file modification times by default in release 2025.07.21, so yt-mirror must set dates itself.
 - The YouTube Data API `videos.list` accepts up to 50 IDs per request and costs 1 quota unit. The default quota is 10,000 units per day.
+- The YouTube Data API is free: no charge per request and no payment details needed to create a key. When the daily quota is used up, requests fail until it resets.
 
 ## Decisions the maintainer still has to make
 
 | ID | Question | Default if not decided |
 |---|---|---|
-| Q-20 | GitHub owner and repository name (needed for the installer URL, website URL, issue links) | Placeholder `<owner>/yt-mirror` |
 | Q-21 | Copyright holder name in `LICENSE` | "yt-mirror contributors" |
 | Q-22 | Contact for the code of conduct and for security reports | GitHub private vulnerability reporting, no email |
 | Q-23 | Should the app check for updates on first run before the user has seen the setting? | Yes, it is one request to GitHub with no personal data |
-| Q-24 | Does excluding by rule apply to videos that are already downloaded? | Yes, following the "exclude a downloaded video" setting |

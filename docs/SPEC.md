@@ -152,7 +152,7 @@ Design: `ExcludeConfirm.html`, `ExcludePreview.html`, `ChannelSettings.html`.
 | R-EX-03 | Excluding a video that is queued or downloading cancels that download. |
 | R-EX-04 | Excluding a video that is already downloaded follows a setting: always ask (default), keep the file, or delete the file (move to Trash). The dialog can set the setting ("remember my choice"). |
 | R-EX-05 | **Auto-exclude rules** per channel: "title contains any of these words" (case-insensitive, whole phrase match) and "shorter than N minutes". |
-| R-EX-06 | Rules apply to existing videos when saved, and to new videos at every check. Before saving, a preview lists the matching videos and the rule each one matched. |
+| R-EX-06 | Rules apply to existing videos when saved, and to new videos at every check. Before saving, a preview lists the matching videos and the rule each one matched. Rules also apply to videos that are already downloaded. What happens to their files follows the setting in R-EX-04. |
 | R-EX-07 | In the preview the user can untick videos. Unticked videos are stored as exceptions and are never auto-excluded by a rule again. |
 | R-EX-08 | A video excluded by a rule records which rule did it. Restoring it by hand makes it an exception. |
 | R-EX-09 | Exclusions survive checks, title changes and app updates. |
@@ -245,7 +245,7 @@ Dates are the most important metadata in this app. These rules have dedicated te
 | R-DT-09 | At every check the app compares the dates of each synced file with the stored published time and repairs any difference (setting, default on). A "Repair dates" action does the same on demand for a channel. |
 | R-DT-10 | Renaming, moving, repairing metadata and re-downloading must all leave the file dates equal to the published time. |
 | R-DT-11 | Sorting a channel folder in Finder by Date Created or Date Modified must give the same order as "newest first" in the app. Videos with identical published times are ordered consistently by their position on the channel. |
-| R-DT-12 | Optional YouTube API key: off by default, entered in Settings, with an in-app step-by-step guide and a "Test key" button (design: `ApiKeyGuide.html`). The key is stored only locally. Removing it changes nothing except speed. If the key fails or its quota is used up, the app falls back to the slow path without any error dialog. |
+| R-DT-12 | Optional YouTube API key: off by default, entered in Settings, with an in-app step-by-step guide and a "Test key" button (design: `ApiKeyGuide.html`). The key is stored only locally. Removing it changes nothing except speed. If the key fails or its quota is used up, the app falls back to the slow path without any error dialog. The guide, the setting and the website must state plainly that the key is free: Google charges nothing for this API, no payment details are needed, and there is only a daily usage limit that yt-mirror stays far below. |
 
 ---
 
@@ -374,7 +374,7 @@ Design: `Help.html`, `ReportProblem.html`.
 | ID | Requirement |
 |---|---|
 | R-HE-01 | A built-in help page explains the main actions and concepts, searchable, and works offline. |
-| R-HE-02 | "Report a problem" is available from the sidebar, Settings, Help, the activity log and every error dialog. It offers to copy or save the debug report, then opens a new GitHub issue in the default browser with the app version and macOS version pre-filled. |
+| R-HE-02 | "Report a problem" is available from the sidebar, Settings, Help, the activity log and every error dialog. It offers to copy or save the debug report, then opens a new issue at https://github.com/mderis/yt-mirror/issues in the default browser with the app version and macOS version pre-filled. |
 | R-HE-03 | The app never sends any data anywhere on its own. The only network destinations are YouTube and its media servers, the optional YouTube API, GitHub (updates and the issue page the user opens), and the download sources of its tools. |
 
 ---

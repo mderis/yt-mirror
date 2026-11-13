@@ -15,6 +15,9 @@ Keep folders on your Mac in sync with YouTube channels.
 
 macOS only. Free and open source under the MIT license.
 
+Repository: https://github.com/mderis/yt-mirror
+Website (after the first release): https://mderis.github.io/yt-mirror/
+
 ## Documentation
 
 | Document | Content |

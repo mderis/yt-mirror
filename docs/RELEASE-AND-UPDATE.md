@@ -4,7 +4,7 @@ Requirements: R-IN-*, R-UP-*, R-UN-*, R-WS-* in [SPEC.md](SPEC.md).
 
 ## 1. Principles
 
-1. **GitHub Releases are the single source.** Every way of installing ends up with the contents of one release archive.
+1. **GitHub Releases are the single source.** The repository is https://github.com/mderis/yt-mirror and the website is https://mderis.github.io/yt-mirror/. Every way of installing ends up with the contents of one release archive.
 2. **One folder.** App code, tools and data are in one folder. Nothing is installed system-wide and no admin password is needed.
 3. **Code and data are separate.** Updates replace code and never touch `data/` or the user's videos.
 4. **Every update can be undone automatically** if it fails.
@@ -38,7 +38,7 @@ A clone has the same `tools/` and `data/` folders in the repository root (both i
 
 ## 4. Installer (`install.sh`)
 
-Served at `https://<owner>.github.io/yt-mirror/install.sh` and run with `curl -fsSL <url> | sh`. It must be short, readable and POSIX `sh`. Steps:
+Served at `https://mderis.github.io/yt-mirror/install.sh` and run with `curl -fsSL <url> | sh`. It must be short, readable and POSIX `sh`. Steps:
 
 1. Check macOS and the CPU architecture. Stop with a clear message on anything else.
 2. Refuse to overwrite an existing installation: offer to open it instead.
