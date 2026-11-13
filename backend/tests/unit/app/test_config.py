@@ -46,7 +46,7 @@ def test_the_data_folder_can_be_moved_for_tests(tmp_path: Path) -> None:
 
 
 def test_a_folder_with_git_is_a_clone_and_one_without_is_an_archive(tmp_path: Path) -> None:
-    """R-IN-07: the install kind decides later how the app updates."""
+    """R-UP-04: the install kind decides later how the app updates."""
     clone = tmp_path / "clone"
     (clone / ".git").mkdir(parents=True)
     archive = tmp_path / "archive"

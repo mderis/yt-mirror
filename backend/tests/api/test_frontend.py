@@ -39,7 +39,7 @@ def test_files_outside_the_interface_folder_cannot_be_read(api: Api, tmp_path: P
 
 
 def test_a_missing_build_is_reported_as_not_found(tmp_path: Path, clock: FakeClock) -> None:
-    """R-PL-11: without a built interface the server says so instead of crashing."""
+    """R-ER-02: without a built interface the server says so instead of crashing."""
     empty = tmp_path / "not-built"
     config = ApiConfig(security=SecurityPolicy.for_local_server(TOKEN, PORT), frontend_dir=empty)
     api = Api(create_app(config, make_diagnostics(tmp_path), clock), empty)

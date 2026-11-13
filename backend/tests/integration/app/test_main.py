@@ -221,7 +221,7 @@ def test_update_says_it_is_not_available_yet(capsys: pytest.CaptureFixture[str])
 def test_doctor_prints_the_report_and_creates_no_data(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """R-LG-05: ``./start --doctor`` reports the environment without changing it."""
+    """R-LG-05, R-IN-06: ``./start --doctor`` reports the environment without changing it."""
     exit_code = main(["--doctor"], {"YTM_HOME": str(tmp_path)})
 
     output = capsys.readouterr().out

@@ -15,7 +15,7 @@ A milestone is done when its acceptance list passes and the definition of done i
 ---
 
 ## M0. Project skeleton and tooling
-Requirements: R-PL-01 to R-PL-06 (as far as they apply to a skeleton), R-PL-10 to R-PL-13, R-IN-02, R-IN-06, R-IN-07, R-SE-03, R-SE-04, R-ER-02, R-ER-04, R-LG-01, R-LG-06 to R-LG-08, R-QA-03, R-QA-04, R-QA-07, R-TH-01 to R-TH-06, R-TH-08, R-TH-09. `./start --doctor` is the first part of R-LG-05. Resolve: Q-01, Q-09.
+Requirements: R-PL-01 to R-PL-06 (as far as they apply to a skeleton), R-PL-10 to R-PL-13, R-IN-02, R-IN-06, R-IN-07, R-SE-03, R-SE-04, R-ER-02, R-ER-04, R-LG-01, R-LG-06 to R-LG-08, R-QA-03, R-QA-04, R-QA-07, R-TH-01 to R-TH-06, R-TH-08, R-TH-09. `./start --doctor` is the first part of R-LG-05, and telling a clone from an archive install is the first part of R-UP-04. Resolve: Q-01, Q-09.
 
 - Repository structure from [ARCHITECTURE.md](ARCHITECTURE.md) section 3, with a README in each package.
 - `pyproject.toml` with uv, Ruff, Pyright, pytest, coverage thresholds, import-linter rules. `frontend/` with Vite, Vue, TypeScript strict, Tailwind with the design tokens, ESLint, Prettier, Vitest. `e2e/` with Playwright.

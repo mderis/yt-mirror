@@ -204,7 +204,7 @@ def test_an_installation_without_interface_sources_and_without_a_build_says_so(
 
 
 def test_doctor_does_not_build_the_interface(clone: Path) -> None:
-    """R-IN-07: ``./start --doctor`` only looks. It needs no Node.js."""
+    """R-IN-06: ``./start --doctor`` only looks. It needs no Node.js."""
     install_fake_uv(clone)
 
     result = run_start(clone, "--doctor")

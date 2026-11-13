@@ -31,7 +31,7 @@ def test_the_wired_services_work_together_on_a_real_database(paths: AppPaths) ->
 
 
 def test_the_container_describes_the_installation(paths: AppPaths) -> None:
-    """R-IN-07: paths and install kind are known to the app, for ``app.config`` and the report."""
+    """infra: paths and install kind are known to the app, for ``app.config`` and the report."""
     (paths.code_root / ".git").mkdir()
 
     info = build_container(paths).info

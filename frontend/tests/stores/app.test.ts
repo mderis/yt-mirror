@@ -57,7 +57,7 @@ describe('the app store', () => {
     expect(store.errorCode).toBe('INTERNAL')
   })
 
-  it('R-ER-03: can connect again after a failure and forgets the old error', async () => {
+  it('R-ER-04: can connect again after a failure and forgets the old error', async () => {
     const answers = [jsonResponse(errorBody('INTERNAL'), 500), jsonResponse(HEALTH)]
     mockFetch(() => answers.shift() as Response)
     const store = useAppStore()
