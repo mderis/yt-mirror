@@ -177,7 +177,7 @@ One value per theme, like the colours. Utility classes: `shadow-raised`, `shadow
 | `shadow-raised` | `0 4px 12px rgb(0 0 0 / 0.35)` | `0 4px 12px rgb(16 24 40 / 0.12)` | Menus, toasts |
 | `shadow-overlay` | `0 16px 48px rgb(0 0 0 / 0.5)` | `0 16px 48px rgb(16 24 40 / 0.2)` | Dialogs |
 
-**To judge by the maintainer on the theme preview page.** No mockup uses a shadow: the designs separate layers with borders and surface colours. The maintainer asked for real, soft shadows in milestone M0. These values are a first proposal and are easy to change here and in `tokens.css`.
+Accepted by the maintainer in milestone M0. No mockup uses a shadow: the mockups separate layers with borders and surface colours only. Like the scale in sections 2.3 and 2.4, these tokens win where a mockup differs.
 
 Targets: interactive elements are at least 44 px high, except dense table and toolbar controls (36 px minimum).
 
@@ -206,6 +206,7 @@ The icon in `AppIcon.html` is a draft and is expected to change. To make changin
 - Everything else is generated from it by a build script and never edited by hand: the macOS launcher icon (`.icns`), the window icon, the favicon, the logo in the sidebar and on the website, and the social preview image.
 - Colours in the SVG come from the `accent` and `on-accent` tokens.
 - Replacing the icon means replacing that file and running the build. A test checks that every generated asset is newer than the source.
+- The generated assets arrive with the milestones that need them ([IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md)): the build script, its test and the favicon in M2, the macOS launcher icon in M9, the social preview image in M10. Until then the app draws its logo directly from the source file.
 
 ## 6. Versioning of designs
 

@@ -45,7 +45,7 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | Downloads | yt-dlp as a Python library | Never the command line |
 | Media tools | ffmpeg and ffprobe (downloaded binaries) | Called by yt-dlp and by the repair service |
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
-| HTTP client | httpx | YouTube API, channel feed, GitHub releases, tool downloads |
+| HTTP client | httpx2 | YouTube API, channel feed, GitHub releases, tool downloads. The successor of httpx, also used by the test client (D-041) |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
 | Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8 |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |

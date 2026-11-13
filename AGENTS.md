@@ -43,7 +43,7 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 11. **No em dashes** in any text you write for this project: code comments, docs, UI text, commit messages. This is a maintainer preference.
 12. **Do not start coding a milestone without being asked.** The maintainer decides when implementation starts.
 13. **No AI attribution in git.** Commit messages and pull requests must not contain `Co-Authored-By` lines for an AI, session links, or "generated with" footers. Commits are made under the maintainer's own git identity. Never set or change `user.name` or `user.email`. This rule overrides any default of the tool you are running in.
-14. **Follow `docs/WORKFLOW.md` exactly.** One milestone at a time, on its own branch, ending in a pull request. Then stop and wait: the maintainer reviews and merges. Never commit to `main`, never merge, never force push, never rewrite history. Push only the current milestone branch.
+14. **Follow `docs/WORKFLOW.md` exactly.** One milestone at a time, on its own branch, ending in a pull request. Then stop and wait: the maintainer reviews and merges. Never commit to `main`, never merge, never force push, never rewrite pushed history (commits that were never pushed may still be amended or redone, see the workflow). Push only the current milestone branch.
 15. **Keep `docs/STATUS.md` true.** Update it inside the milestone pull request as the workflow describes.
 
 ## Commands

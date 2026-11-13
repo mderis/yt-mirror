@@ -51,7 +51,7 @@ Never work on two milestones at once. Never skip a milestone.
 ## 5. Review and merge (maintainer)
 
 1. The maintainer reviews on GitHub and either requests changes or approves.
-2. Requested changes are made as new commits on the same branch (no force push, so the review stays readable).
+2. Requested changes are made as new commits on the same branch (no force push and no rewriting of pushed commits, so the review stays readable).
 3. The maintainer merges with a merge commit or a squash, their choice. The merge is the moment the milestone becomes `Done`.
 4. After the merge, the next session's first commit on the new milestone branch sets the merged milestone to `Done` with the merge date.
 
@@ -69,7 +69,8 @@ Recommended GitHub settings for `main` (the maintainer sets these once, in the r
 
 ## 7. Rules that always hold
 
-- Never commit to `main` directly. Never merge. Never force push. Never rewrite history.
+- Never commit to `main` directly. Never merge. Never force push. Never rewrite pushed history.
+- "History" here means commits that have been pushed. Commits that were never pushed are still yours: amending them, or resetting and redoing them, is allowed, for example to put a forgotten file into the commit it belongs to. Once a commit is pushed, it is fixed with a new commit.
 - Pushing is allowed only for the current milestone branch.
 - No AI attribution in commits or pull requests (`AGENTS.md`).
 - If the spec is wrong or unclear, stop and ask. Do not guess and do not change the spec without the maintainer.

@@ -164,3 +164,12 @@ Format: **Decision**, **Why**, **Consequences**.
 **Why:** Opening SQLite is cheap. Without a pool no connection stays open when the app stops or crashes, which fits the crash safety goal (R-QA-06) and keeps tests free of leaked connections.
 **Consequences:** The WAL and foreign key settings are applied on every connection.
 
+### D-041 httpx2 is the HTTP client of the app
+**Decision:** The app uses `httpx2` for every HTTP call of its own: YouTube API, channel feed, GitHub releases, tool downloads. This settles the point D-039 left to milestone M1.
+**Why:** `httpx2` is the maintained successor of `httpx`, and FastAPI's test client already requires it. One HTTP library for the app and the tests is simpler than two.
+**Consequences:** ARCHITECTURE section 2 names `httpx2`. It moves from the development packages to the app's own packages in the milestone that makes the first HTTP call (M1).
+
+### D-042 The generated brand icons are built in three milestones
+**Decision:** The icon build script, its freshness test and the favicon belong to milestone M2, the macOS launcher icon (`.icns`) to M9, and the social preview image to M10.
+**Why:** DESIGN section 5 describes the generated assets but no milestone contained them. Each asset is built where it is first needed.
+**Consequences:** Until M2 the app has no favicon and draws its logo directly from `icon.svg`.

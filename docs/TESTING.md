@@ -92,7 +92,16 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 
 Visual regression: Playwright screenshots of every screen and of the theme preview page, in both themes, are compared with stored baselines (R-TH-09). The baselines are in `e2e/tests/__screenshots__/`, one per browser. After an intended visual change, update them with `npm --prefix e2e run test:update-screenshots`, look at the new images, and commit them.
 
-The end-to-end tests start the real app themselves with `./start`, without a window, using the test variables of [ARCHITECTURE.md](ARCHITECTURE.md) section 10. Where Playwright's Chromium cannot be downloaded, `YTM_E2E_CHROME_CHANNEL=chrome` uses an installed Chrome. The same run produces the website screenshots (R-WS-05).
+The end-to-end tests start the real app themselves with `./start`, without a window, using the test variables of [ARCHITECTURE.md](ARCHITECTURE.md) section 10.
+
+Where the browsers come from:
+
+| Browser | In CI | On a developer's Mac |
+|---|---|---|
+| WebKit | Playwright's own build | Playwright's own build. Its download works everywhere we know of, including the maintainer's Mac |
+| Chromium | Playwright's own build | Playwright's own build where it can be downloaded. Otherwise an installed Google Chrome: `YTM_E2E_CHROME_CHANNEL=chrome npm --prefix e2e test` |
+
+Playwright takes its Chromium from Google's "Chrome for Testing" download server, and that server refuses some locations with "not available in your location" (HTTP 403). This is the case on the maintainer's Mac. So there, Playwright's own Chromium runs only in CI, and local runs use the installed Chrome, which is a different version. The WebKit tests, the engine the app window uses, run locally and in CI alike. CI is the reference for the Chromium screenshots. The same run produces the website screenshots (R-WS-05).
 
 ## 7. Reviews
 
