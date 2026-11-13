@@ -19,7 +19,7 @@ Rule: a feature is not done until its tests exist, pass, and have been reviewed.
 ## 2. Rules
 
 1. Every test names the requirements it covers in its docstring or title: `"""R-FN-05: a second video with the same title gets the ID suffix."""`.
-2. A script (`scripts/requirements_coverage.py`) reads the IDs from [SPEC.md](SPEC.md) and from the tests and fails CI if a testable requirement has no test. Requirements that can only be tested live or by hand are listed in `tests/untestable.yml` with the reason.
+2. A script (`scripts/requirements_coverage.py`) reads the IDs from [SPEC.md](SPEC.md) and from the tests and fails CI if a testable requirement has no test. Requirements that can only be tested live or by hand are listed in `backend/tests/untestable.yml` with the reason. Until milestone M11 the script only reports. From then on CI runs it with `--strict`. A test that names an ID the spec does not contain fails the script from the start.
 3. No test touches the network except those marked `live`.
 4. No test depends on the current time, time zone or locale. Use the Clock port. The suite runs in CI under at least two time zones (UTC and one with a non-hour offset such as Asia/Tehran) because of the date rules.
 5. No sleeps. Wait on events or use a fake clock.
@@ -40,7 +40,7 @@ Coverage is a floor, not the goal. The review in section 7 is what establishes t
 
 ## 4. The fake YouTube
 
-`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes.
+`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes. It arrives with the YouTube gateway in milestone M2.
 
 | Fixture channel | Purpose |
 |---|---|
@@ -90,7 +90,9 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 13. Light and dark theme, list and grid, keyboard-only use of the main flow.
 14. Accessibility scan (axe) on every screen: no serious violations.
 
-Visual regression: Playwright screenshots of every screen and of the theme preview page, in both themes, are compared with stored baselines (R-TH-09). The same run produces the website screenshots (R-WS-05).
+Visual regression: Playwright screenshots of every screen and of the theme preview page, in both themes, are compared with stored baselines (R-TH-09). The baselines are in `e2e/tests/__screenshots__/`, one per browser. After an intended visual change, update them with `npm --prefix e2e run test:update-screenshots`, look at the new images, and commit them.
+
+The end-to-end tests start the real app themselves with `./start`, without a window, using the test variables of [ARCHITECTURE.md](ARCHITECTURE.md) section 10. Where Playwright's Chromium cannot be downloaded, `YTM_E2E_CHROME_CHANNEL=chrome` uses an installed Chrome. The same run produces the website screenshots (R-WS-05).
 
 ## 7. Reviews
 

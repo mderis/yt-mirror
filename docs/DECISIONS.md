@@ -143,3 +143,24 @@ Format: **Decision**, **Why**, **Consequences**.
 **Decision:** Everything visual lives in `frontend/src/design/`: tokens as CSS variables with semantic names, the Tailwind preset, the bundled fonts and the brand icon source. A theme is one block of token values. Components may use only tokens, and a lint check in CI enforces it. The website uses the same token file. Requirements R-TH-01 to R-TH-09.
 **Why:** The maintainer wants to change fonts, colours and other visual values in one place. Values scattered through components cannot be changed safely, and a second copy for the website would drift.
 **Consequences:** Tailwind's default palette and scales are switched off, so only token-based classes exist. Fonts are committed as files with their licenses instead of coming from a package. "Same as system" is resolved by a few lines of script, because a media query would need the dark values twice. Each theme costs one block in `tokens.css`. The app-side parts are built in milestone M0, the website part (R-TH-07) in M10.
+
+### D-037 A clone builds the interface with Node.js until releases exist
+**Decision:** A plain `./start` in a clone builds `frontend/dist` with the local Node.js when it is missing or older than the sources, and stops with a clear message when Node.js is not installed. This changes one detail of D-022, which said a plain `./start` downloads the prebuilt bundle.
+**Why:** There is no release to download a bundle from before milestone M9, and a fresh clone must start from M0 on. A clone of an unpushed commit could never get a matching bundle anyway.
+**Consequences:** Developers need Node.js, as D-022 already said. Users of an installed copy still never do. Milestone M9 decides whether a clone should prefer a downloaded bundle when one matches.
+
+### D-038 The session token is exchanged for a cookie
+**Decision:** The token of the first URL is turned into an HttpOnly, SameSite=Strict cookie by the server, which then redirects to `/`. Every API call carries the cookie. A bearer header with the same token is accepted for tests and tools.
+**Why:** The architecture required the token on every API call but did not say how. A cookie works with the browser's event stream (SSE), survives a reload, keeps the token out of the address bar and out of reach of scripts. A custom header would need a hand-written stream reader and a place to keep the token.
+**Consequences:** The frontend contains no token handling at all. Cookies are not separated by port, so the cookie has a name of its own (`ytm_session`).
+
+### D-039 Versions chosen at the start of implementation
+**Decision:** Python 3.14 (managed by uv 0.13), FastAPI 0.162, SQLAlchemy 2.1, Alembic 1.20, structlog 26, pywebview 6.2, Node.js 26, Vue 3.5, Vite 8, Tailwind CSS 4.3, Vitest 5, Playwright 1.65, TypeScript 5.9. Exact versions are in `uv.lock` and the `package-lock.json` files.
+**Why:** ARCHITECTURE section 2 asks for the current stable versions at the start. TypeScript is the exception: 7.0 is current, but the API type generator supports 5.x only and the lint tooling stops below 6.1, so 5.9 is the newest version every tool accepts.
+**Consequences:** `requires-python` is 3.14 or newer: uv always installs the pinned Python, so older versions are never used and are not tested. The test client of FastAPI now needs `httpx2`, the successor of `httpx`. The first milestone that adds an HTTP client to the app itself (M1) decides between the two and updates ARCHITECTURE section 2.
+
+### D-040 One database connection per unit of work
+**Decision:** The SQLite engine uses no connection pool. A connection is opened for each unit of work and closed after it.
+**Why:** Opening SQLite is cheap. Without a pool no connection stays open when the app stops or crashes, which fits the crash safety goal (R-QA-06) and keeps tests free of leaked connections.
+**Consequences:** The WAL and foreign key settings are applied on every connection.
+

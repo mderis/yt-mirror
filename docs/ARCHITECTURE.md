@@ -68,8 +68,8 @@ Version numbers are pinned in `uv.lock` and `package-lock.json`. The implementer
 ```
 yt-mirror/
   start                      Launcher for clones and for the installed app
-  install.sh                 Installer, also served by the website
-  pyproject.toml  uv.lock
+  install.sh                 Installer, also served by the website (milestone M9)
+  pyproject.toml  uv.lock  .python-version
   backend/
     ytmirror/
       core/                  Pure domain code. No I/O, no framework imports.
@@ -90,7 +90,9 @@ yt-mirror/
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
         github_releases.py   Release lookup and download
-        db/                  SQLAlchemy tables, repositories, session handling
+        system_clock.py      The real clock behind the Clock port
+        system_probe.py      Read-only facts about the Mac, for the environment report
+        db/                  SQLAlchemy engine and tables, repositories, the Alembic migrator
       services/
         channels.py          Add, remove, pause, settings, folder moves
         catalogue.py         Checks, new and removed detection, renames
@@ -102,37 +104,52 @@ yt-mirror/
         exclusions.py        Manual excludes and rule engine
         toolchain.py         Install, verify and update ffmpeg, Deno, yt-dlp
         updater.py           App updates, backup, migration, rollback
-        diagnostics.py       Health check, debug report
+        diagnostics.py       Health, environment report, health check, debug report
+        schema.py            Brings the database schema up to date at start
+        settings.py          The general settings
         activity.py          User-facing activity log
         events.py            In-process event bus feeding SSE and notifications
         scheduler.py         Periodic checks while the app is open
       api/
+        app.py               Builds the FastAPI app
         routers/             One router per resource
         schemas.py           Pydantic request and response models
+        security.py          Host, Origin and session token checks (section 9)
+        request_log.py       Request logging and the INTERNAL error boundary
         sse.py               Event stream
         errors.py            Error code to HTTP response mapping
       app/
         container.py         Composition root: builds adapters and services
-        main.py              Entry point, CLI flags, window, lifecycle
-        config.py            Paths and environment
+        main.py              Entry point, CLI flags, lifecycle
+        config.py            Paths, environment variables, options
+        logging_setup.py     The debug log pipeline
+        server.py            The HTTP server thread
+        window.py            The app window
+        doctor.py            Text of the environment report
+      tools/                 Developer programs: python -m ytmirror.tools.<name>
       migrations/            Alembic environment and versions
     tests/
       unit/  integration/  api/  migrations/  live/  fixtures/
+      untestable.yml         Requirements that only live or manual tests can cover
   frontend/
     src/
       api/                   Generated types and a thin typed client
-      stores/                Pinia stores (channels, videos, queue, settings, ui)
+      stores/                Pinia stores (app, channels, videos, queue, settings, ui)
       features/              One folder per feature: channel, queue, adopt, settings, ...
       components/            Shared presentational components
-      design/                Tokens, Tailwind preset, icons
+      design/                The theme center: tokens, Tailwind preset, fonts, brand icon, preview page
       i18n/                  All user-visible strings
+    tools/                   The theme lint and the API type generator
     tests/
-  e2e/                       Playwright tests and the fake YouTube data set
+  e2e/                       Playwright tests, their screenshots, and the fake YouTube data set
+  scripts/                   Developer and CI programs: uv wrapper, check scripts, smoke test
   docs/                      This documentation and the VitePress site
   .github/                   Workflows and issue templates
   data/                      (ignored) database, logs, backups, cache
   tools/                     (ignored) uv, Python, ffmpeg, Deno
 ```
+
+Modules appear in the milestone that needs them. A file listed here may not exist yet.
 
 ## 4. Layer rules
 
@@ -319,7 +336,7 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 ### 7.7 Concurrency
 - One asyncio event loop for HTTP and SSE.
 - Blocking work (yt-dlp, ffmpeg, file operations, database writes from workers) runs in threads. Download workers are a fixed-size pool equal to the parallel downloads setting.
-- One writer at a time per database connection. Each unit of work is a short transaction.
+- One writer at a time per database connection. Each unit of work is a short transaction on its own connection: connections are opened when needed and closed afterwards, not pooled (D-040).
 - One lock per channel serialises check, adoption and folder moves for that channel.
 
 ### 7.8 The window (`app/window.py`)
@@ -332,12 +349,23 @@ Checked with a probe against pywebview 6.2 on macOS in milestone M0 (open questi
 - **Folder picker:** the native folder dialog opens and returns to Python. That it returns the chosen folder still has to be checked by hand once (Q-09).
 - **Developer tools:** `./start --debug` enables the WebKit inspector in the window.
 
+### 7.9 Starting the app (`start`, `app/main.py`)
+
+1. `./start` checks macOS and the processor, puts a pinned uv into `tools/` after verifying its SHA-256, and lets uv install the pinned Python and the locked packages into `tools/`.
+2. In a clone it builds the interface with Node.js when `frontend/dist` is missing or older than the sources (D-037). An installed copy ships the built interface.
+3. `python -m ytmirror.app.main` builds the container, brings the database up to date, starts the HTTP server in a thread on a free port of 127.0.0.1, and opens the window on the main thread with the first URL (section 9). When the window closes, the server stops and the process ends.
+
+Flags: `--debug` (verbose logs, developer tools in the window), `--browser` (default browser instead of the window, quit with Ctrl+C), `--doctor` (print the environment report and exit), `--update` (the updater arrives in milestone M9. Until then it says so and exits with code 2).
+
+`--dev` runs the Vite development server next to the backend. The window shows the development server, which reloads the interface on every change and passes `/api` calls on to the backend. Its origin is accepted only in this mode. Backend code is not reloaded: restart after changing Python. The theme preview page is at `/theme-preview.html` on the development server.
+
 ## 8. HTTP API
 
-All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error": { "code", "message", "details" } }`.
+All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error": { "code", "message", "details" } }`. `message` is a short technical sentence. The text the user reads is written per code in the frontend (R-ER-02).
 
 | Method and path | Purpose |
 |---|---|
+| GET `/health` | The server runs: app version and database schema version |
 | GET `/state` | App snapshot: channels with derived status, queue summary, banners, settings, versions |
 | GET `/events` | Server-Sent Events stream |
 | POST `/channels/lookup` | Resolve a URL or handle to a channel preview (R-CH-03) |
@@ -374,7 +402,9 @@ The OpenAPI schema generated by FastAPI is the contract. Frontend types are gene
 ## 9. Security
 
 - Bind to 127.0.0.1 on a random free port. Reject requests whose `Host` or `Origin` header is not that address (protects against DNS rebinding and other websites calling the local API).
-- A random session token is created at start, given to the window in the initial URL, and required on every API call.
+- A random session token is created at start and given to the window in the initial URL (`/?token=...`). The server answers that URL by setting the token as a cookie (`ytm_session`, HttpOnly, SameSite=Strict) and redirecting to `/`, so the token leaves the address bar and scripts cannot read it (D-038). Every `/api` call must carry the cookie. Tests and tools may send the same token as an `Authorization: Bearer` header instead. A wrong or missing token is answered with `UNAUTHORIZED`, a foreign Host or Origin with `ORIGIN_REJECTED`.
+- The interface files themselves need no token: they contain no secrets.
+- The OpenAPI schema and the interactive API docs are not served by the running app.
 - No remote content is rendered as HTML. Descriptions are shown as text.
 - File operations accept video and channel IDs, never paths from the client, except folder choices that come from the native folder picker.
 - Downloaded tools and releases are verified against SHA-256 checksums before use.
@@ -393,4 +423,17 @@ Every external dependency is behind a port, and each port has a fake in `backend
 | Releases | Serves fake release archives for updater tests |
 | Notifier, Clock, Random | Recorders and controllable values |
 
-The environment variable `YTM_FAKE_YOUTUBE=<fixtures dir>` starts the real app with the fake gateway. End-to-end tests and screenshot generation use it. See [TESTING.md](TESTING.md).
+The environment variable `YTM_FAKE_YOUTUBE=<fixtures dir>` starts the real app with the fake gateway. End-to-end tests and screenshot generation use it. See [TESTING.md](TESTING.md). It arrives with the gateway in milestone M2.
+
+Environment variables, all optional. Only `app/config.py` and `start` read them.
+
+| Variable | Read by | Purpose |
+|---|---|---|
+| `YTM_HOME` | app | The folder that holds `data/` and `tools/`. Set by `./start` |
+| `YTM_DATA_DIR` | app | A different data folder. For tests |
+| `YTM_PORT` | app, `start`, Vite | A fixed port instead of a free one. For tests and `--dev` |
+| `YTM_SESSION_TOKEN` | app | A fixed session token instead of a random one. For tests only |
+| `YTM_NO_WINDOW` | app | Serve without opening a window or a browser, until a stop signal. For tests |
+| `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
+| `YTM_UV_BASE_URL` | `start` | Where uv is downloaded from. For tests. The checksum is checked in every case |
+| `YTM_E2E_CHROME_CHANNEL` | Playwright | Use an installed Chrome where Playwright's Chromium cannot be downloaded |

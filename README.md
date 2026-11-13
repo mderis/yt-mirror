@@ -2,7 +2,7 @@
 
 Keep folders on your Mac in sync with YouTube channels.
 
-> **Status: planning complete, not yet implemented.** This repository currently contains the full specification, architecture, designs and build plan for version 1. There is no runnable app yet.
+> **Status: in development.** The project skeleton exists: the app starts, opens its window and shows a placeholder page. The features below are being built milestone by milestone. See [docs/STATUS.md](docs/STATUS.md).
 
 ## What it will do
 
@@ -13,7 +13,29 @@ Keep folders on your Mac in sync with YouTube channels.
 - Adopt videos you already downloaded and fix their names, dates and metadata without downloading again.
 - Install with one line, install its own tools, update itself, and explain problems in plain language.
 
-macOS only. Free and open source under the MIT license.
+macOS 15 or newer, on Apple Silicon or Intel. Free and open source under the MIT license.
+
+## Run it from a clone
+
+For developers. The one-line installer for everyone else comes with the first release.
+
+```
+git clone https://github.com/mderis/yt-mirror.git
+cd yt-mirror
+./start
+```
+
+You need macOS 15 or newer and [Node.js](https://nodejs.org) 24 or newer (to build the interface). `./start` downloads everything else (uv, Python, the Python packages) into the `tools/` folder of the clone. Nothing is installed system-wide.
+
+| Command | What it does |
+|---|---|
+| `./start` | Start the app in its window |
+| `./start --dev` | The same with hot reload of the interface |
+| `./start --browser` | Open in the default browser instead of the window |
+| `./start --debug` | Verbose logs, and developer tools in the window |
+| `./start --doctor` | Check the environment and report |
+
+Commands for tests and checks are in [AGENTS.md](AGENTS.md).
 
 Repository: https://github.com/mderis/yt-mirror
 Website (after the first release): https://mderis.github.io/yt-mirror/

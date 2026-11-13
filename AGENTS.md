@@ -15,6 +15,7 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 | What the app must do, with requirement IDs | `docs/SPEC.md` |
 | How it is built: layers, data model, flows, API | `docs/ARCHITECTURE.md` |
 | What it looks like | `docs/DESIGN.md` and `docs/design/v1/index.html` |
+| Colours, fonts, sizes and every other visual value (the theme center) | `docs/DESIGN.md` section 2 and `frontend/src/design/README.md` |
 | The words to use | `docs/GLOSSARY.md` |
 | How to write code here | `docs/CODING-STANDARDS.md` |
 | How to test | `docs/TESTING.md` |
@@ -47,25 +48,37 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 
 ## Commands
 
-These will exist after milestone M0. Until then this section describes the target.
+Run from the repository root. `uv` here means a uv on your PATH. If you have none, use `scripts/uv` instead (for example `scripts/uv run pytest`): it runs the copy that `./start` downloaded into `tools/`, with the app's own Python environment. Nothing needs to be installed system-wide.
 
 | Task | Command |
 |---|---|
 | Run the app from a clone | `./start` |
-| Run with hot reload for development | `./start --dev` |
-| Run against the fake YouTube | `YTM_FAKE_YOUTUBE=e2e/fixtures/youtube ./start` |
+| Run with hot reload of the interface | `./start --dev` |
 | Verbose logs | `./start --debug` |
 | Check the environment | `./start --doctor` |
+| Start a clone without a window and check it | `scripts/smoke_test.sh` |
 | Backend tests | `uv run pytest` |
+| Backend tests with the coverage thresholds | `uv run pytest --cov --cov-report=json:coverage.json && uv run python scripts/check_coverage.py coverage.json` |
 | Backend lint, format, types | `uv run ruff check . && uv run ruff format --check . && uv run pyright` |
 | Layer rules | `uv run lint-imports` |
 | Frontend tests | `npm --prefix frontend test` |
-| Frontend lint and types | `npm --prefix frontend run lint && npm --prefix frontend run typecheck` |
+| Frontend lint (ESLint, theme lint, Prettier) and types | `npm --prefix frontend run lint && npm --prefix frontend run typecheck` |
+| Theme lint alone | `npm --prefix frontend run lint:theme` |
 | Regenerate API types | `npm --prefix frontend run gen:api` |
 | End-to-end tests | `npm --prefix e2e test` |
+| Update the stored screenshots | `npm --prefix e2e run test:update-screenshots` |
 | Requirement coverage | `uv run python scripts/requirements_coverage.py` |
-| Explain a video's history | `uv run python -m ytmirror.tools.explain <video id>` |
-| Docs site locally | `npm --prefix docs run dev` |
+| No em dashes, modules name their tests | `uv run python scripts/check_no_em_dash.py && uv run python scripts/check_docstrings.py` |
+| All pre-commit hooks | `uv run pre-commit run --all-files` (turn them on once with `uv run pre-commit install`) |
+
+Not available yet:
+
+| Task | Command | Arrives in |
+|---|---|---|
+| Run against the fake YouTube | `YTM_FAKE_YOUTUBE=e2e/fixtures/youtube ./start` | M2 |
+| Explain a video's history | `uv run python -m ytmirror.tools.explain <video id>` | M7 |
+| Update the app | `./start --update` | M9 |
+| Docs site locally | `npm --prefix docs run dev` | M10 |
 
 ## Debugging in short
 
