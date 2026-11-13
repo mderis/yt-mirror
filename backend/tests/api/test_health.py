@@ -4,7 +4,7 @@ from tests.api.conftest import Api
 
 
 def test_health_reports_ok_with_the_app_and_schema_versions(api: Api) -> None:
-    """R-IN-02: a started app answers on its health endpoint with its versions."""
+    """infra: a started app answers on its health endpoint with its versions."""
     response = api.signed_in_client().get("/api/health")
 
     assert response.status_code == 200
@@ -12,7 +12,7 @@ def test_health_reports_ok_with_the_app_and_schema_versions(api: Api) -> None:
 
 
 def test_health_is_part_of_the_openapi_contract(api: Api) -> None:
-    """R-QA-03: the frontend types are generated from the OpenAPI schema."""
+    """infra: the frontend types are generated from the OpenAPI schema."""
     schema = api.app.openapi()
 
     operation = schema["paths"]["/api/health"]["get"]

@@ -173,3 +173,8 @@ Format: **Decision**, **Why**, **Consequences**.
 **Decision:** The icon build script, its freshness test and the favicon belong to milestone M2, the macOS launcher icon (`.icns`) to M9, and the social preview image to M10.
 **Why:** DESIGN section 5 describes the generated assets but no milestone contained them. Each asset is built where it is first needed.
 **Consequences:** Until M2 the app has no favicon and draws its logo directly from `icon.svg`.
+
+### D-043 Infrastructure tests carry a marker instead of a requirement ID
+**Decision:** A test starts either with the requirement IDs it covers or with `infra:`. Tests of infrastructure (clock, scripts, tooling, wiring) use the marker and never borrow a requirement ID. The requirements coverage script ignores them, and fails on a test that has neither.
+**Why:** In milestone M0 infrastructure tests were given the closest requirement ID. That made requirements look covered that no test really checked, for example R-QA-01 through the tests of the coverage script itself.
+**Consequences:** The coverage report counts only real requirement tests. Every test must be labelled one way or the other, and CI checks it.

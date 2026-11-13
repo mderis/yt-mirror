@@ -36,7 +36,7 @@ def healthy_probe() -> FakeSystemProbe:
 
 
 def test_the_report_shows_pass_or_fail_per_item_with_the_fix() -> None:
-    """R-IN-02: ``./start --doctor`` prints pass or fail per item with the fix."""
+    """infra: ``./start --doctor`` prints pass or fail per item with the fix."""
     results = [
         CheckResult("macOS", True, "15.6.1"),
         CheckResult("Node.js", False, "not found", "Install Node.js."),
@@ -56,14 +56,14 @@ def test_the_report_shows_pass_or_fail_per_item_with_the_fix() -> None:
 
 
 def test_a_report_without_failures_says_everything_is_in_order() -> None:
-    """R-IN-02: a working environment gets a clear summary."""
+    """infra: a working environment gets a clear summary."""
     text = render_report([CheckResult("macOS", True, "15.6.1")])
 
     assert text.endswith("\nEverything is in order.\n")
 
 
 def test_doctor_exits_with_zero_when_every_check_passes() -> None:
-    """R-IN-02: scripts can rely on the exit code of ``./start --doctor``."""
+    """infra: scripts can rely on the exit code of ``./start --doctor``."""
     out = io.StringIO()
 
     exit_code = run_doctor(make_diagnostics(healthy_probe()), out)
@@ -73,7 +73,7 @@ def test_doctor_exits_with_zero_when_every_check_passes() -> None:
 
 
 def test_doctor_exits_with_one_when_a_check_fails() -> None:
-    """R-IN-02: a problem is visible in the exit code."""
+    """infra: a problem is visible in the exit code."""
     probe = healthy_probe()
     probe.macos = "13.2"
     out = io.StringIO()

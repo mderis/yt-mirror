@@ -7,7 +7,7 @@ import { errorBody, HEALTH, jsonResponse, mockFetch } from '../helpers/fetch'
 
 beforeEach(() => setActivePinia(createPinia()))
 describe('the app store', () => {
-  it('R-FB-03: starts in the connecting state with nothing known', () => {
+  it('infra: starts in the connecting state with nothing known', () => {
     const store = useAppStore()
 
     expect(store.status).toBe('connecting')
@@ -15,7 +15,7 @@ describe('the app store', () => {
     expect(store.errorCode).toBeNull()
   })
 
-  it('R-IN-02: becomes ready with the versions of the backend', async () => {
+  it('infra: becomes ready with the versions of the backend', async () => {
     mockFetch(() => jsonResponse(HEALTH))
     const store = useAppStore()
 
@@ -37,7 +37,7 @@ describe('the app store', () => {
     expect(store.health).toBeNull()
   })
 
-  it('R-ER-03: fails without a code when the backend cannot be reached', async () => {
+  it('R-ER-02: fails without a code when the backend cannot be reached', async () => {
     mockFetch(() => Promise.reject(new TypeError('Failed to fetch')))
     const store = useAppStore()
 

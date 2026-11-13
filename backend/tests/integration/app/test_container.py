@@ -11,14 +11,14 @@ from ytmirror.core.models import InstallKind, Settings
 
 
 def test_building_the_container_creates_no_files(paths: AppPaths) -> None:
-    """R-IN-02: wiring the app has no side effects, so ``--doctor`` is safe to run."""
+    """infra: wiring the app has no side effects, so ``--doctor`` is safe to run."""
     build_container(paths)
 
     assert not paths.data_dir.exists()
 
 
 def test_the_wired_services_work_together_on_a_real_database(paths: AppPaths) -> None:
-    """R-QA-04, R-SE-03: migrations, settings and health run against the real adapters."""
+    """infra: migrations, settings and health run against the real adapters."""
     container = build_container(paths)
 
     version = container.schema.bring_up_to_date()
@@ -31,7 +31,7 @@ def test_the_wired_services_work_together_on_a_real_database(paths: AppPaths) ->
 
 
 def test_the_container_describes_the_installation(paths: AppPaths) -> None:
-    """R-IN-02: paths and install kind are known to the app, for ``app.config`` and the report."""
+    """infra: paths and install kind are known to the app, for ``app.config`` and the report."""
     (paths.code_root / ".git").mkdir()
 
     info = build_container(paths).info
@@ -44,7 +44,7 @@ def test_the_container_describes_the_installation(paths: AppPaths) -> None:
 
 
 def test_real_adapters_are_used_unless_a_test_passes_fakes(paths: AppPaths) -> None:
-    """R-QA-01: tests build the same container with fakes (ARCHITECTURE section 4, rule 6)."""
+    """infra: tests build the same container with fakes (ARCHITECTURE section 4, rule 6)."""
     clock = FakeClock()
     probe = FakeSystemProbe()
 

@@ -18,8 +18,10 @@ Rule: a feature is not done until its tests exist, pass, and have been reviewed.
 
 ## 2. Rules
 
-1. Every test names the requirements it covers in its docstring or title: `"""R-FN-05: a second video with the same title gets the ID suffix."""`.
-2. A script (`scripts/requirements_coverage.py`) reads the IDs from [SPEC.md](SPEC.md) and from the tests and fails CI if a testable requirement has no test. Requirements that can only be tested live or by hand are listed in `backend/tests/untestable.yml` with the reason. Until milestone M11 the script only reports. From then on CI runs it with `--strict`. A test that names an ID the spec does not contain fails the script from the start.
+1. Every test says what it covers at the start of its docstring (Python) or its title (TypeScript), in one of two ways:
+   - **A requirement test** starts with the requirement IDs it covers: `"""R-FN-05: a second video with the same title gets the ID suffix."""`.
+   - **An infrastructure test** starts with the marker `infra:` and names no requirement ID: `"""infra: the fake clock moves only when told."""`. Infrastructure is what serves the developers and not a requirement of the spec: the clock, the scripts, the tooling, the wiring of the app, test helpers. Such a test must not borrow a requirement ID, because that would make the requirement look covered. In pytest these tests also carry the marker `infra` (`uv run pytest -m infra`, or `-m "not infra"`).
+2. A script (`scripts/requirements_coverage.py`) reads the IDs from [SPEC.md](SPEC.md) and from the tests and fails CI if a testable requirement has no test. It ignores infrastructure tests: they never count as coverage. It fails when a test starts with neither a requirement ID nor `infra:`. Requirements that can only be tested live or by hand are listed in `backend/tests/untestable.yml` with the reason. Until milestone M11 the script only reports. From then on CI runs it with `--strict`. A test that names an ID the spec does not contain fails the script from the start.
 3. No test touches the network except those marked `live`.
 4. No test depends on the current time, time zone or locale. Use the Clock port. The suite runs in CI under at least two time zones (UTC and one with a non-hour offset such as Asia/Tehran) because of the date rules.
 5. No sleeps. Wait on events or use a fake clock.

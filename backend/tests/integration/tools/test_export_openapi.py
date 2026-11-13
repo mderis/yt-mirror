@@ -9,7 +9,7 @@ from ytmirror.tools.export_openapi import main, openapi_json
 
 
 def test_the_schema_describes_the_api_and_is_stable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """R-QA-03: the generated frontend types come from this schema, so it must not jitter."""
+    """infra: the generated frontend types come from this schema, so it must not jitter."""
     monkeypatch.setenv("YTM_HOME", "/nonexistent/yt-mirror-home")
 
     first = openapi_json()
@@ -25,7 +25,7 @@ def test_the_schema_describes_the_api_and_is_stable(monkeypatch: pytest.MonkeyPa
 def test_the_schema_goes_to_standard_output_or_to_a_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """R-QA-03: ``gen:api`` writes the schema to a file, developers can also print it."""
+    """infra: ``gen:api`` writes the schema to a file, developers can also print it."""
     target = tmp_path / "openapi.json"
 
     printed_exit = main([])

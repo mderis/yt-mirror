@@ -8,14 +8,14 @@ from ytmirror.core.models import MINIMUM_MACOS_MAJOR, LogDetail, Settings
 
 
 def test_settings_defaults_match_the_spec() -> None:
-    """R-SE-03: the default of "Log detail" is Normal (docs/SPEC.md section 10)."""
+    """R-LG-01: the default of "Log detail" is Normal (docs/SPEC.md section 10)."""
     settings = Settings()
 
     assert settings.log_detail is LogDetail.NORMAL
 
 
 def test_settings_cannot_be_changed_in_place() -> None:
-    """R-SE-03: settings are values. A change makes a new object and goes through the repository."""
+    """infra: settings are values. A change makes a new object and goes through the repository."""
     settings = Settings()
 
     with pytest.raises(dataclasses.FrozenInstanceError):

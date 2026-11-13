@@ -34,7 +34,7 @@ CORE, SERVICES, OVERALL = script.SCOPES
 
 
 def test_the_thresholds_are_those_of_the_testing_document() -> None:
-    """R-QA-03: core 100/95, services 95/90, backend overall 90/85 (docs/TESTING.md section 3)."""
+    """infra: core 100/95, services 95/90, backend overall 90/85 (docs/TESTING.md section 3)."""
     assert [(s.name, s.lines, s.branches) for s in script.SCOPES] == [
         ("core", 100, 95),
         ("services", 95, 90),
@@ -43,7 +43,7 @@ def test_the_thresholds_are_those_of_the_testing_document() -> None:
 
 
 def test_each_scope_counts_only_its_own_files() -> None:
-    """R-QA-03: a well covered API cannot hide a gap in core."""
+    """infra: a well covered API cannot hide a gap in core."""
     data = report(
         core=file_summary(10, 9, 4, 4),
         services=file_summary(100, 96, 10, 9),
@@ -62,7 +62,7 @@ def test_each_scope_counts_only_its_own_files() -> None:
 
 
 def test_a_missed_branch_threshold_fails_even_with_full_line_coverage() -> None:
-    """R-QA-03: branch coverage has its own floor."""
+    """infra: branch coverage has its own floor."""
     result = script.measure(report(core=file_summary(10, 10, 20, 18)), CORE)
 
     assert result.lines == 100.0
@@ -71,7 +71,7 @@ def test_a_missed_branch_threshold_fails_even_with_full_line_coverage() -> None:
 
 
 def test_a_scope_without_code_counts_as_met() -> None:
-    """R-QA-03: an early milestone with an empty package does not fail the check."""
+    """infra: an early milestone with an empty package does not fail the check."""
     result = script.measure(report(api=file_summary(5, 5, 0, 0)), SERVICES)
 
     assert (result.lines, result.branches, result.ok) == (100.0, 100.0, True)
@@ -81,7 +81,7 @@ def test_a_scope_without_code_counts_as_met() -> None:
 def test_the_report_and_exit_code_show_which_scope_failed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """R-QA-03: CI fails with a line that names the scope and the numbers."""
+    """infra: CI fails with a line that names the scope and the numbers."""
     path = tmp_path / "coverage.json"
     path.write_text(
         json.dumps(report(core=file_summary(10, 9, 0, 0), services=file_summary(10, 10, 2, 2))),
@@ -101,7 +101,7 @@ def test_the_report_and_exit_code_show_which_scope_failed(
 
 
 def test_full_coverage_passes(tmp_path: Path) -> None:
-    """R-QA-03: a fully covered report ends with exit code 0."""
+    """infra: a fully covered report ends with exit code 0."""
     path = tmp_path / "coverage.json"
     path.write_text(json.dumps(report(core=file_summary(3, 3, 2, 2))), encoding="utf-8")
 
@@ -109,6 +109,6 @@ def test_full_coverage_passes(tmp_path: Path) -> None:
 
 
 def test_without_a_report_file_the_usage_is_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """R-QA-03: a wrong call explains itself."""
+    """infra: a wrong call explains itself."""
     assert script.main([]) == 2
     assert "Usage:" in capsys.readouterr().out

@@ -7,7 +7,7 @@ import { errorBody, HEALTH, jsonResponse, mockFetch } from '../helpers/fetch'
 import { renderWithApp } from '../helpers/render'
 
 describe('the placeholder page', () => {
-  it('R-IN-02: shows the app name, that it is running, and the version from the backend', async () => {
+  it('infra: shows the app name, that it is running, and the version from the backend', async () => {
     mockFetch(() => jsonResponse(HEALTH))
 
     renderWithApp(App)
@@ -30,7 +30,7 @@ describe('the placeholder page', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('R-ER-01: explains a failure in plain words and shows the error code', async () => {
+  it('infra: explains a failure in plain words and shows the error code', async () => {
     mockFetch(() => jsonResponse(errorBody('UNAUTHORIZED'), 401))
 
     renderWithApp(App)
@@ -41,7 +41,7 @@ describe('the placeholder page', () => {
     expect(screen.queryByText('yt-mirror is running.')).toBeNull()
   })
 
-  it('R-ER-01: shows no error code line when the backend could not be reached at all', async () => {
+  it('infra: shows no error code line when the backend could not be reached at all', async () => {
     mockFetch(() => Promise.reject(new TypeError('Failed to fetch')))
 
     renderWithApp(App)

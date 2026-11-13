@@ -14,7 +14,7 @@ CLOCKS: list[Callable[[], Clock]] = [FakeClock, SystemClock]
 
 @pytest.mark.parametrize("make_clock", CLOCKS)
 def test_now_is_timezone_aware_and_in_utc(make_clock: Callable[[], Clock]) -> None:
-    """R-DT-02: all timestamps are UTC, whatever the time zone of the Mac."""
+    """infra: all timestamps are UTC, whatever the time zone of the Mac."""
     now = make_clock().now()
 
     assert now.tzinfo is not None
@@ -23,7 +23,7 @@ def test_now_is_timezone_aware_and_in_utc(make_clock: Callable[[], Clock]) -> No
 
 @pytest.mark.parametrize("make_clock", CLOCKS)
 def test_monotonic_never_goes_backwards(make_clock: Callable[[], Clock]) -> None:
-    """R-DT-02: durations are measured with a clock that cannot jump back."""
+    """infra: durations are measured with a clock that cannot jump back."""
     clock = make_clock()
 
     first = clock.monotonic()
@@ -33,7 +33,7 @@ def test_monotonic_never_goes_backwards(make_clock: Callable[[], Clock]) -> None
 
 
 def test_the_fake_clock_moves_only_when_told() -> None:
-    """R-DT-02: tests control time (docs/TESTING.md rule 4)."""
+    """infra: tests control time (docs/TESTING.md rule 4)."""
     clock = FakeClock()
     before = clock.now()
 

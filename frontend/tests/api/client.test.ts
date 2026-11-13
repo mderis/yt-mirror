@@ -35,7 +35,7 @@ describe('the API client', () => {
     expect(error).toMatchObject({ status: 502, code: 'INTERNAL', details: {} })
   })
 
-  it('R-ER-03: reports an unreachable server without inventing an error code', async () => {
+  it('R-ER-02: reports an unreachable server without inventing an error code', async () => {
     mockFetch(() => Promise.reject(new TypeError('Failed to fetch')))
 
     const error = await api.getHealth().catch((caught: unknown) => caught)

@@ -211,7 +211,7 @@ def test_a_crash_is_logged_with_its_stack_trace_and_passed_on(paths: AppPaths) -
 
 
 def test_update_says_it_is_not_available_yet(capsys: pytest.CaptureFixture[str]) -> None:
-    """R-UP-02: ``--update`` exists but the updater arrives in milestone M9, and it says so."""
+    """infra: ``--update`` exists but the updater arrives in milestone M9, and it says so."""
     exit_code = main(["--update"], {})
 
     assert exit_code == 2
@@ -221,7 +221,7 @@ def test_update_says_it_is_not_available_yet(capsys: pytest.CaptureFixture[str])
 def test_doctor_prints_the_report_and_creates_no_data(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """R-IN-02: ``./start --doctor`` reports the environment without changing it."""
+    """infra: ``./start --doctor`` reports the environment without changing it."""
     exit_code = main(["--doctor"], {"YTM_HOME": str(tmp_path)})
 
     output = capsys.readouterr().out
@@ -266,7 +266,7 @@ def test_the_browser_flag_opens_the_default_browser_instead(
 def test_without_a_window_the_app_just_waits_for_a_stop_signal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """R-PL-02: automated tests run the server alone and stop it with a signal."""
+    """infra: automated tests run the server alone and stop it with a signal."""
     waited: list[bool] = []
     monkeypatch.setattr(main_module, "wait_for_stop_signal", lambda: waited.append(True))
     monkeypatch.setattr(main_module, "open_window", _no_window_expected)
@@ -280,7 +280,7 @@ def test_without_a_window_the_app_just_waits_for_a_stop_signal(
 def test_a_stop_signal_ends_the_wait_and_old_handlers_come_back(
     monkeypatch: pytest.MonkeyPatch, stop_signal: signal.Signals
 ) -> None:
-    """R-PL-09: Ctrl+C or a termination signal ends the app. Nothing keeps running."""
+    """infra: Ctrl+C or a termination signal ends the app. Nothing keeps running."""
 
     class EventThatGetsTheSignal(threading.Event):
         def wait(self, timeout: float | None = None) -> bool:
@@ -299,7 +299,7 @@ def test_a_stop_signal_ends_the_wait_and_old_handlers_come_back(
 def test_started_as_a_program_it_serves_logs_under_its_module_name_and_stops_on_a_signal(
     paths: AppPaths, tmp_path: Path
 ) -> None:
-    """R-IN-02, R-PL-09: ``python -m ytmirror.app.main`` runs until it is told to stop."""
+    """R-IN-02: ``python -m ytmirror.app.main`` runs until it is told to stop."""
     env = {
         **os.environ,
         "YTM_HOME": str(paths.home_dir),

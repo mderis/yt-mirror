@@ -69,7 +69,7 @@ def file_name_for(title: str, video_id: str, taken: Collection[str]) -> str:
 
 - Test names read as sentences: `test_second_video_with_same_title_gets_id_suffix`.
 - Arrange, act, assert, with blank lines between. One behaviour per test.
-- Each test docstring starts with the requirement IDs it covers.
+- Each test docstring or title starts with the requirement IDs it covers, or with `infra:` when it is an infrastructure test that covers no requirement ([TESTING.md](TESTING.md) rule 1). An infrastructure test never borrows a requirement ID.
 - Use builders (`make_video(status=...)`) for test data. No large inline fixtures.
 - See [TESTING.md](TESTING.md) for the rest.
 

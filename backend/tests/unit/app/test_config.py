@@ -14,7 +14,7 @@ from ytmirror.core.models import InstallKind
 
 
 def test_in_a_clone_data_and_tools_are_next_to_the_code() -> None:
-    """R-IN-02: a clone keeps ``data/`` and ``tools/`` in the repository root."""
+    """infra: a clone keeps ``data/`` and ``tools/`` in the repository root."""
     paths = resolve_paths({})
 
     assert (paths.code_root / "pyproject.toml").is_file()
@@ -27,7 +27,7 @@ def test_in_a_clone_data_and_tools_are_next_to_the_code() -> None:
 
 
 def test_the_home_folder_can_be_given_by_the_launcher(tmp_path: Path) -> None:
-    """R-IN-02: ``./start`` tells the app where ``data/`` and ``tools/`` are."""
+    """infra: ``./start`` tells the app where ``data/`` and ``tools/`` are."""
     paths = resolve_paths({"YTM_HOME": str(tmp_path)})
 
     assert paths.home_dir == tmp_path
@@ -37,7 +37,7 @@ def test_the_home_folder_can_be_given_by_the_launcher(tmp_path: Path) -> None:
 
 
 def test_the_data_folder_can_be_moved_for_tests(tmp_path: Path) -> None:
-    """R-IN-02: automated tests run the real app on a throwaway data folder."""
+    """infra: automated tests run the real app on a throwaway data folder."""
     paths = resolve_paths({"YTM_DATA_DIR": str(tmp_path / "elsewhere")})
 
     assert paths.data_dir == tmp_path / "elsewhere"
@@ -46,7 +46,7 @@ def test_the_data_folder_can_be_moved_for_tests(tmp_path: Path) -> None:
 
 
 def test_a_folder_with_git_is_a_clone_and_one_without_is_an_archive(tmp_path: Path) -> None:
-    """R-UP-04: the install kind decides later how the app updates."""
+    """infra: the install kind decides later how the app updates."""
     clone = tmp_path / "clone"
     (clone / ".git").mkdir(parents=True)
     archive = tmp_path / "archive"
@@ -69,14 +69,14 @@ def test_without_flags_the_app_opens_its_window_on_any_free_port() -> None:
 
 @pytest.mark.parametrize("flag", ["dev", "debug", "browser", "doctor", "update"])
 def test_each_flag_of_the_launcher_is_understood(flag: str) -> None:
-    """R-PL-02, R-IN-02: ``--dev``, ``--debug``, ``--browser``, ``--doctor`` and ``--update``."""
+    """infra: ``--dev``, ``--debug``, ``--browser``, ``--doctor`` and ``--update``."""
     options = parse_options([f"--{flag}"], {})
 
     assert getattr(options, flag) is True
 
 
 def test_an_unknown_flag_ends_with_the_usage_exit_code() -> None:
-    """R-IN-02: a typo is reported, not ignored."""
+    """infra: a typo is reported, not ignored."""
     with pytest.raises(SystemExit) as exit_info:
         parse_options(["--no-such-flag"], {})
 
@@ -84,14 +84,14 @@ def test_an_unknown_flag_ends_with_the_usage_exit_code() -> None:
 
 
 def test_dev_mode_uses_the_development_server_of_the_launcher() -> None:
-    """R-IN-02: ``./start --dev`` passes the address of the development server."""
+    """infra: ``./start --dev`` passes the address of the development server."""
     options = parse_options(["--dev"], {"YTM_FRONTEND_URL": "http://127.0.0.1:5999/"})
 
     assert options.frontend_url == "http://127.0.0.1:5999/"
 
 
 def test_dev_mode_without_an_address_uses_the_usual_one() -> None:
-    """R-IN-02: the development server has a fixed default address."""
+    """infra: the development server has a fixed default address."""
     assert parse_options(["--dev"], {}).frontend_url == DEFAULT_DEV_FRONTEND_URL
 
 
@@ -103,7 +103,7 @@ def test_the_development_server_address_is_ignored_outside_dev_mode() -> None:
 
 
 def test_tests_can_fix_the_port_the_token_and_run_without_a_window() -> None:
-    """R-PL-04: end-to-end tests drive the real app (docs/ARCHITECTURE.md section 10)."""
+    """infra: end-to-end tests drive the real app (docs/ARCHITECTURE.md section 10)."""
     env = {"YTM_PORT": "47801", "YTM_SESSION_TOKEN": "known", "YTM_NO_WINDOW": "1"}
 
     options = parse_options([], env)
@@ -115,13 +115,13 @@ def test_tests_can_fix_the_port_the_token_and_run_without_a_window() -> None:
 
 @pytest.mark.parametrize("value", ["", "0"])
 def test_the_window_stays_on_when_the_no_window_variable_is_off(value: str) -> None:
-    """R-PL-02: only a set, non-zero value turns the window off."""
+    """infra: only a set, non-zero value turns the window off."""
     assert not parse_options([], {"YTM_NO_WINDOW": value}).no_window
 
 
 @pytest.mark.parametrize("value", ["abc", "0", "70000", "-1", "80.5"])
 def test_an_invalid_port_ends_with_the_usage_exit_code(value: str) -> None:
-    """R-PL-04: the app never binds to a port it did not understand."""
+    """infra: the app never binds to a port it did not understand."""
     with pytest.raises(SystemExit) as exit_info:
         parse_options([], {"YTM_PORT": value})
 

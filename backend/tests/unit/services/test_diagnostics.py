@@ -49,7 +49,7 @@ def report(
 
 
 def test_health_reports_the_app_version_and_the_schema_version() -> None:
-    """R-IN-02: the health endpoint is backed by the real versions."""
+    """infra: the health endpoint is backed by the real versions."""
     service = DiagnosticsService(make_info(), FakeDatabaseSchema(current="0002"), healthy_probe())
 
     health = service.health()
@@ -59,7 +59,7 @@ def test_health_reports_the_app_version_and_the_schema_version() -> None:
 
 
 def test_a_healthy_mac_passes_every_check_and_needs_no_fix() -> None:
-    """R-IN-02: ``./start --doctor`` reports a working environment as such."""
+    """infra: ``./start --doctor`` reports a working environment as such."""
     results = report()
 
     assert all(result.ok for result in results.values())
@@ -67,7 +67,7 @@ def test_a_healthy_mac_passes_every_check_and_needs_no_fix() -> None:
 
 
 def test_the_report_lists_its_checks_in_a_fixed_order() -> None:
-    """R-IN-02: the report always reads the same way."""
+    """infra: the report always reads the same way."""
     names = list(report())
 
     assert names == [
@@ -136,7 +136,7 @@ def test_intel_processors_are_supported() -> None:
 
 
 def test_missing_uv_fails_and_says_to_run_start_again() -> None:
-    """R-IN-02: a missing tool gets a fix, not a stack trace."""
+    """infra: a missing tool gets a fix, not a stack trace."""
     probe = healthy_probe()
     del probe.commands[str(UV)]
 
@@ -147,7 +147,7 @@ def test_missing_uv_fails_and_says_to_run_start_again() -> None:
 
 
 def test_missing_node_fails_in_a_clone() -> None:
-    """R-IN-02: a clone needs Node.js to build the interface (docs/DECISIONS.md D-037)."""
+    """infra: a clone needs Node.js to build the interface (docs/DECISIONS.md D-037)."""
     probe = healthy_probe()
     del probe.commands["node"]
 
@@ -159,7 +159,7 @@ def test_missing_node_fails_in_a_clone() -> None:
 
 
 def test_node_is_not_checked_for_an_archive_install() -> None:
-    """R-IN-02: an installed copy ships the built interface and never needs Node.js."""
+    """infra: an installed copy ships the built interface and never needs Node.js."""
     probe = healthy_probe()
     del probe.commands["node"]
 
@@ -170,7 +170,7 @@ def test_node_is_not_checked_for_an_archive_install() -> None:
 
 
 def test_a_missing_interface_build_fails() -> None:
-    """R-IN-02: the built interface must exist before the window can show it."""
+    """infra: the built interface must exist before the window can show it."""
     probe = healthy_probe()
     probe.files.clear()
 
@@ -181,7 +181,7 @@ def test_a_missing_interface_build_fails() -> None:
 
 
 def test_a_missing_window_library_fails() -> None:
-    """R-PL-02: the dedicated window needs pywebview."""
+    """infra: the dedicated window needs pywebview."""
     probe = healthy_probe()
     probe.modules.clear()
 
@@ -192,7 +192,7 @@ def test_a_missing_window_library_fails() -> None:
 
 
 def test_a_read_only_data_folder_fails() -> None:
-    """R-IN-02: the app must be able to write its database and logs."""
+    """infra: the app must be able to write its database and logs."""
     probe = healthy_probe()
     probe.writable = False
 
@@ -203,7 +203,7 @@ def test_a_read_only_data_folder_fails() -> None:
 
 
 def test_free_space_is_reported_in_gigabytes() -> None:
-    """R-IN-02: the report shows the free space of the data volume."""
+    """infra: the report shows the free space of the data volume."""
     probe = healthy_probe()
     probe.free = 3 * 1024**3 + 512 * 1024**2
 
@@ -214,7 +214,7 @@ def test_free_space_is_reported_in_gigabytes() -> None:
 
 
 def test_a_database_that_does_not_exist_yet_is_not_a_problem() -> None:
-    """R-IN-02: before the first start there is no database, and that is fine."""
+    """infra: before the first start there is no database, and that is fine."""
     result = report(schema=FakeDatabaseSchema(current=None))["Database"]
 
     assert result.ok
@@ -222,7 +222,7 @@ def test_a_database_that_does_not_exist_yet_is_not_a_problem() -> None:
 
 
 def test_an_existing_database_reports_its_schema_version() -> None:
-    """R-QA-04: the report shows which schema version the database has."""
+    """infra: the report shows which schema version the database has."""
     result = report(schema=FakeDatabaseSchema(current="0002"))["Database"]
 
     assert result.ok
@@ -230,7 +230,7 @@ def test_an_existing_database_reports_its_schema_version() -> None:
 
 
 def test_a_damaged_database_fails() -> None:
-    """R-QA-06: a database that fails its integrity check is reported."""
+    """infra: a database that fails its integrity check is reported."""
     result = report(schema=FakeDatabaseSchema(current="0002", intact=False))["Database"]
 
     assert not result.ok
