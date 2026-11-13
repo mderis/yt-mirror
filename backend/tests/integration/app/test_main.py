@@ -85,7 +85,7 @@ def log_lines(paths: AppPaths) -> list[dict[str, object]]:
 
 
 def test_a_run_serves_the_interface_and_the_api_behind_the_session_token(paths: AppPaths) -> None:
-    """R-IN-02, R-PL-04: a start brings up a server that serves the frontend and the API."""
+    """R-PL-11, R-PL-10: a start brings up a server that serves the frontend and the API."""
     visit = Visit()
 
     exit_code = run_app(options(), paths, build_container(paths), wait=visit, console=None)
@@ -101,7 +101,7 @@ def test_a_run_serves_the_interface_and_the_api_behind_the_session_token(paths: 
 
 
 def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPaths) -> None:
-    """R-QA-04: a fresh clone gets its database from the migrations at the first start."""
+    """R-QA-07: a fresh clone gets its database from the migrations at the first start."""
     run_app(options(), paths, build_container(paths), wait=Visit(), console=None)
 
     engine = create_db_engine(paths.database_file)
@@ -111,7 +111,7 @@ def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPat
 
 
 def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
-    """R-LG-01: ``app.started``, ``app.config`` and ``app.stopping`` frame every run."""
+    """R-LG-06: ``app.started``, ``app.config`` and ``app.stopping`` frame every run."""
     run_app(options(), paths, build_container(paths), wait=Visit(), console=None)
 
     lines = log_lines(paths)
@@ -135,7 +135,7 @@ def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
 
 
 def test_the_session_token_never_reaches_the_log_or_the_console(paths: AppPaths) -> None:
-    """R-LG-01: secrets are redacted on every line (docs/LOGGING.md section 1, rule 4)."""
+    """R-LG-07: secrets are redacted on every line (docs/LOGGING.md section 1, rule 4)."""
     console = io.StringIO()
 
     run_app(options(debug=True), paths, build_container(paths), wait=Visit(), console=console)
@@ -148,7 +148,7 @@ def test_the_session_token_never_reaches_the_log_or_the_console(paths: AppPaths)
 
 
 def test_without_a_fixed_token_every_run_gets_a_new_random_one(paths: AppPaths) -> None:
-    """R-PL-04: a random session token is created at start."""
+    """R-PL-10: a random session token is created at start."""
     first, second = Visit(), Visit()
 
     run_app(options(session_token=None), paths, build_container(paths), wait=first, console=None)
@@ -162,7 +162,7 @@ def test_without_a_fixed_token_every_run_gets_a_new_random_one(paths: AppPaths) 
 
 
 def test_normal_log_detail_leaves_requests_out_and_verbose_puts_them_in(paths: AppPaths) -> None:
-    """R-LG-01: the stored "Log detail" setting decides whether debug lines are written."""
+    """R-LG-08: the stored "Log detail" setting decides whether debug lines are written."""
     container = build_container(paths)
     run_app(options(), paths, container, wait=Visit(), console=None)
     normal_events = {line["event"] for line in log_lines(paths)}
@@ -194,7 +194,7 @@ def test_old_log_files_are_removed_at_start(paths: AppPaths) -> None:
 
 
 def test_a_crash_is_logged_with_its_stack_trace_and_passed_on(paths: AppPaths) -> None:
-    """R-LG-01: ``app.crashed`` records an unexpected end, and the error is not swallowed."""
+    """R-LG-06: ``app.crashed`` records an unexpected end, and the error is not swallowed."""
 
     def broken_window(_url: str) -> None:
         raise RuntimeError("window library exploded")
@@ -221,7 +221,7 @@ def test_update_says_it_is_not_available_yet(capsys: pytest.CaptureFixture[str])
 def test_doctor_prints_the_report_and_creates_no_data(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """infra: ``./start --doctor`` reports the environment without changing it."""
+    """R-LG-05: ``./start --doctor`` reports the environment without changing it."""
     exit_code = main(["--doctor"], {"YTM_HOME": str(tmp_path)})
 
     output = capsys.readouterr().out
@@ -280,7 +280,7 @@ def test_without_a_window_the_app_just_waits_for_a_stop_signal(
 def test_a_stop_signal_ends_the_wait_and_old_handlers_come_back(
     monkeypatch: pytest.MonkeyPatch, stop_signal: signal.Signals
 ) -> None:
-    """infra: Ctrl+C or a termination signal ends the app. Nothing keeps running."""
+    """R-PL-13: Ctrl+C or a termination signal ends the app. Nothing keeps running."""
 
     class EventThatGetsTheSignal(threading.Event):
         def wait(self, timeout: float | None = None) -> bool:
@@ -299,7 +299,7 @@ def test_a_stop_signal_ends_the_wait_and_old_handlers_come_back(
 def test_started_as_a_program_it_serves_logs_under_its_module_name_and_stops_on_a_signal(
     paths: AppPaths, tmp_path: Path
 ) -> None:
-    """R-IN-02: ``python -m ytmirror.app.main`` runs until it is told to stop."""
+    """R-PL-13: ``python -m ytmirror.app.main`` runs until it is told to stop."""
     env = {
         **os.environ,
         "YTM_HOME": str(paths.home_dir),

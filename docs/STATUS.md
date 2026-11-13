@@ -28,6 +28,7 @@ Short facts the next session needs and cannot get from the code or the other doc
 
 - **M1 starts with Q-24.** The native Mac app requirements (R-NA-01 to R-NA-09, D-044) were added to the docs during the M0 review and are not built. M1 gets the app bundle and the app identity, but only after the Q-24 experiment has shown that pywebview can do it. If it cannot, stop and ask the maintainer. The bundle identifier proposed in ARCHITECTURE section 7.10 needs the maintainer's confirmation.
 - **The About window has no mockup yet.** It is needed before M7 (DESIGN section 7.2).
+- **Labelling tests (TESTING rule 1, D-046).** A test whose behaviour no requirement states is a spec gap: propose the requirement to the maintainer, do not mark the test `infra` and do not borrow an ID.
 - **`httpx2` is the app's HTTP client (D-041).** It is still a development package. The milestone that makes the first HTTP call (M1) moves it to the app's own packages.
 - **Minimum macOS (D-035) is provisional.** M1 must confirm that the ffmpeg build it chooses (Q-05) and Deno run on macOS 15, then remove this note.
 - **Q-09 is narrowed, not closed.** The folder picker opens, but nobody has checked by hand that it returns the chosen folder. Needed by M2.

@@ -47,7 +47,7 @@ def client(clock: FakeClock) -> TestClient:
 
 
 def test_every_request_is_logged_at_debug_with_status_and_duration(client: TestClient) -> None:
-    """R-LG-01: ``api.request`` records method, path, status and duration."""
+    """R-LG-06: ``api.request`` records method, path, status and duration."""
     with capture_logs() as logs:
         client.get("/fine?token=not-logged")
 
@@ -73,7 +73,7 @@ def test_an_unhandled_error_becomes_the_internal_error(client: TestClient) -> No
 
 
 def test_an_unhandled_error_is_logged_once_with_its_stack_trace(client: TestClient) -> None:
-    """R-LG-01: INTERNAL is always logged at error level with a stack trace (rule 6)."""
+    """R-LG-06: INTERNAL is always logged at error level with a stack trace (rule 6)."""
     with capture_logs() as logs:
         client.get("/crash")
 
@@ -89,7 +89,7 @@ def test_an_unhandled_error_is_logged_once_with_its_stack_trace(client: TestClie
 def test_an_error_after_the_response_started_is_logged_without_a_second_answer(
     client: TestClient,
 ) -> None:
-    """R-LG-01: a crash in the middle of a response is still logged, and nothing more is sent."""
+    """R-LG-06: a crash in the middle of a response is still logged, and nothing more is sent."""
     with capture_logs() as logs:
         response = client.get("/crash-late")
 
@@ -99,7 +99,7 @@ def test_an_error_after_the_response_started_is_logged_without_a_second_answer(
 
 
 def test_requests_through_the_real_app_are_logged_even_when_rejected(api: Api) -> None:
-    """R-LG-01: the request log wraps the security checks, so rejections are counted too."""
+    """R-LG-06: the request log wraps the security checks, so rejections are counted too."""
     with capture_logs() as logs:
         api.client().get("/api/health")
 

@@ -14,7 +14,7 @@ from ytmirror.core.models import InstallKind
 
 
 def test_in_a_clone_data_and_tools_are_next_to_the_code() -> None:
-    """infra: a clone keeps ``data/`` and ``tools/`` in the repository root."""
+    """R-IN-07: a clone keeps ``data/`` and ``tools/`` in the repository root."""
     paths = resolve_paths({})
 
     assert (paths.code_root / "pyproject.toml").is_file()
@@ -27,7 +27,7 @@ def test_in_a_clone_data_and_tools_are_next_to_the_code() -> None:
 
 
 def test_the_home_folder_can_be_given_by_the_launcher(tmp_path: Path) -> None:
-    """infra: ``./start`` tells the app where ``data/`` and ``tools/`` are."""
+    """R-IN-07: ``./start`` tells the app where ``data/`` and ``tools/`` are."""
     paths = resolve_paths({"YTM_HOME": str(tmp_path)})
 
     assert paths.home_dir == tmp_path
@@ -46,7 +46,7 @@ def test_the_data_folder_can_be_moved_for_tests(tmp_path: Path) -> None:
 
 
 def test_a_folder_with_git_is_a_clone_and_one_without_is_an_archive(tmp_path: Path) -> None:
-    """infra: the install kind decides later how the app updates."""
+    """R-IN-07: the install kind decides later how the app updates."""
     clone = tmp_path / "clone"
     (clone / ".git").mkdir(parents=True)
     archive = tmp_path / "archive"
@@ -69,14 +69,14 @@ def test_without_flags_the_app_opens_its_window_on_any_free_port() -> None:
 
 @pytest.mark.parametrize("flag", ["dev", "debug", "browser", "doctor", "update"])
 def test_each_flag_of_the_launcher_is_understood(flag: str) -> None:
-    """infra: ``--dev``, ``--debug``, ``--browser``, ``--doctor`` and ``--update``."""
+    """R-IN-06: ``--dev``, ``--debug``, ``--browser``, ``--doctor`` and ``--update``."""
     options = parse_options([f"--{flag}"], {})
 
     assert getattr(options, flag) is True
 
 
 def test_an_unknown_flag_ends_with_the_usage_exit_code() -> None:
-    """infra: a typo is reported, not ignored."""
+    """R-IN-06: a typo is reported, not ignored."""
     with pytest.raises(SystemExit) as exit_info:
         parse_options(["--no-such-flag"], {})
 
@@ -84,14 +84,14 @@ def test_an_unknown_flag_ends_with_the_usage_exit_code() -> None:
 
 
 def test_dev_mode_uses_the_development_server_of_the_launcher() -> None:
-    """infra: ``./start --dev`` passes the address of the development server."""
+    """R-IN-06: ``./start --dev`` passes the address of the development server."""
     options = parse_options(["--dev"], {"YTM_FRONTEND_URL": "http://127.0.0.1:5999/"})
 
     assert options.frontend_url == "http://127.0.0.1:5999/"
 
 
 def test_dev_mode_without_an_address_uses_the_usual_one() -> None:
-    """infra: the development server has a fixed default address."""
+    """R-IN-06: the development server has a fixed default address."""
     assert parse_options(["--dev"], {}).frontend_url == DEFAULT_DEV_FRONTEND_URL
 
 

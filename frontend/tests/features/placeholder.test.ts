@@ -18,7 +18,7 @@ describe('the placeholder page', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('R-UI-11: shows a status while the answer of the backend is pending', async () => {
+  it('infra: shows a status while the answer of the backend is pending', async () => {
     let answer: (response: Response) => void = () => {}
     mockFetch(() => new Promise<Response>((resolve) => (answer = resolve)))
 
@@ -54,7 +54,7 @@ describe('the placeholder page', () => {
     expect(alert.textContent).not.toContain('yt-mirror answered with an error.')
   })
 
-  it('R-ER-03: offers a real button that tries again and recovers', async () => {
+  it('infra: offers a real button that tries again and recovers', async () => {
     const answers = [jsonResponse(errorBody('INTERNAL'), 500), jsonResponse(HEALTH)]
     const fetchMock = mockFetch(() => answers.shift() as Response)
     renderWithApp(App)

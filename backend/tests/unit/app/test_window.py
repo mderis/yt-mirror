@@ -52,7 +52,7 @@ def test_the_window_cannot_be_made_smaller_than_1100_by_700() -> None:
 
 
 def test_debug_makes_the_developer_tools_available_without_opening_them() -> None:
-    """R-PL-02: ``./start --debug`` enables the developer tools in the window."""
+    """R-IN-06: ``./start --debug`` enables the developer tools in the window."""
     webview = FakeWebview()
 
     open_window("http://127.0.0.1:5000/", debug=True, webview=webview)

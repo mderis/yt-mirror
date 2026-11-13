@@ -35,7 +35,7 @@ def repository(
 
 
 def test_nothing_stored_gives_the_defaults(repository: SettingsRepository) -> None:
-    """R-SE-03: a setting that was never stored has its default."""
+    """R-SE-04: a setting that was never stored has its default."""
     assert repository.load() == Settings()
 
 
@@ -102,7 +102,7 @@ def test_saving_an_unchanged_value_keeps_its_updated_time(engine: Engine, clock:
 def test_a_stored_value_of_the_wrong_type_falls_back_to_the_default(
     engine: Engine, clock: FakeClock
 ) -> None:
-    """R-SE-03: a row that is not a text value cannot break loading."""
+    """R-SE-04: a row that is not a text value cannot break loading."""
     with engine.begin() as connection:
         connection.execute(
             text(
@@ -115,7 +115,7 @@ def test_a_stored_value_of_the_wrong_type_falls_back_to_the_default(
 
 
 def test_keys_the_app_does_not_know_are_ignored(engine: Engine, clock: FakeClock) -> None:
-    """R-SE-03: a row left by another version does not break loading."""
+    """R-SE-04: a row left by another version does not break loading."""
     with engine.begin() as connection:
         connection.execute(
             text(

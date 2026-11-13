@@ -75,7 +75,7 @@ def test_every_error_code_maps_to_a_status_and_the_one_shape(code: ErrorCode) ->
 
 
 def test_details_are_passed_through() -> None:
-    """R-ER-01: technical details travel with the error."""
+    """R-ER-02: technical details travel with the error."""
     assert body_of(ErrorCode.NOT_FOUND, {"what": "channel"})["error"] == {
         "code": "NOT_FOUND",
         "message": "There is nothing at this address.",

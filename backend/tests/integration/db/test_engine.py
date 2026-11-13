@@ -8,7 +8,7 @@ from ytmirror.adapters.db.engine import create_db_engine
 
 
 def test_creating_the_engine_touches_nothing_on_disk(tmp_path: Path) -> None:
-    """infra: ``--doctor`` and the schema export build the app without creating a database."""
+    """R-QA-07: ``--doctor`` and the schema export build the app without creating a database."""
     database_file = tmp_path / "data" / "yt-mirror.db"
 
     create_db_engine(database_file)
@@ -17,7 +17,7 @@ def test_creating_the_engine_touches_nothing_on_disk(tmp_path: Path) -> None:
 
 
 def test_the_first_connection_creates_the_folder_and_the_file(tmp_path: Path) -> None:
-    """infra: a fresh clone has no ``data/`` folder. The first start creates it."""
+    """R-QA-07: a fresh clone has no ``data/`` folder. The first start creates it."""
     database_file = tmp_path / "data" / "nested" / "yt-mirror.db"
     engine = create_db_engine(database_file)
 
@@ -28,7 +28,7 @@ def test_the_first_connection_creates_the_folder_and_the_file(tmp_path: Path) ->
 
 
 def test_connections_use_wal_mode_and_enforce_foreign_keys(tmp_path: Path) -> None:
-    """infra: WAL mode keeps the database consistent through a crash (D-005)."""
+    """R-QA-07: WAL mode keeps the database consistent through a crash (D-005)."""
     engine = create_db_engine(tmp_path / "yt-mirror.db")
 
     with engine.connect() as connection:

@@ -5,8 +5,9 @@ at the start of its docstring (Python) or its title (TypeScript), in one of
 two ways (docs/TESTING.md rule 1):
 
     R-CH-03, R-CH-04: ...   the requirements the test covers
-    infra: ...              an infrastructure test: clock, scripts, tooling.
-                            It covers no requirement and must not borrow an ID.
+    infra: ...              an infrastructure test. It verifies no product behaviour at
+                            all (test doubles, fixtures, check scripts, the test harness,
+                            temporary scaffolding) and must not borrow an ID.
 
 This program reads the IDs from the spec and from the tests and prints the
 requirements no test names. Infrastructure tests are ignored: they never count

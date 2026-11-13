@@ -189,3 +189,7 @@ Format: **Decision**, **Why**, **Consequences**.
 **Why:** The app bundle of M1 needs the icon (R-NA-01, R-NA-02), so the icon cannot wait for M9, and the script that makes it cannot wait for M2.
 **Consequences:** M2 only uses the script for the favicon. M9 reuses the bundle program of M1 for the installer.
 
+### D-046 Three groups decide how a test is labelled
+**Decision:** A test that verifies behaviour a requirement states carries that requirement's ID. A test that verifies real behaviour no requirement states is a gap in the spec: the requirement is proposed to the maintainer first. Only a test that verifies no product behaviour at all is an infrastructure test with the `infra:` marker. No test carries an ID that is merely the closest fit. This replaces the scope given in D-043, which had counted the wiring of the app and whole areas such as the health endpoint as infrastructure.
+**Why:** The first use of the marker in milestone M0 put 114 tests under it, among them tests of the launcher flags, the health endpoint and the setting defaults. That hid gaps in the spec. Sorting those tests by this rule led to twelve new requirements (R-PL-10 to R-PL-13, R-IN-06, R-IN-07, R-SE-04, R-ER-04, R-LG-06 to R-LG-08, R-QA-07).
+**Consequences:** The `infra` marker stays rare. A missing requirement is found when its test is written, and is added to the spec instead of being hidden behind a marker or a borrowed ID.

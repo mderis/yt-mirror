@@ -47,7 +47,7 @@ def test_a_fixed_port_is_used_when_given() -> None:
 
 
 def test_the_server_answers_after_start_and_not_after_stop() -> None:
-    """infra: the backend starts in a background thread and stops cleanly."""
+    """R-PL-13: the backend starts in a background thread and stops cleanly."""
     server = BackgroundServer(APP, bind_local_socket(None))
 
     server.start()
@@ -64,7 +64,7 @@ def test_the_server_answers_after_start_and_not_after_stop() -> None:
 
 
 def test_a_server_that_cannot_start_reports_it() -> None:
-    """infra: a failed start is an error the app can report, not a silent hang."""
+    """R-PL-13: a failed start is an error the app can report, not a silent hang."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
     server = BackgroundServer(APP, sock)

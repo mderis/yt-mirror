@@ -102,7 +102,7 @@ def test_each_line_is_one_compact_json_object(pipeline: Pipeline) -> None:
 
 
 def test_the_timestamp_is_utc_whatever_zone_the_clock_reports(tmp_path: Path) -> None:
-    """R-LG-01, R-DT-02: log times are UTC with millisecond precision."""
+    """R-LG-06: log times are UTC with millisecond precision."""
     tehran = timezone(timedelta(hours=3, minutes=30))
     clock = FakeClock(datetime(2026, 11, 14, 1, 15, 0, 7000, tzinfo=tehran))
     pipeline = Pipeline(tmp_path / "logs", clock)
@@ -138,7 +138,7 @@ def test_lines_are_appended_to_an_existing_daily_file(tmp_path: Path, clock: Fak
 
 
 def test_normal_detail_drops_debug_lines(pipeline: Pipeline) -> None:
-    """R-LG-01: "Normal" writes info and above (docs/LOGGING.md section 1)."""
+    """R-LG-08: "Normal" writes info and above (docs/LOGGING.md section 1)."""
     log = structlog.get_logger("ytmirror.api.request_log")
 
     log.debug("api.request", msg="Request handled")
@@ -148,7 +148,7 @@ def test_normal_detail_drops_debug_lines(pipeline: Pipeline) -> None:
 
 
 def test_verbose_detail_keeps_debug_lines(tmp_path: Path, clock: FakeClock) -> None:
-    """R-LG-01: "Verbose" and ``--debug`` write debug and above."""
+    """R-LG-08: "Verbose" and ``--debug`` write debug and above."""
     pipeline = Pipeline(tmp_path / "logs", clock, verbose=True)
 
     structlog.get_logger("ytmirror.api.request_log").debug("api.request", msg="Request handled")
@@ -157,7 +157,7 @@ def test_verbose_detail_keeps_debug_lines(tmp_path: Path, clock: FakeClock) -> N
 
 
 def test_the_level_can_be_raised_while_running(pipeline: Pipeline) -> None:
-    """R-LG-01: the "Log detail" setting is applied after the settings are loaded."""
+    """R-LG-08: the "Log detail" setting is applied after the settings are loaded."""
     log = structlog.get_logger("ytmirror.api.request_log")
 
     set_verbose(True)
@@ -169,7 +169,7 @@ def test_the_level_can_be_raised_while_running(pipeline: Pipeline) -> None:
 
 
 def test_a_registered_secret_is_removed_wherever_it_appears(pipeline: Pipeline) -> None:
-    """R-LG-01: the session token is never written (docs/LOGGING.md section 1, rule 4)."""
+    """R-LG-07: the session token is never written (docs/LOGGING.md section 1, rule 4)."""
     pipeline.redactor.register("s3cr3t-token")
     log = structlog.get_logger("ytmirror.app.main")
 
@@ -189,7 +189,7 @@ def test_a_registered_secret_is_removed_wherever_it_appears(pipeline: Pipeline) 
 
 
 def test_fields_named_like_secrets_are_removed_even_when_unknown(pipeline: Pipeline) -> None:
-    """R-LG-01, R-SE-03: an API key or token field is redacted by its name alone."""
+    """R-LG-07: an API key or token field is redacted by its name alone."""
     log = structlog.get_logger("ytmirror.app.main")
 
     log.info(
@@ -205,7 +205,7 @@ def test_fields_named_like_secrets_are_removed_even_when_unknown(pipeline: Pipel
 
 
 def test_an_empty_secret_is_not_registered(pipeline: Pipeline) -> None:
-    """R-LG-01: registering nothing must not blank out every text."""
+    """R-LG-07: registering nothing must not blank out every text."""
     pipeline.redactor.register("")
 
     structlog.get_logger("ytmirror.app.main").info("app.started", msg="Started")
@@ -214,7 +214,7 @@ def test_an_empty_secret_is_not_registered(pipeline: Pipeline) -> None:
 
 
 def test_an_exception_is_written_with_its_stack_trace(pipeline: Pipeline) -> None:
-    """R-LG-01: exceptions are logged with ``exc_info`` (docs/LOGGING.md section 1, rule 6)."""
+    """R-LG-06: exceptions are logged with ``exc_info`` (docs/LOGGING.md section 1, rule 6)."""
     log = structlog.get_logger("ytmirror.app.main")
 
     try:
@@ -230,14 +230,14 @@ def test_an_exception_is_written_with_its_stack_trace(pipeline: Pipeline) -> Non
 
 
 def test_a_line_without_a_sentence_uses_its_event_name(pipeline: Pipeline) -> None:
-    """R-LG-01: ``msg`` is present on every line, even when the caller forgot it."""
+    """R-LG-06: ``msg`` is present on every line, even when the caller forgot it."""
     structlog.get_logger("ytmirror.app.main").info("app.started")
 
     assert pipeline.lines()[0]["msg"] == "app.started"
 
 
 def test_the_console_shows_one_readable_line_per_event(pipeline: Pipeline) -> None:
-    """R-LG-01: the console shows the same events in a one-line form (rule 7)."""
+    """R-LG-06: the console shows the same events in a one-line form (rule 7)."""
     structlog.get_logger("ytmirror.app.main").info("app.started", msg="Started", version="1.0.0")
 
     assert pipeline.console.getvalue() == (
@@ -263,7 +263,7 @@ def test_without_a_console_only_the_file_is_written(tmp_path: Path, clock: FakeC
 
 
 def test_warnings_of_libraries_enter_the_same_file(pipeline: Pipeline) -> None:
-    """R-LG-01: lines from uvicorn or Alembic are not lost and keep the line format."""
+    """R-LG-06: lines from uvicorn or Alembic are not lost and keep the line format."""
     logging.getLogger("uvicorn.error").warning("Something %s happened", "odd")
 
     (line,) = pipeline.lines()
@@ -275,7 +275,7 @@ def test_warnings_of_libraries_enter_the_same_file(pipeline: Pipeline) -> None:
 
 
 def test_routine_lines_of_libraries_are_kept_only_in_verbose_detail(pipeline: Pipeline) -> None:
-    """R-LG-01: library chatter appears only when the detail is Verbose."""
+    """R-LG-08: library chatter appears only when the detail is Verbose."""
     library = logging.getLogger("alembic.runtime.migration")
 
     library.info("Hidden at Normal")
@@ -286,14 +286,14 @@ def test_routine_lines_of_libraries_are_kept_only_in_verbose_detail(pipeline: Pi
 
 
 def test_a_logger_without_a_name_reports_the_package_as_component(pipeline: Pipeline) -> None:
-    """R-LG-01: ``component`` is never missing."""
+    """R-LG-06: ``component`` is never missing."""
     structlog.get_logger().info("app.started", msg="Started")
 
     assert pipeline.lines()[0]["component"] == "ytmirror"
 
 
 def test_a_run_id_is_a_ulid_made_at_the_current_time(clock: FakeClock) -> None:
-    """R-LG-01: every start gets a new ULID run ID that sorts by time."""
+    """R-LG-06: every start gets a new ULID run ID that sorts by time."""
     run_id = new_run_id(clock)
 
     assert len(run_id) == 26

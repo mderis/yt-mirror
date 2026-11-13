@@ -20,7 +20,7 @@ class _SlowSchema(FakeDatabaseSchema):
 
 
 def test_a_new_database_is_migrated_to_the_latest_version(clock: FakeClock) -> None:
-    """infra: the first start creates the schema through the migrations."""
+    """R-QA-07: the first start creates the schema through the migrations."""
     schema = FakeDatabaseSchema(latest="0002", current=None)
 
     version = SchemaService(schema, clock).bring_up_to_date()
@@ -30,7 +30,7 @@ def test_a_new_database_is_migrated_to_the_latest_version(clock: FakeClock) -> N
 
 
 def test_an_up_to_date_database_is_left_alone_and_nothing_is_logged(clock: FakeClock) -> None:
-    """infra: no migration runs when the schema is already current."""
+    """R-QA-07: no migration runs when the schema is already current."""
     schema = FakeDatabaseSchema(latest="0002", current="0002")
 
     with capture_logs() as logs:
@@ -42,7 +42,7 @@ def test_an_up_to_date_database_is_left_alone_and_nothing_is_logged(clock: FakeC
 
 
 def test_a_migration_is_logged_at_start_and_end_with_its_duration(clock: FakeClock) -> None:
-    """R-LG-01: ``db.migration.started`` and ``db.migration.finished`` frame the upgrade."""
+    """R-LG-06: ``db.migration.started`` and ``db.migration.finished`` frame the upgrade."""
     schema = _SlowSchema(clock)
 
     with capture_logs() as logs:

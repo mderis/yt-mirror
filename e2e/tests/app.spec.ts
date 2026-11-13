@@ -11,7 +11,7 @@ async function openApp(page: Page): Promise<void> {
   await page.evaluate(() => document.fonts.ready)
 }
 
-test('R-IN-02, R-PL-04: a started app shows the placeholder, and the token leaves the address', async ({
+test('R-IN-02, R-PL-10: a started app shows the placeholder, and the token leaves the address', async ({
   page,
 }) => {
   await openApp(page)
@@ -22,7 +22,7 @@ test('R-IN-02, R-PL-04: a started app shows the placeholder, and the token leave
   await expect(page).toHaveTitle('yt-mirror')
 })
 
-test('R-PL-04: the session lives in a cookie that scripts cannot read', async ({
+test('R-PL-10: the session lives in a cookie that scripts cannot read', async ({
   page,
   context,
 }) => {
@@ -36,7 +36,7 @@ test('R-PL-04: the session lives in a cookie that scripts cannot read', async ({
   expect(await page.evaluate(() => document.cookie)).not.toContain('ytm_session')
 })
 
-test('R-PL-04: without a session the page loads, the API refuses, and the page says so', async ({
+test('R-PL-10: without a session the page loads, the API refuses, and the page says so', async ({
   page,
 }) => {
   await page.goto('/')
@@ -47,7 +47,7 @@ test('R-PL-04: without a session the page loads, the API refuses, and the page s
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
 })
 
-test('R-PL-04: a wrong token starts no session', async ({ page, request }) => {
+test('R-PL-10: a wrong token starts no session', async ({ page, request }) => {
   const response = await request.get('/?token=a-guess')
 
   expect(response.status()).toBe(401)
@@ -72,7 +72,7 @@ test('R-PL-04: the API refuses another website even when it knows the token', as
   expect((await foreign.json()).error.code).toBe('ORIGIN_REJECTED')
 })
 
-test('R-ER-03: "Try again" recovers once the session exists', async ({ page, context }) => {
+test('infra: "Try again" recovers once the session exists', async ({ page, context }) => {
   await page.goto('/')
   await expect(page.getByRole('alert')).toBeVisible()
   await context.addCookies([{ name: 'ytm_session', value: SESSION_TOKEN, url: APP_URL }])

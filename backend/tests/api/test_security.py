@@ -78,25 +78,25 @@ def test_host_and_origin_are_compared_without_regard_to_case() -> None:
 
 @pytest.mark.parametrize("path", ["/api", "/api/", "/api/health", "/api/anything/else"])
 def test_every_api_path_needs_the_session_token(path: str) -> None:
-    """R-PL-04: the token is required on every API call."""
+    """R-PL-10: the token is required on every API call."""
     assert decide(path=path, cookie=None) is ErrorCode.UNAUTHORIZED
     assert decide(path=path, cookie=TOKEN) is None
 
 
 @pytest.mark.parametrize("wrong", ["", "wrong", TOKEN + "x", TOKEN[:-1], TOKEN.upper()])
 def test_a_wrong_token_is_rejected(wrong: str) -> None:
-    """R-PL-04: only the exact token of this run is accepted."""
+    """R-PL-10: only the exact token of this run is accepted."""
     assert decide(cookie=wrong) is ErrorCode.UNAUTHORIZED
     assert decide(cookie=None, bearer=wrong) is ErrorCode.UNAUTHORIZED
 
 
 def test_the_token_is_also_accepted_as_a_bearer_header() -> None:
-    """R-PL-04: tests and tools may send the token in a header (docs/DECISIONS.md D-038)."""
+    """R-PL-10: tests and tools may send the token in a header (docs/DECISIONS.md D-038)."""
     assert decide(cookie=None, bearer=TOKEN) is None
 
 
 def test_pages_and_assets_need_no_token() -> None:
-    """R-PL-04: the interface files hold no secrets and load before the session exists."""
+    """R-PL-10: the interface files hold no secrets and load before the session exists."""
     assert decide(path="/", cookie=None) is None
     assert decide(path="/assets/app.js", cookie=None) is None
     assert decide(path="/apiary", cookie=None) is None
@@ -112,7 +112,7 @@ def test_the_development_server_origin_is_accepted_only_when_given() -> None:
 
 
 def test_the_api_answers_401_without_a_session(api: Api) -> None:
-    """R-PL-04: an API call without the token gets the UNAUTHORIZED error."""
+    """R-PL-10: an API call without the token gets the UNAUTHORIZED error."""
     response = api.client().get("/api/health")
 
     assert response.status_code == 401
@@ -140,7 +140,7 @@ def test_the_api_answers_403_to_a_foreign_host(api: Api) -> None:
 
 
 def test_a_bearer_header_opens_the_api(api: Api) -> None:
-    """R-PL-04: the bearer form of the token works end to end."""
+    """R-PL-10: the bearer form of the token works end to end."""
     response = api.client().get("/api/health", headers={"Authorization": f"Bearer {TOKEN}"})
 
     assert response.status_code == 200
@@ -148,14 +148,14 @@ def test_a_bearer_header_opens_the_api(api: Api) -> None:
 
 @pytest.mark.parametrize("header", ["Basic abc", f"Token {TOKEN}", TOKEN, "Bearer"])
 def test_other_authorization_headers_do_not_open_the_api(api: Api, header: str) -> None:
-    """R-PL-04: only a well-formed bearer header counts."""
+    """R-PL-10: only a well-formed bearer header counts."""
     response = api.client().get("/api/health", headers={"Authorization": header})
 
     assert response.status_code == 401
 
 
 def test_the_first_url_trades_the_token_for_a_cookie_and_leaves_the_url(api: Api) -> None:
-    """R-PL-04: the token is exchanged once and then never appears in a URL (D-038)."""
+    """R-PL-10: the token is exchanged once and then never appears in a URL (D-038)."""
     client = api.client()
 
     response = client.get("/", params={"token": TOKEN})
@@ -171,7 +171,7 @@ def test_the_first_url_trades_the_token_for_a_cookie_and_leaves_the_url(api: Api
 
 
 def test_a_wrong_token_in_the_first_url_gives_no_cookie(api: Api) -> None:
-    """R-PL-04: guessing the token does not start a session."""
+    """R-PL-10: guessing the token does not start a session."""
     client = api.client()
 
     response = client.get("/", params={"token": "guess"})
@@ -183,7 +183,7 @@ def test_a_wrong_token_in_the_first_url_gives_no_cookie(api: Api) -> None:
 
 
 def test_a_rejected_request_is_logged_without_the_token(api: Api) -> None:
-    """R-PL-04, R-LG-01: a rejection leaves an ``api.error`` line with its code."""
+    """R-PL-04, R-LG-06, R-LG-07: a rejection leaves an ``api.error`` line with its code."""
     with capture_logs() as logs:
         api.client().get("/api/health", headers={"Origin": "https://evil.example"})
 
@@ -198,7 +198,7 @@ def test_a_rejected_request_is_logged_without_the_token(api: Api) -> None:
 def test_in_dev_mode_the_first_url_leads_to_the_development_server(
     tmp_path: Path, frontend_dir: Path, clock: FakeClock
 ) -> None:
-    """R-PL-04: with ``--dev`` the cookie is set and the window moves to the dev server."""
+    """R-PL-10: with ``--dev`` the cookie is set and the window moves to the dev server."""
     dev_url = "http://127.0.0.1:5173/"
     config = ApiConfig(
         security=SecurityPolicy.for_local_server(TOKEN, PORT, dev_url),

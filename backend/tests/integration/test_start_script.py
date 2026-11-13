@@ -67,7 +67,7 @@ def install_fake_uv(clone: Path) -> Path:
 
 
 def test_help_explains_every_flag_and_needs_nothing_installed(clone: Path) -> None:
-    """R-IN-02: ``./start --help`` lists the flags of the implementation plan."""
+    """R-IN-06: ``./start --help`` lists the flags of the implementation plan."""
     result = run_start(clone, "--help")
 
     assert result.returncode == 0
@@ -77,7 +77,7 @@ def test_help_explains_every_flag_and_needs_nothing_installed(clone: Path) -> No
 
 
 def test_an_unknown_flag_stops_before_anything_is_downloaded(clone: Path) -> None:
-    """R-IN-02: a typo costs nothing and shows the usage."""
+    """R-IN-06: a typo costs nothing and shows the usage."""
     result = run_start(clone, "--no-such-flag")
 
     assert result.returncode == 2
@@ -119,7 +119,7 @@ def test_an_unknown_processor_is_refused(clone: Path, tmp_path: Path) -> None:
 
 
 def test_a_download_that_fails_its_checksum_is_never_used(clone: Path, tmp_path: Path) -> None:
-    """R-IN-02: uv is verified against its SHA-256 before use (ARCHITECTURE section 9)."""
+    """R-IN-07: uv is verified against its SHA-256 before use (ARCHITECTURE section 9)."""
     downloads = tmp_path / "downloads" / pinned_uv_version()
     downloads.mkdir(parents=True)
     for name in ("uv-aarch64-apple-darwin", "uv-x86_64-apple-darwin"):
@@ -140,7 +140,7 @@ def test_a_download_that_fails_its_checksum_is_never_used(clone: Path, tmp_path:
 
 
 def test_a_failed_download_is_explained(clone: Path, tmp_path: Path) -> None:
-    """R-IN-02: without a connection the launcher says what to do, in plain words."""
+    """R-IN-07: without a connection the launcher says what to do, in plain words."""
     result = run_start(clone, env={"YTM_UV_BASE_URL": f"file://{tmp_path}/nothing-here"})
 
     assert result.returncode == 1
@@ -151,7 +151,7 @@ def test_a_failed_download_is_explained(clone: Path, tmp_path: Path) -> None:
 def test_a_present_uv_of_the_pinned_version_is_not_downloaded_again(
     clone: Path, tmp_path: Path
 ) -> None:
-    """R-IN-02: a second start does not need the network for uv."""
+    """R-IN-07: a second start does not need the network for uv."""
     install_fake_uv(clone)
 
     result = run_start(clone, env={"YTM_UV_BASE_URL": f"file://{tmp_path}/nothing-here"})
@@ -163,7 +163,7 @@ def test_a_present_uv_of_the_pinned_version_is_not_downloaded_again(
 
 
 def test_python_and_packages_go_into_the_tools_folder(clone: Path) -> None:
-    """R-IN-02: nothing is installed outside the app folder (docs/DECISIONS.md D-018)."""
+    """R-IN-07: nothing is installed outside the app folder (docs/DECISIONS.md D-018)."""
     uv = install_fake_uv(clone)
     script = uv.read_text(encoding="utf-8")
     record_env = f'env | grep "^UV_" | sort > "{clone}/uv-env.txt"; echo "$@" >>'
@@ -180,7 +180,7 @@ def test_python_and_packages_go_into_the_tools_folder(clone: Path) -> None:
 
 
 def test_without_node_a_clone_gets_a_clear_message_instead_of_a_crash(clone: Path) -> None:
-    """R-IN-02: building the interface in a clone needs Node.js (docs/DECISIONS.md D-037)."""
+    """R-IN-07: building the interface in a clone needs Node.js (docs/DECISIONS.md D-037)."""
     install_fake_uv(clone)
 
     result = run_start(clone)
@@ -193,7 +193,7 @@ def test_without_node_a_clone_gets_a_clear_message_instead_of_a_crash(clone: Pat
 def test_an_installation_without_interface_sources_and_without_a_build_says_so(
     clone: Path,
 ) -> None:
-    """R-IN-02: a damaged archive install is reported, not silently rebuilt."""
+    """R-IN-07: a damaged archive install is reported, not silently rebuilt."""
     install_fake_uv(clone)
     shutil.rmtree(clone / "frontend" / "src")
 
@@ -204,7 +204,7 @@ def test_an_installation_without_interface_sources_and_without_a_build_says_so(
 
 
 def test_doctor_does_not_build_the_interface(clone: Path) -> None:
-    """R-IN-02: ``./start --doctor`` only looks. It needs no Node.js."""
+    """R-IN-07: ``./start --doctor`` only looks. It needs no Node.js."""
     install_fake_uv(clone)
 
     result = run_start(clone, "--doctor")

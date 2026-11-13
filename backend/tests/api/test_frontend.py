@@ -9,7 +9,7 @@ from ytmirror.api.security import SecurityPolicy
 
 
 def test_the_start_page_is_the_built_interface(api: Api) -> None:
-    """infra: the backend serves the built frontend."""
+    """R-PL-11: the backend serves the built frontend."""
     response = api.client().get("/")
 
     assert response.status_code == 200
@@ -19,7 +19,7 @@ def test_the_start_page_is_the_built_interface(api: Api) -> None:
 
 
 def test_assets_of_the_interface_are_served(api: Api) -> None:
-    """infra: scripts, styles and fonts come from the same server."""
+    """R-PL-11: scripts, styles and fonts come from the same server."""
     response = api.client().get("/assets/app.js")
 
     assert response.status_code == 200
@@ -27,7 +27,7 @@ def test_assets_of_the_interface_are_served(api: Api) -> None:
 
 
 def test_files_outside_the_interface_folder_cannot_be_read(api: Api, tmp_path: Path) -> None:
-    """R-PL-04: the server gives out the interface and nothing else from the disk."""
+    """R-PL-11: the server gives out the interface and nothing else from the disk."""
     (tmp_path / "secret.txt").write_text("secret", encoding="utf-8")
     client = api.client()
 
@@ -39,7 +39,7 @@ def test_files_outside_the_interface_folder_cannot_be_read(api: Api, tmp_path: P
 
 
 def test_a_missing_build_is_reported_as_not_found(tmp_path: Path, clock: FakeClock) -> None:
-    """infra: without a built interface the server says so instead of crashing."""
+    """R-PL-11: without a built interface the server says so instead of crashing."""
     empty = tmp_path / "not-built"
     config = ApiConfig(security=SecurityPolicy.for_local_server(TOKEN, PORT), frontend_dir=empty)
     api = Api(create_app(config, make_diagnostics(tmp_path), clock), empty)

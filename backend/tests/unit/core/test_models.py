@@ -8,7 +8,7 @@ from ytmirror.core.models import MINIMUM_MACOS_MAJOR, LogDetail, Settings
 
 
 def test_settings_defaults_match_the_spec() -> None:
-    """R-LG-01: the default of "Log detail" is Normal (docs/SPEC.md section 10)."""
+    """R-SE-04: the default of "Log detail" is Normal (docs/SPEC.md section 10)."""
     settings = Settings()
 
     assert settings.log_detail is LogDetail.NORMAL

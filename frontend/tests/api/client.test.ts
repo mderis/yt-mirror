@@ -5,7 +5,7 @@ import { api, ApiError } from '@/api/client'
 import { errorBody, HEALTH, jsonResponse, mockFetch } from '../helpers/fetch'
 
 describe('the API client', () => {
-  it('R-PL-04: calls the API on the same origin and sends the session cookie', async () => {
+  it('R-PL-10: calls the API on the same origin and sends the session cookie', async () => {
     const fetchMock = mockFetch(() => jsonResponse(HEALTH))
 
     const health = await api.getHealth()

@@ -24,7 +24,7 @@ def schema(request: pytest.FixtureRequest, tmp_path: Path) -> DatabaseSchema:
 def test_before_the_first_upgrade_there_is_no_database_and_no_version(
     schema: DatabaseSchema,
 ) -> None:
-    """infra: looking at a missing database does not create it."""
+    """R-QA-07: looking at a missing database does not create it."""
     assert not schema.exists()
     assert schema.current_version() is None
     assert schema.is_intact()
@@ -32,12 +32,12 @@ def test_before_the_first_upgrade_there_is_no_database_and_no_version(
 
 
 def test_the_latest_version_is_the_newest_migration(schema: DatabaseSchema) -> None:
-    """infra: the app knows which schema version it expects."""
+    """R-QA-07: the app knows which schema version it expects."""
     assert schema.latest_version() == LATEST
 
 
 def test_upgrade_creates_the_database_at_the_latest_version(schema: DatabaseSchema) -> None:
-    """infra: every database change is a migration, including the first."""
+    """R-QA-07: every database change is a migration, including the first."""
     schema.upgrade()
 
     assert schema.exists()
@@ -46,7 +46,7 @@ def test_upgrade_creates_the_database_at_the_latest_version(schema: DatabaseSche
 
 
 def test_upgrading_twice_changes_nothing(schema: DatabaseSchema) -> None:
-    """infra: an upgrade of a current database is harmless."""
+    """R-QA-07: an upgrade of a current database is harmless."""
     schema.upgrade()
 
     schema.upgrade()
@@ -55,7 +55,7 @@ def test_upgrading_twice_changes_nothing(schema: DatabaseSchema) -> None:
 
 
 def test_a_file_that_is_not_a_database_fails_the_integrity_check(tmp_path: Path) -> None:
-    """infra: a damaged database is noticed."""
+    """R-LG-05: a damaged database is noticed."""
     database_file = tmp_path / "yt-mirror.db"
     schema = AlembicSchema(create_db_engine(database_file), database_file)
     schema.upgrade()
