@@ -94,6 +94,10 @@ Defined once in `backend/ytmirror/core/errors.py`. Each code has: a name, whethe
 | `TOOL_MISSING` | transient | ffmpeg, Deno or yt-dlp is not usable |
 | `CHANNEL_NOT_FOUND` | permanent | |
 | `INVALID_CHANNEL_INPUT` | permanent | What the user pasted is not a channel |
+| `UNAUTHORIZED` | permanent | A request to the local API came without the session token, or with a wrong one |
+| `ORIGIN_REJECTED` | permanent | A request to the local server came from another website or was addressed to another host (R-PL-04) |
+| `NOT_FOUND` | permanent | There is nothing at the requested address of the local server |
+| `INVALID_REQUEST` | permanent | A request to the local API is malformed |
 | `API_KEY_INVALID`, `API_QUOTA_EXCEEDED` | transient | Never shown as an error dialog (R-DT-12) |
 | `UPDATE_FAILED`, `MIGRATION_FAILED`, `CHECKSUM_MISMATCH` | transient | |
 | `INTERNAL` | transient | Anything unclassified. Always logged at `error` with a stack trace |
