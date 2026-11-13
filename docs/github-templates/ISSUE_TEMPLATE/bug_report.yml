@@ -1,0 +1,36 @@
+name: Report a problem
+description: Something in yt-mirror does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for reporting. The easiest way to fill this in is "Report a problem" inside the app, which copies a debug report for you.
+  - type: input
+    id: app_version
+    attributes:
+      label: yt-mirror version
+    validations:
+      required: true
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version and Mac type (Apple Silicon or Intel)
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What did you do, and what went wrong?
+      description: Step by step if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+  - type: textarea
+    id: debug_report
+    attributes:
+      label: Debug report
+      description: In the app, open Settings, then "Export debug report", and paste or attach it here. It contains logs and settings, no videos and no secrets.
+      render: text
