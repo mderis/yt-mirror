@@ -1,0 +1,198 @@
+#!/bin/sh
+# yt-mirror launcher.
+#
+# What it does, in order:
+#   1. Checks that this is a Mac with a supported processor.
+#   2. Puts a pinned, checksum-verified copy of uv into tools/.
+#   3. Lets uv install the pinned Python and the locked packages into tools/.
+#   4. Builds the interface with Node.js when the built copy is missing or stale.
+#   5. Starts the app.
+#
+# Nothing is installed outside this folder (docs/DECISIONS.md, D-018).
+# Tests: backend/tests/integration/test_start_script.py
+
+set -eu
+
+UV_VERSION="0.13.8"
+UV_SHA256_ARM64="6b71028a6b904f2ae3340ef52e595512de807d06c0a20eaef2f692581b246558"
+UV_SHA256_X86_64="a04c2ffeac28b2003a2c13caf538ab425fcd7def3e4a41571f4a8fb370a66af3"
+# The download location can be replaced in tests. The checksum is always checked.
+UV_BASE_URL="${YTM_UV_BASE_URL:-https://github.com/astral-sh/uv/releases/download}"
+
+DEV_FRONTEND_PORT=5173
+DEV_BACKEND_PORT=47800
+
+APP_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+# In a clone the folder that holds tools/ and data/ is the repository itself.
+HOME_DIR="$APP_DIR"
+TOOLS_DIR="$HOME_DIR/tools"
+FRONTEND_DIR="$APP_DIR/frontend"
+UV="$TOOLS_DIR/uv/uv"
+PYTHON="$TOOLS_DIR/venv/bin/python"
+
+say() {
+    printf '%s\n' "$*" >&2
+}
+
+fail() {
+    say "yt-mirror cannot start: $*"
+    exit 1
+}
+
+usage() {
+    cat <<'EOF'
+Usage: ./start [options]
+
+  --dev      Run with hot reload of the interface (needs Node.js)
+  --debug    Verbose logs, and developer tools in the window
+  --browser  Open in the default browser instead of the app window
+  --doctor   Check the environment and report
+  --update   Update yt-mirror (not available yet)
+  --help     Show this text
+EOF
+}
+
+check_platform() {
+    [ "$(uname -s)" = "Darwin" ] || fail "yt-mirror runs on macOS only."
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        arm64 | x86_64) ;;
+        *) fail "this processor ($ARCH) is not supported. yt-mirror needs Apple Silicon or Intel." ;;
+    esac
+}
+
+ensure_uv() {
+    if [ -x "$UV" ] && [ "$("$UV" --version 2>/dev/null | awk '{print $2}')" = "$UV_VERSION" ]; then
+        return 0
+    fi
+    if [ "$ARCH" = "arm64" ]; then
+        uv_name="uv-aarch64-apple-darwin"
+        uv_sha="$UV_SHA256_ARM64"
+    else
+        uv_name="uv-x86_64-apple-darwin"
+        uv_sha="$UV_SHA256_X86_64"
+    fi
+    work="$TOOLS_DIR/.uv-download"
+    rm -rf "$work"
+    mkdir -p "$work"
+    say "Downloading uv $UV_VERSION into tools/ ..."
+    if ! curl -fsSL --retry 2 -o "$work/$uv_name.tar.gz" "$UV_BASE_URL/$UV_VERSION/$uv_name.tar.gz"; then
+        rm -rf "$work"
+        fail "uv could not be downloaded. Check your internet connection and run ./start again."
+    fi
+    actual_sha=$(shasum -a 256 "$work/$uv_name.tar.gz" | awk '{print $1}')
+    if [ "$actual_sha" != "$uv_sha" ]; then
+        rm -rf "$work"
+        fail "the downloaded uv does not match its checksum, so it was not used. Run ./start again."
+    fi
+    tar -xzf "$work/$uv_name.tar.gz" -C "$work"
+    rm -rf "$TOOLS_DIR/uv"
+    mkdir -p "$TOOLS_DIR/uv"
+    mv "$work/$uv_name/uv" "$work/$uv_name/uvx" "$TOOLS_DIR/uv/"
+    rm -rf "$work"
+}
+
+ensure_python_env() {
+    export UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/python"
+    export UV_PROJECT_ENVIRONMENT="$TOOLS_DIR/venv"
+    export UV_CACHE_DIR="$TOOLS_DIR/uv-cache"
+    export UV_PYTHON_PREFERENCE="only-managed"
+    if [ ! -x "$PYTHON" ]; then
+        say "Preparing Python and its packages in tools/. The first time takes a minute ..."
+    fi
+    # --inexact keeps the developer tools that "scripts/uv run" adds to the same environment.
+    if ! "$UV" sync --project "$APP_DIR" --frozen --no-dev --inexact --quiet; then
+        fail "the Python environment could not be prepared. Check your internet connection and run ./start again."
+    fi
+}
+
+ensure_node() {
+    if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+        fail "Node.js is needed to build the interface when running from a clone. Install it from https://nodejs.org and run ./start again."
+    fi
+}
+
+ensure_node_modules() {
+    lock="$FRONTEND_DIR/package-lock.json"
+    installed="$FRONTEND_DIR/node_modules/.package-lock.json"
+    if [ ! -f "$installed" ] || [ "$lock" -nt "$installed" ]; then
+        say "Installing the interface's packages ..."
+        npm --prefix "$FRONTEND_DIR" ci --no-audit --no-fund >&2 || fail "the interface's packages could not be installed."
+    fi
+}
+
+frontend_needs_build() {
+    built="$FRONTEND_DIR/dist/index.html"
+    [ -f "$built" ] || return 0
+    # A release archive ships the built interface without its sources.
+    [ -d "$FRONTEND_DIR/src" ] || return 1
+    newer=$(find "$FRONTEND_DIR/src" "$FRONTEND_DIR/index.html" "$FRONTEND_DIR/package.json" \
+        "$FRONTEND_DIR/vite.config.ts" -newer "$built" -print 2>/dev/null | head -n 1)
+    [ -n "$newer" ]
+}
+
+ensure_frontend() {
+    frontend_needs_build || return 0
+    [ -d "$FRONTEND_DIR/src" ] || fail "the built interface is missing from this installation."
+    ensure_node
+    ensure_node_modules
+    say "Building the interface ..."
+    npm --prefix "$FRONTEND_DIR" run build >&2 || fail "the interface could not be built."
+}
+
+start_dev_server() {
+    ensure_node
+    ensure_node_modules
+    YTM_PORT="${YTM_PORT:-$DEV_BACKEND_PORT}"
+    export YTM_PORT
+    (cd "$FRONTEND_DIR" && exec node_modules/.bin/vite --port "$DEV_FRONTEND_PORT" --strictPort) >&2 &
+    DEV_SERVER_PID=$!
+    trap 'kill "$DEV_SERVER_PID" 2>/dev/null || true' EXIT INT TERM
+    dev_url="http://127.0.0.1:$DEV_FRONTEND_PORT/"
+    tries=0
+    until curl -fsS -o /dev/null "$dev_url" 2>/dev/null; do
+        kill -0 "$DEV_SERVER_PID" 2>/dev/null || fail "the development server stopped. Is port $DEV_FRONTEND_PORT in use?"
+        tries=$((tries + 1))
+        [ "$tries" -lt 150 ] || fail "the development server did not start."
+        sleep 0.2
+    done
+    export YTM_FRONTEND_URL="$dev_url"
+}
+
+DEV=0
+DOCTOR=0
+for arg in "$@"; do
+    case "$arg" in
+        --dev) DEV=1 ;;
+        --doctor) DOCTOR=1 ;;
+        --debug | --browser | --update) ;;
+        --help | -h)
+            usage
+            exit 0
+            ;;
+        *)
+            say "Unknown option: $arg"
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+check_platform
+ensure_uv
+ensure_python_env
+export YTM_HOME="$HOME_DIR"
+
+if [ "$DOCTOR" = 1 ]; then
+    exec "$PYTHON" -m ytmirror.app.main "$@"
+fi
+
+if [ "$DEV" = 1 ]; then
+    start_dev_server
+    status=0
+    "$PYTHON" -m ytmirror.app.main "$@" || status=$?
+    exit "$status"
+fi
+
+ensure_frontend
+exec "$PYTHON" -m ytmirror.app.main "$@"
