@@ -18,7 +18,7 @@ Use "Report a problem" inside the app when you can: it prepares a debug report a
 2. Follow [docs/CODING-STANDARDS.md](docs/CODING-STANDARDS.md), including the definition of done.
 3. Add or update tests ([docs/TESTING.md](docs/TESTING.md)). Name the requirement IDs they cover.
 4. Update the documentation and `CHANGELOG.md` when behaviour changes.
-5. Make sure all checks pass locally, then open a pull request that says which requirement IDs it implements and how you tested it.
+5. Follow [docs/WORKFLOW.md](docs/WORKFLOW.md). Make sure all checks pass locally, then open a pull request that says which requirement IDs it implements and how you tested it.
 
 ## Commit messages
 

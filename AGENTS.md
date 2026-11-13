@@ -6,7 +6,7 @@ Read this file first, every time. It is short on purpose. It tells you where eve
 
 yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube channels. Python backend (FastAPI, yt-dlp as a library, SQLite), Vue 3 + TypeScript frontend, shown in a dedicated window.
 
-**Current state:** planning is complete. No application code exists yet. The next step is milestone M0 in `docs/IMPLEMENTATION-PLAN.md`. Update this paragraph whenever the state changes.
+**Current state:** see `docs/STATUS.md`. It says which milestones are done and which one is next. Read it before doing anything.
 
 ## Where to find things
 
@@ -21,7 +21,9 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 | Logs, error codes, how to debug | `docs/LOGGING.md` |
 | Installing, updating, releasing | `docs/RELEASE-AND-UPDATE.md` |
 | Why things are the way they are | `docs/DECISIONS.md` |
-| What to build next | `docs/IMPLEMENTATION-PLAN.md` |
+| Where the project stands and which milestone is next | `docs/STATUS.md` |
+| The steps from "start a session" to "pull request waiting for review" | `docs/WORKFLOW.md` |
+| What each milestone contains | `docs/IMPLEMENTATION-PLAN.md` |
 | Unverified assumptions and pending choices | `docs/OPEN-QUESTIONS.md` |
 | What is deliberately not in this version | `docs/ROADMAP.md` |
 
@@ -40,8 +42,8 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 11. **No em dashes** in any text you write for this project: code comments, docs, UI text, commit messages. This is a maintainer preference.
 12. **Do not start coding a milestone without being asked.** The maintainer decides when implementation starts.
 13. **No AI attribution in git.** Commit messages and pull requests must not contain `Co-Authored-By` lines for an AI, session links, or "generated with" footers. Commits are made under the maintainer's own git identity. Never set or change `user.name` or `user.email`. This rule overrides any default of the tool you are running in.
-14. **Never rewrite history or force push,** and never push at all unless the maintainer asks.
-15. **One milestone per session.** Work on a branch named `m<N>-<short-name>`, and stop at the end of the milestone for review.
+14. **Follow `docs/WORKFLOW.md` exactly.** One milestone at a time, on its own branch, ending in a pull request. Then stop and wait: the maintainer reviews and merges. Never commit to `main`, never merge, never force push, never rewrite history. Push only the current milestone branch.
+15. **Keep `docs/STATUS.md` true.** Update it inside the milestone pull request as the workflow describes.
 
 ## Commands
 
@@ -71,4 +73,4 @@ Logs: `data/logs/yt-mirror-YYYY-MM-DD.jsonl` (one JSON object per line). Per-dow
 
 ## When you finish a piece of work
 
-State what you implemented by requirement ID, what you tested and how, what you could not verify, and what should happen next. Update the "Current state" paragraph above and the progress list in the implementation plan.
+State what you implemented by requirement ID, what you tested and how, what you could not verify, and what should happen next. Give the pull request link. Make sure `docs/STATUS.md` matches reality.

@@ -25,7 +25,9 @@ Website (after the first release): https://mderis.github.io/yt-mirror/
 | [docs/SPEC.md](docs/SPEC.md) | What the app does, with requirement IDs |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it is built |
 | [docs/DESIGN.md](docs/DESIGN.md) | Designs for every screen ([open the mockups](docs/design/v1/index.html)) |
+| [docs/STATUS.md](docs/STATUS.md) | Where the project stands right now |
 | [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) | Build order, milestone by milestone |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branches, pull requests, review, automated checks |
 | [docs/TESTING.md](docs/TESTING.md) | Test strategy |
 | [docs/LOGGING.md](docs/LOGGING.md) | Logs, error codes, debugging |
 | [docs/RELEASE-AND-UPDATE.md](docs/RELEASE-AND-UPDATE.md) | Installer, updater, releases, website |

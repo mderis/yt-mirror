@@ -7,7 +7,7 @@ This plan is written so that a developer or an AI agent can build the app milest
 1. Read [AGENTS.md](../AGENTS.md), then [SPEC.md](SPEC.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [CODING-STANDARDS.md](CODING-STANDARDS.md).
 2. Take the next milestone. Resolve its open questions first ([OPEN-QUESTIONS.md](OPEN-QUESTIONS.md)).
 3. For each requirement: write the tests, write the code, run all checks, commit.
-4. At the end of the milestone: run the two reviews in [TESTING.md](TESTING.md) section 7, fix the findings, update the changelog, tick the milestone here.
+4. At the end of the milestone: open a pull request and wait for the maintainer, exactly as described in [WORKFLOW.md](WORKFLOW.md). The two reviews in [TESTING.md](TESTING.md) section 7 happen on that pull request.
 5. Do not start work that belongs to a later milestone. Do not add features that are not in the spec. If the spec is wrong or incomplete, stop and raise it: the spec is changed first, then the code.
 
 A milestone is done when its acceptance list passes and the definition of done in the coding standards holds for every change in it.
@@ -24,7 +24,7 @@ Resolve: Q-01, Q-09.
 - Security basics: localhost binding, session token, origin check (with tests).
 - Logging pipeline from [LOGGING.md](LOGGING.md) with `app.started` and `app.config`.
 - Database setup with Alembic and the first empty migration. Settings table and typed settings model.
-- CI workflow: lint, types, unit tests, frontend tests, build, on macOS. Pre-commit hooks.
+- CI workflow `.github/workflows/ci.yml` as specified in [WORKFLOW.md](WORKFLOW.md) section 6: runs on every pull request, on every new commit pushed to a pull request, and on pushes to `main`. Pre-commit hooks.
 - The requirements coverage script (may report everything as uncovered for now).
 
 Acceptance: a fresh clone on a Mac runs with `./start` and opens a window. CI is green. `./start --doctor` reports the environment.
@@ -129,15 +129,4 @@ Acceptance: the site builds and deploys from `main`, the install line on the hom
 
 ## Progress
 
-- [ ] M0 Skeleton and tooling
-- [ ] M1 Toolchain
-- [ ] M2 Channels and catalogue
-- [ ] M3 Downloading one video correctly
-- [ ] M4 Dates everywhere
-- [ ] M5 Queue
-- [ ] M6 Excluding
-- [ ] M7 Settings, feedback, activity, help
-- [ ] M8 Adopting existing files
-- [ ] M9 Installer, updater, uninstall, release pipeline
-- [ ] M10 Website and documentation
-- [ ] M11 Hardening and release
+Progress is tracked in [STATUS.md](STATUS.md), and nowhere else.
