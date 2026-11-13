@@ -130,3 +130,6 @@ Format: **Decision**, **Why**, **Consequences**.
 ### D-033 The app tells users the YouTube API key is free
 **Decision:** Wherever the optional API key is mentioned (setting, guide, website), the text says that it costs nothing, needs no payment details, and has only a daily usage limit.
 **Why:** A request to "get an API key from Google Cloud" makes many people expect a bill.
+
+### D-034 Copyright holder
+**Decision:** The license names "Moslem Deris and contributors". The name is the one the maintainer uses publicly.

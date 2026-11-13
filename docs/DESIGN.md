@@ -6,7 +6,7 @@ The editable source of the designs is a design canvas outside the repository: ht
 
 When a mockup and [SPEC.md](SPEC.md) disagree, the spec wins and the mockup must be fixed.
 
-**Review status:** the mockups were generated from one shared set of components but have not yet been visually reviewed screen by screen. The implementer should treat spacing and exact sizes as guidance and the structure, wording and states as binding. See OPEN-QUESTIONS Q-10.
+**Review status:** every screen in this folder was rendered in a headless Chrome and reviewed on 14 November 2026. Fixes from that review: bars that overlapped list rows, a dangling separator in the channel header, long status chips that pushed row actions onto a second line, a wrong default in the parallel downloads control, and frame heights that clipped or left empty space. The review used Chrome only. The app window uses WebKit, so the implementer must still check the real UI there. The app icon is a rough draft. Spacing and exact sizes are guidance. Structure, wording and states are binding.
 
 ## 1. Screen inventory
 

@@ -69,7 +69,7 @@ Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11, R-DT-12, R-FN-06. Resolve: Q
 Acceptance: the mandatory date tests in [TESTING.md](TESTING.md) section 5 pass under two time zones.
 
 ## M5. Queue
-Requirements: R-QU-01 to R-QU-12, R-MI-02 to R-MI-07, R-UI-03 to R-UI-13 (remaining), R-QL-05 to R-QL-07. Resolve: Q-10 first.
+Requirements: R-QU-01 to R-QU-12, R-MI-02 to R-MI-07, R-UI-03 to R-UI-13 (remaining), R-QL-05 to R-QL-07. 
 
 - Worker pool, ordering, reorder, pause and resume, speed limit, retry policy, resume of partial downloads, restart recovery, disk guard, unavailable folder handling.
 - Auto-mirror with the date limit. Mirror everything missing. File missing status.

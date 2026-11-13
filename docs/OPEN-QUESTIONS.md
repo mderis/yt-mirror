@@ -15,7 +15,6 @@ Everything here must be resolved before or during the milestone named. When an i
 | Q-07 | macOS notifications can be sent from an unsigned Python process started by a local launcher | Try the candidate mechanisms. If none works without signing, notifications fall back to in-app toasts only and R-FB-06 is moved to a later version | M7 |
 | Q-08 | Slow-path exact date fetching at one request per 2 seconds does not trigger YouTube rate limits for typical channels | Measure on a 1,000-video channel. Adjust the rate and the estimate shown in the UI | M4 |
 | Q-09 | pywebview on macOS supports what the UI needs: native folder picker, opening external links in the default browser, window minimum size, a close handler that can ask for confirmation | Prototype in M0 | M0 |
-| Q-10 | The mockups in `docs/design/v1/` render as intended | Visual review of every screen. Fix the canvas and regenerate the export | Before M5 |
 | Q-11 | The Google Cloud Console steps in the API key guide match the current console. A third-party guide from 2026 lists the same six steps, but nobody has followed them in the console for this project yet | Follow them once and correct the wording | M4 |
 | Q-12 | Approximate dates from the flat channel listing are available for all videos | Check the listing output for old and new videos. If missing, show "date pending" instead of an approximate date | M2 |
 
@@ -29,6 +28,5 @@ Facts already verified during planning (November 2026):
 
 | ID | Question | Default if not decided |
 |---|---|---|
-| Q-21 | Copyright holder name in `LICENSE` | "yt-mirror contributors" |
 | Q-22 | Contact for the code of conduct and for security reports | GitHub private vulnerability reporting, no email |
 | Q-23 | Should the app check for updates on first run before the user has seen the setting? | Yes, it is one request to GitHub with no personal data |

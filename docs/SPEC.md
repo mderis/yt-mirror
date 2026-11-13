@@ -334,7 +334,7 @@ Design: `States.html` (the complete catalogue).
 | ID | Requirement |
 |---|---|
 | R-FB-01 | Channel statuses: Checking, Up to date, N new videos, Mirroring X of Y, Paused, Could not check, Matching files X of Y, Exact dates X of Y. One status line is shown at a time, by priority: error, mirroring, checking, matching, exact dates, new, paused, up to date. |
-| R-FB-02 | Video statuses: Not downloaded, Queued, Downloading (percent, speed, time left), Processing, Synced (with height), File missing, Failed (with reason), Excluded. Markers that combine with a status: New, Removed from YouTube, Approximate date, Lower than target quality. |
+| R-FB-02 | Video statuses: Not downloaded, Queued, Downloading (percent in the status chip. Quality, speed and time left next to it), Processing, Synced (with height), File missing, Failed (with reason), Excluded. Markers that combine with a status: New, Removed from YouTube, Approximate date, Lower than target quality. |
 | R-FB-03 | Status changes appear in the UI within one second without a manual refresh. |
 | R-FB-04 | Banners for app-wide conditions: tool missing, yt-dlp update available, app update available, queue paused by the disk guard, cannot reach YouTube, library folder not found, and success confirmations. Each banner has the action that fixes it. |
 | R-FB-05 | Toasts confirm user actions and offer Undo where possible. |
