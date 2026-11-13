@@ -7,7 +7,7 @@ This file is the single source of truth for where the project stands. Read it at
 
 | Milestone | Title | Status | Branch | Pull request | Merged |
 |---|---|---|---|---|---|
-| M0 | Project skeleton and tooling | Not started | | | |
+| M0 | Project skeleton and tooling | In progress | `m0-project-skeleton` | | |
 | M1 | Toolchain | Not started | | | |
 | M2 | Channels and catalogue | Not started | | | |
 | M3 | Downloading one video correctly | Not started | | | |
