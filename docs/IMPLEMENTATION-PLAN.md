@@ -15,7 +15,7 @@ A milestone is done when its acceptance list passes and the definition of done i
 ---
 
 ## M0. Project skeleton and tooling
-Resolve: Q-01, Q-09.
+Requirements: R-TH-01 to R-TH-06, R-TH-08, R-TH-09. Resolve: Q-01, Q-09.
 
 - Repository structure from [ARCHITECTURE.md](ARCHITECTURE.md) section 3, with a README in each package.
 - `pyproject.toml` with uv, Ruff, Pyright, pytest, coverage thresholds, import-linter rules. `frontend/` with Vite, Vue, TypeScript strict, Tailwind with the design tokens, ESLint, Prettier, Vitest. `e2e/` with Playwright.
@@ -26,6 +26,7 @@ Resolve: Q-01, Q-09.
 - Database setup with Alembic and the first empty migration. Settings table and typed settings model.
 - CI workflow `.github/workflows/ci.yml` as specified in [WORKFLOW.md](WORKFLOW.md) section 6: runs on every pull request, on every new commit pushed to a pull request, and on pushes to `main`. Pre-commit hooks.
 - The requirements coverage script (may report everything as uncovered for now).
+- The theme center ([DESIGN.md](DESIGN.md) section 2): tokens, Tailwind preset, bundled fonts, brand icon source, the token lint, the theme preview page, and visual regression screenshots in both themes.
 
 Acceptance: a fresh clone on a Mac runs with `./start` and opens a window. CI is green. `./start --doctor` reports the environment.
 
@@ -112,9 +113,9 @@ Requirements: R-IN-01, R-IN-02, R-UP-01 to R-UP-07, R-UN-01, R-QA-04. Resolve: Q
 Acceptance: end-to-end flow 12 passes. A manual install on a clean Mac works. An update from a test release to another test release works and rolls back when a migration is made to fail.
 
 ## M10. Website and documentation
-Requirements: R-WS-01 to R-WS-05.
+Requirements: R-WS-01 to R-WS-05, R-TH-07.
 
-- VitePress site with the home page and documentation structure. User guide written for non-technical users. Developer docs moved into the site structure.
+- VitePress site with the home page and documentation structure, styled from the app's token file (R-TH-07). User guide written for non-technical users. Developer docs moved into the site structure.
 - Screenshot generation. Pages deployment workflow. Contributor files and issue templates checked.
 
 Acceptance: the site builds and deploys from `main`, the install line on the home page works, screenshots are generated from the app.

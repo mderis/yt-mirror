@@ -71,6 +71,7 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 - **Adoption (R-AD-*)**: certain, proposed and ambiguous matches. Fix in place never re-encodes.
 - **Updater (R-UP-*)**: success, failure at each step with rollback, refusing a newer database.
 - **API security**: token required, foreign origins rejected.
+- **Theme (R-TH-*)**: every theme defines the same tokens, every token used in code is defined, code outside the theme center uses only tokens.
 
 ## 6. End-to-end flows (Playwright)
 
@@ -89,7 +90,7 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 13. Light and dark theme, list and grid, keyboard-only use of the main flow.
 14. Accessibility scan (axe) on every screen: no serious violations.
 
-Visual regression: Playwright screenshots of every screen in both themes are compared with stored baselines. The same run produces the website screenshots (R-WS-05).
+Visual regression: Playwright screenshots of every screen and of the theme preview page, in both themes, are compared with stored baselines (R-TH-09). The same run produces the website screenshots (R-WS-05).
 
 ## 7. Reviews
 

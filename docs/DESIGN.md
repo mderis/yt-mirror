@@ -47,9 +47,38 @@ When a mockup and [SPEC.md](SPEC.md) disagree, the spec wins and the mockup must
 
 Not drawn, by decision: layouts narrower than the minimum window (R-PL-03), the native macOS folder picker, and the remaining website documentation pages (they use the `SiteDocs.html` template).
 
-## 2. Design tokens
+## 2. The theme center and its tokens
 
-Implement these as CSS variables and expose them through the Tailwind preset in `frontend/src/design/`. Components never use raw hex values.
+Requirements: R-TH-01 to R-TH-09 in [SPEC.md](SPEC.md). Decision: D-036.
+
+Every visual value of the app lives in one folder, `frontend/src/design/`. Nothing outside that folder may contain a colour value, a font name, a pixel font size or a one-off spacing value.
+
+```
+frontend/src/design/
+  tokens.css        Every token as a CSS variable. Shared values, then one block per theme
+  theme.css         The Tailwind preset: maps the tokens to utility classes, and removes Tailwind's own palette and scales
+  themes.ts         The list of themes, and the few lines that pick one (system, light, dark)
+  fonts/            One folder per bundled font: the font files, their license, and a font.css that declares them
+  brand/icon.svg    The one source of the app icon and logo (section 5)
+  preview/          The theme preview page (development mode only)
+```
+
+### 2.1 Rules for tokens
+
+1. **Tokens are CSS variables** named `--ytm-<group>-<name>`. The groups are `color`, `font`, `font-size`, `font-weight`, `line-height`, `space`, `radius`, `shadow` and `duration`.
+2. **Names are semantic.** A name says what the value is for (`text-muted`, `surface-raised`, `accent`), never what it looks like (`blue-500`, `gray-2`).
+3. **A theme is one block.** `tokens.css` has one block of shared values and one block per theme, selected by the `data-theme` attribute on the root element. Every theme block defines exactly the same tokens. A test checks this.
+4. **"Same as system"** is not a third block. `themes.ts` reads the system setting and sets `data-theme` to `light` or `dark`, and follows the system when it changes.
+5. **Adding a theme** means adding one block to `tokens.css` and its name to `themes.ts`. No component changes.
+6. **Changing the app font** means putting the new font's folder into `fonts/` and changing the one `--ytm-font-text` line (or `--ytm-font-heading`). Every `font.css` in `fonts/` is loaded automatically.
+7. **The Tailwind preset** in `theme.css` is the only bridge to utility classes. Tailwind's default colours, font sizes, weights, radii and shadows are switched off there, so a class such as `bg-blue-500` or `text-sm` does not exist. In Tailwind 4 a preset is a CSS file, not a JavaScript file.
+8. **A lint check in CI** (`npm --prefix frontend run lint:theme`) fails when code outside the theme center uses a raw colour, a font name, a font size, a one-off spacing value, a Tailwind arbitrary value (`p-[13px]`), or a token that is not defined.
+9. **The website** imports the same `tokens.css` (R-TH-07, built in milestone M10). The file therefore contains plain CSS only, nothing that needs Tailwind or the app.
+10. **The theme preview page** (`./start --dev`, then `/theme-preview.html` on the development server) shows every token and every shared component in every theme side by side. It is the page the visual regression screenshots are taken from. A component is added to it in the same commit that creates the component.
+
+### 2.2 Colour tokens
+
+One value per theme. Utility classes use the token name, for example `bg-surface`, `text-text-muted`, `border-line`.
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
@@ -71,11 +100,44 @@ Implement these as CSS variables and expose them through the Tailwind preset in 
 | `neutral-bg` / `neutral-text` | `#22262E` / `#B4BBC7` | `#ECEEF2` / `#454D5A` | Queued, excluded |
 | `track` | `#2A303B` | `#DDE1E7` | Progress track, skeletons |
 
-Type: Inter for text, Space Grotesk (600) for headings and the wordmark, the system monospace font for technical details. Fonts are bundled with the app. The app must not load fonts from the network.
+### 2.3 Type tokens
 
-Sizes: body 14 px, metadata 13 px, labels 12 px uppercase, page title 28 px, dialog title 22 px.
-Shape: 8 px radius for controls, 12 to 16 px for cards and dialogs, pills for status chips.
-Spacing: multiples of 4 px.
+Fonts are bundled with the app in `fonts/`. The app must not load fonts from the network.
+
+| Token | Value | Use |
+|---|---|---|
+| `font-text` | Inter, then the system font | All text |
+| `font-heading` | Space Grotesk, then the system font | Headings and the wordmark |
+| `font-mono` | The system monospace font | Technical details |
+| `font-size-body` | 14 px | Body text |
+| `font-size-meta` | 13 px | Metadata |
+| `font-size-label` | 12 px | Labels (uppercase) |
+| `font-size-dialog-title` | 22 px | Dialog titles |
+| `font-size-page-title` | 28 px | Page titles |
+| `font-weight-regular` | 400 | Text |
+| `font-weight-medium` | 500 | Emphasis, buttons |
+| `font-weight-semibold` | 600 | Headings, the wordmark |
+| `line-height-text` | 1.45 | Text |
+| `line-height-heading` | 1.1 | Headings |
+
+### 2.4 Shape, spacing, depth and motion tokens
+
+| Token | Value | Use |
+|---|---|---|
+| `space` | 4 px | The spacing step. All spacing is a whole multiple of it (`p-4` is 16 px) |
+| `radius-control` | 8 px | Buttons, fields, menus |
+| `radius-card` | 12 px | Cards |
+| `radius-dialog` | 16 px | Dialogs |
+| `radius-pill` | fully round | Status chips |
+| `shadow-raised` | none (dark and light) | Menus, toasts |
+| `shadow-overlay` | none (dark and light) | Dialogs |
+| `duration-fast` | 150 ms | Hover, press |
+| `duration-base` | 200 ms | Panels, dialogs |
+
+Both durations become 0 ms when the system "reduce motion" setting is on.
+
+**To review by the maintainer:** the mockups do not define the line heights, the font weights or the shadows as rules. The values above were read from the mockups in milestone M0: 1.45 and 1.1 are the line heights the mockups use for text and for large headings, 400, 500 and 600 are the weights they use, and no mockup uses a shadow (the designs separate layers with borders and surface colours), so both shadow tokens are `none`. The tokens exist so that a theme can add depth without touching a component.
+
 Targets: interactive elements are at least 44 px high, except dense table and toolbar controls (36 px minimum).
 
 ## 3. Rules for all screens
@@ -99,7 +161,7 @@ The frontend builds these shared components first, each with tests and a story-l
 
 The icon in `AppIcon.html` is a draft and is expected to change. To make changing it a one-file job:
 
-- There is exactly one source file: `frontend/src/design/brand/icon.svg` (square, single colour on a rounded square).
+- There is exactly one source file: `frontend/src/design/brand/icon.svg` (square, single colour on a rounded square). It is part of the theme center (section 2).
 - Everything else is generated from it by a build script and never edited by hand: the macOS launcher icon (`.icns`), the window icon, the favicon, the logo in the sidebar and on the website, and the social preview image.
 - Colours in the SVG come from the `accent` and `on-accent` tokens.
 - Replacing the icon means replacing that file and running the build. A test checks that every generated asset is newer than the source.

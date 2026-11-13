@@ -226,6 +226,22 @@ Design: `Main.html`, `WebGrid.html`, `ListLight.html`, `GridLight.html`, `Detail
 | R-UI-13 | Keyboard shortcuts as listed in `Shortcuts.html`. All functions are reachable by keyboard. |
 | R-UI-14 | Accessibility: real buttons, links and form controls with labels, visible focus, text contrast of at least 4.5:1, and no information carried by colour alone. |
 
+### 7.1 Theme center
+
+Fonts, colours and every other visual value can be changed in one place. Details: [DESIGN.md](DESIGN.md) section 2.
+
+| ID | Requirement |
+|---|---|
+| R-TH-01 | One folder, `frontend/src/design/`, is the **theme center**. It holds everything visual: the tokens, the Tailwind preset that maps the tokens to utility classes, the bundled font files, and the brand icon source. No visual value is defined anywhere else. |
+| R-TH-02 | **Tokens** are named CSS variables. They cover every colour (light and dark), font family, font size, font weight, line height, the spacing step, radius, shadow and animation duration. |
+| R-TH-03 | Token names are semantic: they say what a value is for (`text-muted`, `surface-raised`, `accent`). A token is never named after its value (`blue-500`, `gray-2`). |
+| R-TH-04 | A **theme** is one block of token values. Light and dark are two blocks. Adding a third theme must need no change to any component. |
+| R-TH-05 | Changing the app font must take one changed line plus the font files. |
+| R-TH-06 | Components and feature code may use only tokens: no raw colour values, font names, pixel font sizes or one-off spacing values. A lint rule in CI enforces this. |
+| R-TH-07 | The website uses the same token file as the app, so the app and the site cannot drift apart. |
+| R-TH-08 | A theme preview page, available in development mode, shows every token and every shared component in both themes on one screen. |
+| R-TH-09 | A test fails if a token used in code is not defined. The visual regression screenshots cover both themes. |
+
 ---
 
 ## 8. Dates

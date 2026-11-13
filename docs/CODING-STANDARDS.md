@@ -61,7 +61,7 @@ def file_name_for(title: str, video_id: str, taken: Collection[str]) -> str:
 - Server data lives in Pinia stores, updated from API responses and SSE events. Components do not call `fetch`.
 - API types are generated from the OpenAPI schema. Never write them by hand. (CI checks they are current)
 - All user-visible text comes from `src/i18n/`. No string literals in templates. (CI)
-- Styling uses Tailwind classes built on the design tokens. No raw hex colours in components. (CI)
+- Styling uses Tailwind classes built on the tokens of the theme center ([DESIGN.md](DESIGN.md) section 2). Outside `frontend/src/design/` there are no raw colour values, font names, font sizes, one-off spacing values or Tailwind arbitrary values (R-TH-06). (CI)
 - Every interactive element is a real `button`, `a`, or form control with an accessible name.
 - ESLint, Prettier and `vue-tsc` pass. (CI)
 
