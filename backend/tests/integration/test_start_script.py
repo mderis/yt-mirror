@@ -211,3 +211,13 @@ def test_doctor_does_not_build_the_interface(clone: Path) -> None:
 
     assert "Node.js is needed" not in result.stderr
     assert "Building the interface" not in result.stderr
+
+
+def test_ci_uses_the_same_uv_version_as_the_launcher() -> None:
+    """R-IN-02: the automated checks run with the uv version a clone gets."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    match = re.search(r'^  UV_VERSION: "([^"]+)"$', workflow, re.MULTILINE)
+
+    assert match is not None
+    assert match.group(1) == pinned_uv_version()
