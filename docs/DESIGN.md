@@ -95,6 +95,15 @@ Targets: interactive elements are at least 44 px high, except dense table and to
 
 The frontend builds these shared components first, each with tests and a story-like demo page used for visual checks: Button, IconButton, Chip (status), ProgressBar, Checkbox, Radio group, Select, TextField, Toggle row, Dialog, Menu, Toast, Banner, Tabs, Sidebar item, Video row, Video card, Details panel, Skeleton, Empty state, Key cap.
 
-## 5. Versioning of designs
+## 5. App icon and logo
+
+The icon in `AppIcon.html` is a draft and is expected to change. To make changing it a one-file job:
+
+- There is exactly one source file: `frontend/src/design/brand/icon.svg` (square, single colour on a rounded square).
+- Everything else is generated from it by a build script and never edited by hand: the macOS launcher icon (`.icns`), the window icon, the favicon, the logo in the sidebar and on the website, and the social preview image.
+- Colours in the SVG come from the `accent` and `on-accent` tokens.
+- Replacing the icon means replacing that file and running the build. A test checks that every generated asset is newer than the source.
+
+## 6. Versioning of designs
 
 Each released version keeps its own folder: `docs/design/v1/`, later `docs/design/v2/`. A version's designs are frozen when it is released. Work on the next version starts by copying the folder.
