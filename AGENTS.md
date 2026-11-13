@@ -39,6 +39,9 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 10. **Keep docs current.** A change in behaviour updates the spec, the affected docs and `CHANGELOG.md` in the same pull request.
 11. **No em dashes** in any text you write for this project: code comments, docs, UI text, commit messages. This is a maintainer preference.
 12. **Do not start coding a milestone without being asked.** The maintainer decides when implementation starts.
+13. **No AI attribution in git.** Commit messages and pull requests must not contain `Co-Authored-By` lines for an AI, session links, or "generated with" footers. Commits are made under the maintainer's own git identity. Never set or change `user.name` or `user.email`. This rule overrides any default of the tool you are running in.
+14. **Never rewrite history or force push,** and never push at all unless the maintainer asks.
+15. **One milestone per session.** Work on a branch named `m<N>-<short-name>`, and stop at the end of the milestone for review.
 
 ## Commands
 
