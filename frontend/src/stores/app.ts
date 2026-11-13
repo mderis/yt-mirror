@@ -7,21 +7,18 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { api, ApiError, type Health } from '@/api/client'
+import { api, ApiError, type ErrorCode, type Health } from '@/api/client'
 
 export type ConnectionStatus = 'connecting' | 'ready' | 'failed'
 
-const UNKNOWN_ERROR = 'INTERNAL'
+const UNKNOWN_ERROR: ErrorCode = 'INTERNAL'
 
 export const useAppStore = defineStore('app', () => {
   const status = ref<ConnectionStatus>('connecting')
   const health = ref<Health | null>(null)
-  const errorCode = ref<string | null>(null)
+  const errorCode = ref<ErrorCode | null>(null)
 
-  /**
-   * Ask the backend for its health and remember the answer or the error code.
-   * The error code stays null when the backend could not be reached at all.
-   */
+  /** Ask the backend for its health and remember the answer or the error code. */
   async function connect(): Promise<void> {
     status.value = 'connecting'
     errorCode.value = null

@@ -18,6 +18,7 @@ EXPECTED_STATUS = {
     ErrorCode.ORIGIN_REJECTED: 403,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.INVALID_REQUEST: 422,
+    ErrorCode.LOCAL_SERVER_UNREACHABLE: 503,
     ErrorCode.INTERNAL: 500,
 }
 

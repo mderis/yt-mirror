@@ -3,14 +3,20 @@
  * The placeholder page of milestone M0: shows that the window, the interface
  * and the backend work together. The first-run screen replaces it in M1.
  */
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { BrandIcon } from '@/design/brand'
 import { useAppStore } from '@/stores/app'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const app = useAppStore()
+
+/** The text key of the current error, when the texts of its code exist already. */
+const errorText = computed(() => {
+  const key = `errors.${(app.errorCode ?? '').toLowerCase()}`
+  return te(`${key}.happened`) ? key : null
+})
 
 onMounted(() => app.connect())
 </script>
@@ -35,7 +41,12 @@ onMounted(() => app.connect())
 
     <div v-else class="flex flex-col items-center gap-4" role="alert">
       <div class="flex flex-col gap-1 rounded-lg bg-err-bg px-6 py-4 text-err-text">
-        <p class="text-body-lg font-medium">{{ t('placeholder.failed') }}</p>
+        <template v-if="errorText">
+          <p class="text-body-lg font-medium">{{ t(`${errorText}.happened`) }}</p>
+          <p class="text-body">{{ t(`${errorText}.doing`) }}</p>
+          <p class="text-body">{{ t(`${errorText}.action`) }}</p>
+        </template>
+        <p v-else class="text-body-lg font-medium">{{ t('placeholder.failed') }}</p>
         <p v-if="app.errorCode" class="font-mono text-meta">
           {{ t('placeholder.errorCode', { code: app.errorCode }) }}
         </p>

@@ -30,25 +30,28 @@ describe('the placeholder page', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('infra: explains a failure in plain words and shows the error code', async () => {
+  it('infra: explains a refused request in plain words and shows the error code', async () => {
     mockFetch(() => jsonResponse(errorBody('UNAUTHORIZED'), 401))
 
     renderWithApp(App)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('The window could not reach yt-mirror.')
+    expect(alert.textContent).toContain('yt-mirror answered with an error.')
     expect(alert.textContent).toContain('Error code: UNAUTHORIZED')
     expect(screen.queryByText('yt-mirror is running.')).toBeNull()
   })
 
-  it('infra: shows no error code line when the backend could not be reached at all', async () => {
+  it('infra: explains an unreachable server with the texts of its own error code', async () => {
     mockFetch(() => Promise.reject(new TypeError('Failed to fetch')))
 
     renderWithApp(App)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('The window could not reach yt-mirror.')
-    expect(alert.textContent).not.toContain('Error code')
+    expect(alert.textContent).toContain('The window cannot reach yt-mirror.')
+    expect(alert.textContent).toContain('yt-mirror does not try again by itself here.')
+    expect(alert.textContent).toContain('Try again. If that does not help, quit yt-mirror')
+    expect(alert.textContent).toContain('Error code: LOCAL_SERVER_UNREACHABLE')
+    expect(alert.textContent).not.toContain('yt-mirror answered with an error.')
   })
 
   it('R-ER-03: offers a real button that tries again and recovers', async () => {

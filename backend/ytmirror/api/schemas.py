@@ -11,17 +11,20 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from ytmirror.core.errors import ErrorCode
+
 
 class ErrorBody(BaseModel):
     """The content of every error response.
 
     Attributes:
-        code: The stable error code (docs/LOGGING.md section 4).
+        code: The stable error code (docs/LOGGING.md section 4). Typed, so that the
+            generated frontend types know every code.
         message: A short technical sentence. User text is written per code in the frontend.
         details: Extra facts for the technical details.
     """
 
-    code: str
+    code: ErrorCode
     message: str
     details: dict[str, str]
 

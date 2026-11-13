@@ -26,6 +26,7 @@ _STATUS: dict[ErrorCode, int] = {
     ErrorCode.ORIGIN_REJECTED: 403,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.INVALID_REQUEST: 422,
+    ErrorCode.LOCAL_SERVER_UNREACHABLE: 503,
     ErrorCode.INTERNAL: 500,
 }
 
@@ -34,6 +35,7 @@ _MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.ORIGIN_REJECTED: "The request did not come from the yt-mirror window.",
     ErrorCode.NOT_FOUND: "There is nothing at this address.",
     ErrorCode.INVALID_REQUEST: "The request is not valid.",
+    ErrorCode.LOCAL_SERVER_UNREACHABLE: "The window cannot reach the local server.",
     ErrorCode.INTERNAL: "yt-mirror hit an unexpected problem.",
 }
 
@@ -57,9 +59,9 @@ def error_response(
         A JSON response in the one error shape.
     """
     body = ErrorResponse(
-        error=ErrorBody(code=code.value, message=_MESSAGES[code], details=dict(details or {}))
+        error=ErrorBody(code=code, message=_MESSAGES[code], details=dict(details or {}))
     )
-    return JSONResponse(body.model_dump(), status_code=status or _STATUS[code])
+    return JSONResponse(body.model_dump(mode="json"), status_code=status or _STATUS[code])
 
 
 def install_error_handlers(app: FastAPI) -> None:

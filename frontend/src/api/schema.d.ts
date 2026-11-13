@@ -33,13 +33,13 @@ export interface components {
      * @description The content of every error response.
      *
      *     Attributes:
-     *         code: The stable error code (docs/LOGGING.md section 4).
+     *         code: The stable error code (docs/LOGGING.md section 4). Typed, so that the
+     *             generated frontend types know every code.
      *         message: A short technical sentence. User text is written per code in the frontend.
      *         details: Extra facts for the technical details.
      */
     ErrorBody: {
-      /** Code */
-      code: string
+      code: components['schemas']['ErrorCode']
       /** Details */
       details: {
         [key: string]: string
@@ -47,6 +47,18 @@ export interface components {
       /** Message */
       message: string
     }
+    /**
+     * ErrorCode
+     * @description Stable error codes. The value is what appears in logs and API responses.
+     * @enum {string}
+     */
+    ErrorCode:
+      | 'UNAUTHORIZED'
+      | 'ORIGIN_REJECTED'
+      | 'NOT_FOUND'
+      | 'INVALID_REQUEST'
+      | 'LOCAL_SERVER_UNREACHABLE'
+      | 'INTERNAL'
     /**
      * ErrorResponse
      * @description The one shape of every error response.

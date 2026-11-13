@@ -11,22 +11,26 @@
 import type { components } from './schema'
 
 export type Health = components['schemas']['HealthResponse']
+/** Every error code the app knows, from backend/ytmirror/core/errors.py through the API schema. */
+export type ErrorCode = components['schemas']['ErrorCode']
 type ErrorResponse = components['schemas']['ErrorResponse']
 
 const API_PREFIX = '/api'
-const UNREADABLE = 'INTERNAL'
+const UNREADABLE: ErrorCode = 'INTERNAL'
+/** The one code the window raises itself: its own server did not answer at all (R-ER-04). */
+const UNREACHABLE: ErrorCode = 'LOCAL_SERVER_UNREACHABLE'
 
 /** A failed API call, with the stable error code of docs/LOGGING.md section 4. */
 export class ApiError extends Error {
   /** The HTTP status, or 0 when the server could not be reached. */
   readonly status: number
-  /** The error code, or null when the server could not be reached at all. */
-  readonly code: string | null
+  /** The error code. */
+  readonly code: ErrorCode
   /** Extra facts for the technical details. */
   readonly details: Readonly<Record<string, string>>
 
-  constructor(status: number, code: string | null, details: Record<string, string> = {}) {
-    super(code ?? 'The server could not be reached')
+  constructor(status: number, code: ErrorCode, details: Record<string, string> = {}) {
+    super(code)
     this.name = 'ApiError'
     this.status = status
     this.code = code
@@ -39,7 +43,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API_PREFIX}${path}`, { credentials: 'same-origin', ...init })
   } catch {
-    throw new ApiError(0, null)
+    throw new ApiError(0, UNREACHABLE)
   }
   if (!response.ok) {
     throw await toApiError(response)

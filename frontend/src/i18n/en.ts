@@ -8,11 +8,23 @@ export const en = {
   app: {
     name: 'yt-mirror',
   },
+  /**
+   * The user text of each error code (R-ER-01, R-ER-02), by the text key of the code:
+   * what happened, what yt-mirror is doing about it, what the user can do.
+   * Milestone M7 adds the texts of the remaining codes.
+   */
+  errors: {
+    local_server_unreachable: {
+      happened: 'The window cannot reach yt-mirror.',
+      doing: 'yt-mirror does not try again by itself here.',
+      action: 'Try again. If that does not help, quit yt-mirror and start it again.',
+    },
+  },
   placeholder: {
     running: 'yt-mirror is running.',
     version: 'Version {version}',
     connecting: 'Connecting to yt-mirror',
-    failed: 'The window could not reach yt-mirror.',
+    failed: 'yt-mirror answered with an error.',
     errorCode: 'Error code: {code}',
     retry: 'Try again',
   },

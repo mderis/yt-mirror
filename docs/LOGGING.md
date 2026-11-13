@@ -98,6 +98,7 @@ Defined once in `backend/ytmirror/core/errors.py`. Each code has: a name, whethe
 | `ORIGIN_REJECTED` | permanent | A request to the local server came from another website or was addressed to another host (R-PL-04) |
 | `NOT_FOUND` | permanent | There is nothing at the requested address of the local server |
 | `INVALID_REQUEST` | permanent | A request to the local API is malformed |
+| `LOCAL_SERVER_UNREACHABLE` | transient | The window cannot reach the app's own local server (R-ER-04). This code is raised by the window, never sent by the server |
 | `API_KEY_INVALID`, `API_QUOTA_EXCEEDED` | transient | Never shown as an error dialog (R-DT-12) |
 | `UPDATE_FAILED`, `MIGRATION_FAILED`, `CHECKSUM_MISMATCH` | transient | |
 | `INTERNAL` | transient | Anything unclassified. Always logged at `error` with a stack trace |

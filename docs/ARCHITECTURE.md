@@ -388,7 +388,7 @@ Requirements R-NA-01 to R-NA-09. Decision D-044. **Everything here is `VERIFY` (
 
 ## 8. HTTP API
 
-All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error": { "code", "message", "details" } }`. `message` is a short technical sentence. The text the user reads is written per code in the frontend (R-ER-02).
+All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error": { "code", "message", "details" } }`. `message` is a short technical sentence. The text the user reads is written per code in the frontend (R-ER-02). `code` is one of the codes of [LOGGING.md](LOGGING.md) section 4, and the generated frontend types know them all. One code is never sent by the server: `LOCAL_SERVER_UNREACHABLE` is raised by the window itself when the server does not answer (R-ER-04).
 
 | Method and path | Purpose |
 |---|---|

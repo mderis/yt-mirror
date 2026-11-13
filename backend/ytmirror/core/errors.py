@@ -28,6 +28,7 @@ class ErrorCode(StrEnum):
     ORIGIN_REJECTED = "ORIGIN_REJECTED"
     NOT_FOUND = "NOT_FOUND"
     INVALID_REQUEST = "INVALID_REQUEST"
+    LOCAL_SERVER_UNREACHABLE = "LOCAL_SERVER_UNREACHABLE"
     INTERNAL = "INTERNAL"
 
     @property
@@ -46,6 +47,8 @@ _KINDS: dict[ErrorCode, ErrorKind] = {
     ErrorCode.ORIGIN_REJECTED: ErrorKind.PERMANENT,
     ErrorCode.NOT_FOUND: ErrorKind.PERMANENT,
     ErrorCode.INVALID_REQUEST: ErrorKind.PERMANENT,
+    # Raised by the window when it cannot reach this server (R-ER-04). The server never sends it.
+    ErrorCode.LOCAL_SERVER_UNREACHABLE: ErrorKind.TRANSIENT,
     ErrorCode.INTERNAL: ErrorKind.TRANSIENT,
 }
 

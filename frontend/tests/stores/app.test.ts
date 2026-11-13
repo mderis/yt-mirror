@@ -37,14 +37,14 @@ describe('the app store', () => {
     expect(store.health).toBeNull()
   })
 
-  it('R-ER-02: fails without a code when the backend cannot be reached', async () => {
+  it('R-ER-04: fails with the code of its own when the backend cannot be reached', async () => {
     mockFetch(() => Promise.reject(new TypeError('Failed to fetch')))
     const store = useAppStore()
 
     await store.connect()
 
     expect(store.status).toBe('failed')
-    expect(store.errorCode).toBeNull()
+    expect(store.errorCode).toBe('LOCAL_SERVER_UNREACHABLE')
   })
 
   it('R-ER-02: reports INTERNAL when something other than the API fails', async () => {

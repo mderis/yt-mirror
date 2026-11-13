@@ -42,7 +42,7 @@ test('R-PL-04: without a session the page loads, the API refuses, and the page s
   await page.goto('/')
 
   const alert = page.getByRole('alert')
-  await expect(alert).toContainText('The window could not reach yt-mirror.')
+  await expect(alert).toContainText('yt-mirror answered with an error.')
   await expect(alert).toContainText('Error code: UNAUTHORIZED')
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
 })
