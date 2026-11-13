@@ -40,7 +40,8 @@ from ytmirror.app.window import open_window
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.models import LogDetail
 
-_log: FilteringBoundLogger = structlog.get_logger(__name__)
+# Not __name__: started with "python -m" this module is called __main__.
+_log: FilteringBoundLogger = structlog.get_logger("ytmirror.app.main")
 
 EXIT_OK = 0
 EXIT_USAGE = 2

@@ -104,7 +104,7 @@ class LogWriter:
         Args:
             record: The finished line. Its ``ts`` field decides the daily file.
         """
-        line = json.dumps(record, ensure_ascii=False, default=str)
+        line = json.dumps(record, ensure_ascii=False, default=str, separators=(",", ":"))
         day = str(record["ts"])[:10]
         with self._lock:
             if day != self._day or self._file is None:

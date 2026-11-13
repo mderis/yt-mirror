@@ -86,6 +86,21 @@ def test_a_line_has_all_required_fields_in_the_documented_order(pipeline: Pipeli
     }
 
 
+def test_each_line_is_one_compact_json_object(pipeline: Pipeline) -> None:
+    """R-LG-01: one JSON object per line, in the compact form of docs/LOGGING.md section 1."""
+    log = structlog.get_logger("ytmirror.app.main")
+
+    log.info("app.started", msg="Started, with a comma", title="Caf\u00e9 \u2603")
+    log.info("app.stopping", msg="Stopping")
+
+    raw_lines = (
+        (pipeline.logs_dir / "yt-mirror-2026-11-13.jsonl").read_text(encoding="utf-8").splitlines()
+    )
+    assert len(raw_lines) == 2
+    assert raw_lines[0].startswith('{"ts":"2026-11-13T09:28:04.512Z","level":"info","event":')
+    assert '"title":"Caf\u00e9 \u2603"' in raw_lines[0]
+
+
 def test_the_timestamp_is_utc_whatever_zone_the_clock_reports(tmp_path: Path) -> None:
     """R-LG-01, R-DT-02: log times are UTC with millisecond precision."""
     tehran = timezone(timedelta(hours=3, minutes=30))

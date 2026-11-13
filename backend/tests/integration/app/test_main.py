@@ -2,7 +2,10 @@
 
 import io
 import json
+import os
 import signal
+import subprocess
+import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -291,3 +294,42 @@ def test_a_stop_signal_ends_the_wait_and_old_handlers_come_back(
 
     after = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
     assert after == before
+
+
+def test_started_as_a_program_it_serves_logs_under_its_module_name_and_stops_on_a_signal(
+    paths: AppPaths, tmp_path: Path
+) -> None:
+    """R-IN-02, R-PL-09: ``python -m ytmirror.app.main`` runs until it is told to stop."""
+    env = {
+        **os.environ,
+        "YTM_HOME": str(paths.home_dir),
+        "YTM_NO_WINDOW": "1",
+        "YTM_SESSION_TOKEN": TOKEN,
+    }
+    env.pop("YTM_PORT", None)
+    env.pop("YTM_DATA_DIR", None)
+    process = subprocess.Popen(
+        [sys.executable, "-m", "ytmirror.app.main"],
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stderr is not None
+    try:
+        console = ""
+        while "app.config" not in console:
+            line = process.stderr.readline()
+            assert line, f"The app ended before it was ready:\n{console}"
+            console += line
+        process.send_signal(signal.SIGTERM)
+        exit_code = process.wait(timeout=30)
+        console += process.stderr.read()
+    finally:
+        process.kill()
+        process.stderr.close()
+
+    lines = log_lines(paths)
+    assert exit_code == 0
+    assert [line["event"] for line in lines][-3:] == ["app.started", "app.config", "app.stopping"]
+    assert {line["component"] for line in lines} == {"services.schema", "app.main"}
+    assert TOKEN not in console
