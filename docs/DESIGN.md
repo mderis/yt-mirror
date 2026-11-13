@@ -45,7 +45,9 @@ When a mockup and [SPEC.md](SPEC.md) disagree, the spec wins and the mockup must
 | `SiteHome.html`, `SiteDocs.html` | Website | R-WS-* |
 | `AppIcon.html` | App icon and logo | |
 
-Not drawn, by decision: layouts narrower than the minimum window (R-PL-03), the native macOS folder picker, and the remaining website documentation pages (they use the `SiteDocs.html` template).
+Not drawn, by decision: layouts narrower than the minimum window (R-PL-03), the native macOS folder picker, the macOS menu bar (it is drawn by macOS, its content is in section 7), and the remaining website documentation pages (they use the `SiteDocs.html` template).
+
+Not drawn yet: the About window (R-NA-05, section 7.2). It needs a mockup before milestone M7.
 
 ## 2. The theme center and its tokens
 
@@ -206,8 +208,67 @@ The icon in `AppIcon.html` is a draft and is expected to change. To make changin
 - Everything else is generated from it by a build script and never edited by hand: the macOS launcher icon (`.icns`), the window icon, the favicon, the logo in the sidebar and on the website, and the social preview image.
 - Colours in the SVG come from the `accent` and `on-accent` tokens.
 - Replacing the icon means replacing that file and running the build. A test checks that every generated asset is newer than the source.
-- The generated assets arrive with the milestones that need them ([IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md)): the build script, its test and the favicon in M2, the macOS launcher icon in M9, the social preview image in M10. Until then the app draws its logo directly from the source file.
+- The generated assets arrive with the milestones that need them ([IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md), D-045): the build script, its test and the macOS icon for the app bundle in M1, the favicon in M2, the social preview image in M10. Until then the app draws its logo directly from the source file.
 
 ## 6. Versioning of designs
 
 Each released version keeps its own folder: `docs/design/v1/`, later `docs/design/v2/`. A version's designs are frozen when it is released. Work on the next version starts by copying the folder.
+
+## 7. Native Mac app
+
+Requirements: R-NA-01 to R-NA-09 in [SPEC.md](SPEC.md). How it is built: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10. Not built in milestone M0.
+
+The app shows its own name and icon everywhere macOS shows an app: Dock, app switcher, menu bar, Activity Monitor. The icon comes from the one source file of section 5.
+
+### 7.1 Menu bar
+
+Labels are written as macOS writes them: title case, and three dots after an item that opens a dialog or window. An item is enabled only when it applies.
+
+| Menu | Item | Shortcut | Enabled when |
+|---|---|---|---|
+| yt-mirror | About yt-mirror | | Always |
+| | Check for Updates... | | Always |
+| | Settings... | Cmd+, | Always |
+| | Hide yt-mirror, Hide Others, Show All | Cmd+H, Option+Cmd+H | Standard macOS items |
+| | Quit yt-mirror | Cmd+Q | Always |
+| File | Add Channel... | Cmd+N | Always |
+| | Close Window | Cmd+W | Always. Closing the window quits (R-NA-06) |
+| Edit | Undo, Redo, Cut, Copy, Paste, Select All | Cmd+Z, Shift+Cmd+Z, Cmd+X, Cmd+C, Cmd+V, Cmd+A | Standard macOS items, for text fields. Outside a text field, Select All selects all shown videos |
+| View | List | | A channel is open. The current view has a check mark |
+| | Grid | | A channel is open. The current view has a check mark |
+| | Show Downloads | | Always |
+| | Show Activity | | Always |
+| | Reload | | Only with `./start --debug` |
+| Channel | Check Now | Cmd+R | A channel is open and no check of it is running |
+| | Check All Channels | | At least one channel is not paused |
+| | Mirror Everything Missing | | A channel is open and has eligible videos |
+| | Pause Channel (Resume Channel for a paused one) | | A channel is open |
+| | Open Folder | | A channel is open and its folder is available |
+| | Channel Settings... | | A channel is open |
+| Window | Minimize, Zoom, the window list | Cmd+M | Standard macOS items |
+| Help | yt-mirror Help | | Always |
+| | Keyboard Shortcuts | | Always |
+| | Report a Problem... | | Always |
+
+Wording follows [GLOSSARY.md](GLOSSARY.md): "Check", "Mirror", "Channel".
+
+### 7.2 About window
+
+Shows the app icon, the name "yt-mirror", the version, the license (MIT), and two links: the website and the repository. The links open in the default browser. No mockup exists yet.
+
+### 7.3 Menu bar shortcuts and in-app shortcuts
+
+The menu bar is the source of truth (R-NA-09). The mockup `Shortcuts.html` predates the menu bar and is not edited. Where it differs from this table, this table wins, and the in-app shortcut list is built from it.
+
+| Action | In `Shortcuts.html` | With the menu bar | What changes |
+|---|---|---|---|
+| Check channel now | R | Cmd+R (Channel, Check Now) | The in-app list shows Cmd+R. The plain R is dropped, so one action has one shortcut |
+| Select all shown | Cmd A | Cmd+A (Edit, Select All) | The same shortcut. In a text field it selects the text, elsewhere all shown videos |
+| Toggle list and grid | G | no shortcut (View, List and Grid) | No conflict. G stays |
+| Add channel | not listed | Cmd+N | Added to the in-app list |
+| Settings | not listed | Cmd+, | Added to the in-app list |
+| Close window, Quit | not listed | Cmd+W, Cmd+Q | Added to the in-app list |
+| Move, switch channel, filter, details, close panel, select, mirror, exclude, play, show in Finder | Arrow keys, 1 to 9, /, Enter, Esc, Space, Shift Click, M, X, P, F | no menu item | Unchanged. Single keys work only while no text field has the focus |
+
+Cmd+R is "Reload" in a web view by default. In yt-mirror it is "Check Now", and the debug-only "Reload" item has no shortcut.
+

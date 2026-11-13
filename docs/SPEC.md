@@ -44,6 +44,22 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 | R-PL-08 | No proxy setting in V1. The app must still honour the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables and system proxy behaviour of its HTTP libraries. |
 | R-PL-09 | Background work happens only while the app is running. There is no background service or scheduler in V1. |
 
+### 2.1 Native Mac app
+
+yt-mirror must feel like a native Mac app. Details: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10 and [DESIGN.md](DESIGN.md) section 7. Whether the window library can do all of this is open question Q-24, which is resolved before any of it is built.
+
+| ID | Requirement |
+|---|---|
+| R-NA-01 | **App identity.** The running app appears as "yt-mirror" with the yt-mirror icon in the Dock, the app switcher (Cmd+Tab), the menu bar and Activity Monitor. It must never appear as "Python". |
+| R-NA-02 | **App bundle.** Both the installer and `./start` on a clone create a real macOS app bundle locally, with an `Info.plist`, a bundle identifier, and an icon generated from the single icon source file ([DESIGN.md](DESIGN.md) section 5). The bundle is built on the user's Mac, so it needs no Apple signing. |
+| R-NA-03 | **Menu bar** with the standard macOS items and shortcuts. **yt-mirror:** About yt-mirror, Check for Updates..., Settings... (Cmd+,), Hide, Hide Others, Quit yt-mirror (Cmd+Q). **File:** Add Channel... (Cmd+N), Close Window (Cmd+W). **Edit:** Undo, Redo, Cut, Copy, Paste, Select All, so that text fields behave normally. **View:** List, Grid, Show Downloads, Show Activity, Reload (debug only). **Channel:** Check Now (Cmd+R), Check All Channels, Mirror Everything Missing, Pause Channel, Open Folder, Channel Settings.... **Window:** Minimize, Zoom, and the standard window list. **Help:** yt-mirror Help, Keyboard Shortcuts, Report a Problem.... |
+| R-NA-04 | A menu item is enabled only when it applies. For example the Channel menu needs an open channel, and "Pause Channel" reads "Resume Channel" for a paused one. |
+| R-NA-05 | **About window:** app name, version, license, and links to the website and the repository. |
+| R-NA-06 | Cmd+Q and closing the window both go through the same quit path, including the "quit while downloading" confirmation (R-QU-12). |
+| R-NA-07 | Clicking the Dock icon brings the window to the front. |
+| R-NA-08 | Only one instance can run. Starting the app again focuses the existing window. |
+| R-NA-09 | The menu bar shortcuts and the in-app shortcuts of `Shortcuts.html` must not conflict. Where they overlap, the menu bar is the source of truth and the in-app list is updated. |
+
 ---
 
 ## 3. Channels
@@ -223,7 +239,7 @@ Design: `Main.html`, `WebGrid.html`, `ListLight.html`, `GridLight.html`, `Detail
 | R-UI-10 | "Play" opens the file in the system default player. "Show in Finder" reveals and selects the file. |
 | R-UI-11 | Every action that can take more than half a second shows progress or a busy state on the control that started it. |
 | R-UI-12 | Destructive or bulk actions confirm with a toast that offers Undo for a few seconds, or with a dialog when they cannot be undone. |
-| R-UI-13 | Keyboard shortcuts as listed in `Shortcuts.html`. All functions are reachable by keyboard. |
+| R-UI-13 | Keyboard shortcuts as listed in `Shortcuts.html`, changed where the menu bar decides otherwise (R-NA-09, [DESIGN.md](DESIGN.md) section 7.3). All functions are reachable by keyboard. |
 | R-UI-14 | Accessibility: real buttons, links and form controls with labels, visible focus, text contrast of at least 4.5:1, and no information carried by colour alone. |
 
 ### 7.1 Theme center
@@ -423,4 +439,4 @@ Design: `SiteHome.html`, `SiteDocs.html`, `AppIcon.html`.
 
 ## 15. Out of scope for V1
 
-Shorts and live streams. Playlists and single videos as sources. Windows and Linux. A proxy setting. Running in the background or on a schedule while the app is closed. Cookies or sign-in for members-only and age-restricted videos. SponsorBlock. Audio-only downloads. MP4 output. Comments. Multiple languages for subtitles or UI. Homebrew and a signed native app. See [ROADMAP.md](ROADMAP.md).
+Shorts and live streams. Playlists and single videos as sources. Windows and Linux. A proxy setting. Running in the background or on a schedule while the app is closed. Cookies or sign-in for members-only and age-restricted videos. SponsorBlock. Audio-only downloads. MP4 output. Comments. Multiple languages for subtitles or UI. Homebrew, and a signed and notarized app delivered as a DMG (the app bundle of V1 is built locally and unsigned, R-NA-02). See [ROADMAP.md](ROADMAP.md).

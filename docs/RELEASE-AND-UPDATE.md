@@ -18,11 +18,11 @@ Requirements: R-IN-*, R-UP-*, R-UN-*, R-WS-* in [SPEC.md](SPEC.md).
   tools/                           uv, Python, ffmpeg, ffprobe, Deno (survive updates)
   data/                            Database, logs, backups, cache, settings (never replaced)
   previous/                        The previous app/ kept until the next successful start
-~/Applications/yt-mirror.app       Small launcher bundle created locally by the installer
+~/Applications/yt-mirror.app       The app bundle, built locally by the installer (R-NA-02)
 ~/.local/bin/yt-mirror             Command line launcher (only if that folder is on PATH)
 ```
 
-A clone has the same `tools/` and `data/` folders in the repository root (both ignored by git), and the repository itself plays the role of `app/`.
+A clone has the same `tools/` and `data/` folders in the repository root (both ignored by git), and the repository itself plays the role of `app/`. `./start` on a clone builds the same app bundle inside `tools/` and starts the app through it, so the app has its own name and icon there too (R-NA-01, R-NA-02, from milestone M1).
 
 ## 3. Versions and releases
 
@@ -45,7 +45,7 @@ Served at `https://mderis.github.io/yt-mirror/install.sh` and run with `curl -fs
 3. Ask GitHub for the latest release, download the archive and `SHA256SUMS`, verify the checksum.
 4. Unpack into `~/Applications/yt-mirror/app`.
 5. Download `uv` into `tools/` (pinned version and checksum), then let `uv` install Python and the locked dependencies into `tools/`.
-6. Create the launcher app bundle and, if possible, the command line launcher.
+6. Build the app bundle (a real macOS app bundle with `Info.plist`, bundle identifier and icon, [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10) and, if possible, the command line launcher.
 7. Write everything it did to `data/logs/install.log`.
 8. Start the app.
 
@@ -96,7 +96,7 @@ Rollback, at any failure in steps 6 to 9: restore `previous/` (or check out the 
 
 ## 8. Uninstall
 
-"Uninstall yt-mirror" (R-UN-01) removes `app/`, `tools/`, `previous/`, the launcher bundle and the command line launcher. If the user chooses, `data/` is moved to the Trash. The library and channel folders are never touched. The last step is done by a small script that runs after the app has quit.
+"Uninstall yt-mirror" (R-UN-01) removes `app/`, `tools/`, `previous/`, the app bundle and the command line launcher. If the user chooses, `data/` is moved to the Trash. The library and channel folders are never touched. The last step is done by a small script that runs after the app has quit.
 
 ## 9. Website
 
@@ -109,4 +109,4 @@ Rollback, at any failure in steps 6 to 9: restore `previous/` (or check out the 
 ## 10. Later channels (not in V1)
 
 - **Homebrew tap**: a formula that installs the same release archive. Cheap to add, but the app must then keep its own yt-dlp overlay and disable the in-app app updater in favour of `brew upgrade`.
-- **Signed and notarized Mac app**: the best experience for non-technical users. Needs an Apple Developer Program membership. It would wrap the same release.
+- **Signed and notarized Mac app in a DMG**: drag-and-drop install, the best experience for non-technical users. Needs an Apple Developer Program membership. The options and their consequences are in [ROADMAP.md](ROADMAP.md).

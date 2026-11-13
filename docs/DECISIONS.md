@@ -178,3 +178,14 @@ Format: **Decision**, **Why**, **Consequences**.
 **Decision:** A test starts either with the requirement IDs it covers or with `infra:`. Tests of infrastructure (clock, scripts, tooling, wiring) use the marker and never borrow a requirement ID. The requirements coverage script ignores them, and fails on a test that has neither.
 **Why:** In milestone M0 infrastructure tests were given the closest requirement ID. That made requirements look covered that no test really checked, for example R-QA-01 through the tests of the coverage script itself.
 **Consequences:** The coverage report counts only real requirement tests. Every test must be labelled one way or the other, and CI checks it.
+
+### D-044 A native Mac app through a locally built app bundle
+**Decision:** yt-mirror appears and behaves as a native Mac app: its own name and icon everywhere, a real app bundle built on the user's Mac by the installer and by `./start`, a full menu bar, an About window, one quit path, one instance. Requirements R-NA-01 to R-NA-09. The parts are built in M1 (bundle, identity, one instance), M5 (menu bar, quit path), M7 (About window and the items of that milestone) and M9 (installer). Open question Q-24 is answered by experiment before any of it is built.
+**Why:** The audience includes non-technical users (D-027). An app that shows up as "Python" with a generic icon and without the usual menus does not feel trustworthy. Building the bundle locally keeps D-021: no Apple Developer account, no signing.
+**Consequences:** The window library must support custom menus, a custom app identity and single-instance behaviour from an unsigned bundle. If the experiment shows it cannot, work stops and the maintainer decides. The menu bar becomes the source of truth for shortcuts, and `Shortcuts.html` is read through DESIGN section 7.3. A signed, notarized DMG stays a roadmap item.
+
+### D-045 The icon build script and the macOS icon move to M1
+**Decision:** The icon build script, its freshness test and the macOS icon (`.icns`) are built in M1, together with the app bundle that needs them. The favicon stays in M2 and the social preview image in M10. This replaces the M2 and M9 parts of D-042.
+**Why:** The app bundle of M1 needs the icon (R-NA-01, R-NA-02), so the icon cannot wait for M9, and the script that makes it cannot wait for M2.
+**Consequences:** M2 only uses the script for the favicon. M9 reuses the bundle program of M1 for the installer.
+

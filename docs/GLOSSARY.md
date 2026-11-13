@@ -44,6 +44,8 @@ Use these words, with these meanings, in code, UI text, logs, tests and docs. If
 | **Banner** | A persistent message at the top of the window about an app-wide condition | `Banner` |
 | **Toast** | A short confirmation that disappears | `Toast` |
 | **Install kind** | How this copy was installed: `clone` or `archive` | `install_kind` |
+| **App bundle** | The macOS application folder (`yt-mirror.app`) built locally on the user's Mac, which gives the running app its name and icon (R-NA-02) | `yt-mirror.app` |
+| **Menu bar** | The macOS menu bar of the app with its menus and shortcuts (R-NA-03) | `menus` |
 | **Theme center** | The one folder that holds every visual value: tokens, Tailwind preset, fonts, brand icon (R-TH-01) | `frontend/src/design/` |
 | **Token** | A named visual value, stored as a CSS variable and named after its purpose (R-TH-02, R-TH-03) | `--ytm-*` |
 | **Theme** | One block of token values, for example light or dark (R-TH-04) | `data-theme` |

@@ -47,7 +47,7 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
 | HTTP client | httpx2 | YouTube API, channel feed, GitHub releases, tool downloads. The successor of httpx, also used by the test client (D-041) |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
-| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8 |
+| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10 and depend on Q-24 |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |
 | Frontend | Vue 3, TypeScript (strict), Vite | Single-page app, no server-side rendering |
 | Styling | Tailwind CSS with design tokens from [DESIGN.md](DESIGN.md) | Light and dark themes through CSS variables |
@@ -126,6 +126,8 @@ yt-mirror/
         server.py            The HTTP server thread
         window.py            The app window
         doctor.py            Text of the environment report
+        bundle.py            Builds the macOS app bundle (section 7.10, from milestone M1)
+        menus.py             The menu bar, defined as data (section 7.10, from milestone M5)
       tools/                 Developer programs: python -m ytmirror.tools.<name>
       migrations/            Alembic environment and versions
     tests/
@@ -358,6 +360,31 @@ Checked with a probe against pywebview 6.2 on macOS in milestone M0 (open questi
 Flags: `--debug` (verbose logs, developer tools in the window), `--browser` (default browser instead of the window, quit with Ctrl+C), `--doctor` (print the environment report and exit), `--update` (the updater arrives in milestone M9. Until then it says so and exits with code 2).
 
 `--dev` runs the Vite development server next to the backend. The window shows the development server, which reloads the interface on every change and passes `/api` calls on to the backend. Its origin is accepted only in this mode. Backend code is not reloaded: restart after changing Python. The theme preview page is at `/theme-preview.html` on the development server.
+
+### 7.10 Native Mac app (planned, not built yet)
+
+Requirements R-NA-01 to R-NA-09. Decision D-044. **Everything here is `VERIFY` (Q-24)** until the experiment of that question has shown that pywebview can do it from a locally built, unsigned bundle. Nothing of this section exists in the code of milestone M0, where the app still appears as "Python".
+
+**App bundle (R-NA-01, R-NA-02).**
+- A small program builds `yt-mirror.app` on the user's Mac: a folder with `Contents/Info.plist` (name `yt-mirror`, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/yt-mirror.icns` generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/yt-mirror`, the program macOS starts.
+- The same program is used by the installer (bundle in `~/Applications`, milestone M9) and by `./start` on a clone (bundle inside the clone, in the ignored `tools/` folder, milestone M1). `./start` then starts the app through the bundle, so a clone and an installed copy behave alike.
+- The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version or the icon source changed.
+- Proposed bundle identifier: `io.github.mderis.yt-mirror`, after the website address. To be confirmed by the maintainer in M1, because it should never change afterwards.
+- How the Python process takes over the identity of the bundle (so that the Dock, Cmd+Tab and Activity Monitor show "yt-mirror" and not "Python") is the first thing the Q-24 experiment has to show.
+
+**Menu bar (R-NA-03, R-NA-04, R-NA-09).**
+- The menus are defined in one module, `app/menus.py`, as data: title, shortcut, the command it sends, and the condition under which it is enabled. This is the source of truth for shortcuts.
+- A menu item and the matching control in the interface trigger the same command. The menu never contains logic of its own: it tells the frontend to run a command (for example "add channel"), and the frontend does what its own button would do.
+- The frontend tells the backend what is currently possible (is a channel open, is it paused, which view is shown), and the menus are enabled and titled from that.
+- The standard items (Hide, Hide Others, Minimize, Zoom, the window list, and the Edit menu for text fields) are the ones macOS provides. They are not reimplemented.
+- "Reload" exists only with `--debug`. It must not take Cmd+R, which belongs to "Check Now".
+
+**Quit, Dock and single instance (R-NA-06 to R-NA-08).**
+- There is one quit path in `app/main.py`. Cmd+Q, "Quit yt-mirror", Cmd+W, "Close Window" and the red window button all end in it. It is the place of the "quit while downloading" confirmation (R-QU-12, section 7.8: the window's close handler can refuse).
+- A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020).
+- A second start finds the running instance, asks it to bring its window to the front, and ends. How the instances find each other (a lock in `data/`, or what macOS offers for bundles) is decided by the Q-24 experiment.
+
+**`--browser` and tests.** With `--browser` and in automated tests there is no app window and no menu bar. Everything a menu item does must therefore also be reachable inside the interface (R-UI-13), which the menu design above guarantees.
 
 ## 8. HTTP API
 
