@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <rect x="6" y="6" width="108" height="108" rx="26" fill="var(--ytm-color-accent)"/>
+  <path d="M88 60a28 28 0 1 1-9-20.6" fill="none" stroke="var(--ytm-color-on-accent)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M90 30v16H74" fill="none" stroke="var(--ytm-color-on-accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M52 47l22 13-22 13z" fill="var(--ytm-color-on-accent)"/>
+</svg>

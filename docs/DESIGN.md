@@ -151,9 +151,9 @@ The mockups in `docs/design/v1/` were drawn before the scale in sections 2.3 and
 | Radius 10 or 14 px | `radius-lg` (12) |
 | Any pill value (14 px on chips, 22 px, 30 px) | `radius-full` |
 
-### 2.6 Line height, font weight, depth and motion tokens
+### 2.6 Line height, font weight and motion tokens
 
-**Proposed in milestone M0, waiting for the maintainer's OK.** The mockups do not define these as rules. The values were read from the mockups and from rule 10 of section 3. Until they are approved, nothing may be built on them beyond the theme preview page.
+Approved by the maintainer in milestone M0. The mockups do not define these as rules. The values were read from the mockups and from rule 10 of section 3.
 
 | Token | Value | Use |
 |---|---|---|
@@ -163,12 +163,21 @@ The mockups in `docs/design/v1/` were drawn before the scale in sections 2.3 and
 | `font-weight-regular` | 400 | Text |
 | `font-weight-medium` | 500 | Buttons, emphasis, video titles |
 | `font-weight-semibold` | 600 | Headings, the wordmark |
-| `shadow-raised` | none (dark and light) | Menus, toasts |
-| `shadow-overlay` | none (dark and light) | Dialogs |
 | `duration-fast` | 150 ms | Hover, press, toggles |
 | `duration-base` | 200 ms | Menus, dialogs, panels, toasts |
 
-No mockup uses a shadow: the designs separate layers with borders and surface colours. The two shadow tokens exist so that a theme can add depth without touching a component. Both durations become 0 ms when the system "reduce motion" setting is on.
+Both durations become 0 ms when the system "reduce motion" setting is on.
+
+### 2.7 Shadow tokens
+
+One value per theme, like the colours. Utility classes: `shadow-raised`, `shadow-overlay`.
+
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `shadow-raised` | `0 4px 12px rgb(0 0 0 / 0.35)` | `0 4px 12px rgb(16 24 40 / 0.12)` | Menus, toasts |
+| `shadow-overlay` | `0 16px 48px rgb(0 0 0 / 0.5)` | `0 16px 48px rgb(16 24 40 / 0.2)` | Dialogs |
+
+**To judge by the maintainer on the theme preview page.** No mockup uses a shadow: the designs separate layers with borders and surface colours. The maintainer asked for real, soft shadows in milestone M0. These values are a first proposal and are easy to change here and in `tokens.css`.
 
 Targets: interactive elements are at least 44 px high, except dense table and toolbar controls (36 px minimum).
 

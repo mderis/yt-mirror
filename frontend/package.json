@@ -1,0 +1,48 @@
+{
+  "name": "yt-mirror-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The interface of yt-mirror: a Vue 3 single-page app.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "lint": "eslint . && npm run lint:theme && prettier --check .",
+    "lint:theme": "node tools/theme-lint/cli.ts",
+    "format": "prettier --write .",
+    "typecheck": "vue-tsc --noEmit",
+    "gen:api": "node tools/gen-api.ts"
+  },
+  "dependencies": {
+    "pinia": "^4.1.0",
+    "vue": "^3.5.45",
+    "vue-i18n": "^11.4.19"
+  },
+  "devDependencies": {
+    "@intlify/eslint-plugin-vue-i18n": "^4.5.1",
+    "@tailwindcss/node": "^4.3.5",
+    "@tailwindcss/vite": "^4.3.5",
+    "@testing-library/vue": "^8.1.0",
+    "@types/node": "^26.6.6",
+    "@vitejs/plugin-vue": "^6.0.11",
+    "@vitest/coverage-v8": "^5.1.0",
+    "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.12.1",
+    "jsdom": "^31.0.1",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.10.1",
+    "tailwindcss": "^4.3.5",
+    "typescript": "~5.9",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0",
+    "vue-tsc": "^3.3.14"
+  }
+}

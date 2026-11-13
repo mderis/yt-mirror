@@ -1,0 +1,5 @@
+/* The stylesheet entry of the app: Tailwind, then the theme center. */
+@import 'tailwindcss';
+@import './tokens.css';
+@import './theme.css';
+@import './base.css';

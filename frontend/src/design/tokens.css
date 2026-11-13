@@ -1,0 +1,119 @@
+/*
+ * yt-mirror tokens: every visual value, as CSS variables.
+ *
+ * Documented in docs/DESIGN.md section 2. A test compares this file with the
+ * tables there, so change both in the same commit.
+ *
+ * This file is plain CSS and contains custom properties only. The website
+ * imports it as it is (R-TH-07). The Tailwind preset in theme.css maps these
+ * variables to utility classes.
+ *
+ * Structure: one block of shared values, then one block per theme. A theme
+ * is selected with the data-theme attribute on the root element (themes.ts).
+ * Every theme block defines exactly the same tokens.
+ */
+
+:root {
+  /* Fonts. To change the app font: add the font's folder to fonts/, then change one line here. */
+  --ytm-font-text: 'Inter Variable', system-ui, sans-serif;
+  --ytm-font-heading: 'Space Grotesk Variable', system-ui, sans-serif;
+  --ytm-font-mono: ui-monospace, monospace;
+
+  /* Font sizes */
+  --ytm-font-size-label: 12px;
+  --ytm-font-size-meta: 13px;
+  --ytm-font-size-body: 14px;
+  --ytm-font-size-title-sm: 15px;
+  --ytm-font-size-body-lg: 16px;
+  --ytm-font-size-heading-sm: 18px;
+  --ytm-font-size-heading-md: 22px;
+  --ytm-font-size-heading-lg: 28px;
+  --ytm-font-size-display-md: 36px;
+  --ytm-font-size-display-lg: 52px;
+
+  /* Font weights */
+  --ytm-font-weight-regular: 400;
+  --ytm-font-weight-medium: 500;
+  --ytm-font-weight-semibold: 600;
+
+  /* Line heights */
+  --ytm-line-height-heading: 1.1;
+  --ytm-line-height-text: 1.45;
+  --ytm-line-height-prose: 1.6;
+
+  /* The spacing step. All spacing is a whole multiple of it. */
+  --ytm-space: 4px;
+
+  /* Corner radii */
+  --ytm-radius-xs: 4px;
+  --ytm-radius-sm: 6px;
+  --ytm-radius-md: 8px;
+  --ytm-radius-lg: 12px;
+  --ytm-radius-xl: 16px;
+  --ytm-radius-full: 9999px;
+
+  /* Animation durations */
+  --ytm-duration-fast: 150ms;
+  --ytm-duration-base: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ytm-duration-fast: 0ms;
+    --ytm-duration-base: 0ms;
+  }
+}
+
+[data-theme='dark'] {
+  --ytm-color-bg: #0e1014;
+  --ytm-color-surface-side: #13161c;
+  --ytm-color-surface: #161a21;
+  --ytm-color-surface-raised: #1e2633;
+  --ytm-color-line: #262c36;
+  --ytm-color-line-strong: #323a47;
+  --ytm-color-text: #e8ebf0;
+  --ytm-color-text-dim: #c6ccd6;
+  --ytm-color-text-muted: #9ba4b3;
+  --ytm-color-accent: #5b9bff;
+  --ytm-color-on-accent: #0b1220;
+  --ytm-color-ok-bg: #1b2a44;
+  --ytm-color-ok-text: #a9c9ff;
+  --ytm-color-warn: #f2a14a;
+  --ytm-color-warn-bg: #3a2a14;
+  --ytm-color-warn-text: #f7c078;
+  --ytm-color-err-bg: #3a1a1c;
+  --ytm-color-err-text: #ffa39b;
+  --ytm-color-neutral-bg: #22262e;
+  --ytm-color-neutral-text: #b4bbc7;
+  --ytm-color-track: #2a303b;
+
+  --ytm-shadow-raised: 0 4px 12px rgb(0 0 0 / 0.35);
+  --ytm-shadow-overlay: 0 16px 48px rgb(0 0 0 / 0.5);
+}
+
+[data-theme='light'] {
+  --ytm-color-bg: #f6f7f9;
+  --ytm-color-surface-side: #ffffff;
+  --ytm-color-surface: #ffffff;
+  --ytm-color-surface-raised: #e3edff;
+  --ytm-color-line: #e1e5eb;
+  --ytm-color-line-strong: #c2c9d3;
+  --ytm-color-text: #1a1d23;
+  --ytm-color-text-dim: #454d5a;
+  --ytm-color-text-muted: #5a6372;
+  --ytm-color-accent: #1f5fd1;
+  --ytm-color-on-accent: #ffffff;
+  --ytm-color-ok-bg: #e3edff;
+  --ytm-color-ok-text: #123a85;
+  --ytm-color-warn: #f2a14a;
+  --ytm-color-warn-bg: #fdebd3;
+  --ytm-color-warn-text: #7a4200;
+  --ytm-color-err-bg: #fde7e5;
+  --ytm-color-err-text: #8e1b12;
+  --ytm-color-neutral-bg: #eceef2;
+  --ytm-color-neutral-text: #454d5a;
+  --ytm-color-track: #dde1e7;
+
+  --ytm-shadow-raised: 0 4px 12px rgb(16 24 40 / 0.12);
+  --ytm-shadow-overlay: 0 16px 48px rgb(16 24 40 / 0.2);
+}
