@@ -43,7 +43,7 @@ Rules:
 6. Exceptions are logged once, where they are handled, with `exc_info` and the mapped `error_code`.
 7. The console shows the same events in a readable one-line form.
 
-Levels by setting: "Normal" writes `info` and above. "Verbose" writes `debug` and above. `./start --debug` forces Verbose for one run.
+Levels by setting: "Normal" writes `info` and above. "Verbose" writes `debug` and above. `./start --debug` forces Verbose for one run. Lines from libraries (`app.external_log`) are written from `warning` at Normal and from `info` at Verbose.
 
 ## 2. Per-job logs
 
@@ -53,7 +53,7 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 
 | Area | Events |
 |---|---|
-| app | `app.started`, `app.stopping`, `app.crashed`, `app.config` (paths, versions, install kind) |
+| app | `app.started`, `app.stopping`, `app.crashed`, `app.config` (paths, versions, install kind), `app.external_log` (a line written by a library such as uvicorn or Alembic. Its text is in `msg`, its logger name in `component`) |
 | toolchain | `tool.check`, `tool.install.started`, `tool.install.finished`, `tool.install.failed`, `ytdlp.update.finished` |
 | channel | `channel.added`, `channel.removed`, `channel.paused`, `channel.resumed`, `channel.folder_moved` |
 | check | `check.started`, `check.finished` (counts: new, updated, gone, renamed, missing), `check.failed`, `check.retry_scheduled` |

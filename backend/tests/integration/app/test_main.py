@@ -1,0 +1,293 @@
+"""Tests of ``ytmirror.app.main``: a whole run of the app without a window."""
+
+import io
+import json
+import signal
+import threading
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import httpx2
+import pytest
+from sqlalchemy import text
+
+from tests.fixtures.fakes.clock import FakeClock
+from ytmirror.adapters.db.engine import create_db_engine
+from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
+from ytmirror.app import main as main_module
+from ytmirror.app.config import AppPaths, RunOptions
+from ytmirror.app.container import build_container
+from ytmirror.app.main import (
+    BROWSER_HINT,
+    UPDATE_NOT_AVAILABLE,
+    choose_wait,
+    main,
+    run_app,
+    wait_for_stop_signal,
+)
+from ytmirror.core.models import LogDetail, Settings
+
+TOKEN = "integration-test-token"
+
+
+def options(**changes: object) -> RunOptions:
+    """Return the options of a windowless test run, with changes."""
+    values: dict[str, object] = {
+        "dev": False,
+        "debug": False,
+        "browser": False,
+        "doctor": False,
+        "update": False,
+        "no_window": True,
+        "port": None,
+        "session_token": TOKEN,
+        "frontend_url": None,
+    }
+    values.update(changes)
+    return RunOptions(**values)  # pyright: ignore[reportArgumentType]  (test helper with loose types)
+
+
+def _no_window_expected(_url: str, *, debug: bool) -> None:
+    pytest.fail(f"The app window must not open in this mode (debug={debug})")
+
+
+class Visit:
+    """Stands in for the window: opens the first URL like a browser and records what it saw."""
+
+    def __init__(self) -> None:
+        """Start with nothing seen."""
+        self.first_url = ""
+        self.redirect_status = 0
+        self.page_status = 0
+        self.health: dict[str, object] = {}
+        self.health_without_session = 0
+
+    def __call__(self, url: str) -> None:
+        """Visit the app the way the window does, then return so the app stops."""
+        self.first_url = url
+        base = url.split("/?", maxsplit=1)[0]
+        with httpx2.Client(follow_redirects=False) as client:
+            self.health_without_session = client.get(base + "/api/health").status_code
+            self.redirect_status = client.get(url).status_code
+            self.page_status = client.get(base + "/").status_code
+            self.health = client.get(base + "/api/health").json()
+
+
+def log_lines(paths: AppPaths) -> list[dict[str, object]]:
+    """Return every line of every daily log file."""
+    lines: list[dict[str, object]] = []
+    for path in sorted(paths.logs_dir.glob("yt-mirror-*.jsonl")):
+        lines += [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    return lines
+
+
+def test_a_run_serves_the_interface_and_the_api_behind_the_session_token(paths: AppPaths) -> None:
+    """R-IN-02, R-PL-04: a start brings up a server that serves the frontend and the API."""
+    visit = Visit()
+
+    exit_code = run_app(options(), paths, build_container(paths), wait=visit, console=None)
+
+    assert exit_code == 0
+    assert visit.first_url.startswith("http://127.0.0.1:")
+    assert visit.first_url.endswith(f"/?token={TOKEN}")
+    assert visit.health_without_session == 401
+    assert visit.redirect_status == 303
+    assert visit.page_status == 200
+    assert visit.health["status"] == "ok"
+    assert visit.health["schema_version"] == "0002"
+
+
+def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPaths) -> None:
+    """R-QA-04: a fresh clone gets its database from the migrations at the first start."""
+    run_app(options(), paths, build_container(paths), wait=Visit(), console=None)
+
+    engine = create_db_engine(paths.database_file)
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    assert version == "0002"
+
+
+def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
+    """R-LG-01: ``app.started``, ``app.config`` and ``app.stopping`` frame every run."""
+    run_app(options(), paths, build_container(paths), wait=Visit(), console=None)
+
+    lines = log_lines(paths)
+    events = [line["event"] for line in lines]
+    assert events == [
+        "db.migration.started",
+        "db.migration.finished",
+        "app.started",
+        "app.config",
+        "api.error",
+        "app.stopping",
+    ]
+    assert len({line["run_id"] for line in lines}) == 1
+    config = next(line for line in lines if line["event"] == "app.config")
+    assert config["data_dir"] == str(paths.data_dir)
+    assert config["install_kind"] == "archive"
+    assert config["app_version"]
+    assert config["python_version"]
+    started = next(line for line in lines if line["event"] == "app.started")
+    assert started["mode"] == "no_window"
+
+
+def test_the_session_token_never_reaches_the_log_or_the_console(paths: AppPaths) -> None:
+    """R-LG-01: secrets are redacted on every line (docs/LOGGING.md section 1, rule 4)."""
+    console = io.StringIO()
+
+    run_app(options(debug=True), paths, build_container(paths), wait=Visit(), console=console)
+
+    written = "".join(path.read_text(encoding="utf-8") for path in paths.logs_dir.glob("*.jsonl"))
+    assert "api.request" in written
+    assert TOKEN not in written
+    assert TOKEN not in console.getvalue()
+    assert "app.started" in console.getvalue()
+
+
+def test_without_a_fixed_token_every_run_gets_a_new_random_one(paths: AppPaths) -> None:
+    """R-PL-04: a random session token is created at start."""
+    first, second = Visit(), Visit()
+
+    run_app(options(session_token=None), paths, build_container(paths), wait=first, console=None)
+    run_app(options(session_token=None), paths, build_container(paths), wait=second, console=None)
+
+    first_token = first.first_url.split("token=")[1]
+    second_token = second.first_url.split("token=")[1]
+    assert first_token != second_token
+    assert len(first_token) >= 40
+    assert first.health["status"] == "ok"
+
+
+def test_normal_log_detail_leaves_requests_out_and_verbose_puts_them_in(paths: AppPaths) -> None:
+    """R-LG-01: the stored "Log detail" setting decides whether debug lines are written."""
+    container = build_container(paths)
+    run_app(options(), paths, container, wait=Visit(), console=None)
+    normal_events = {line["event"] for line in log_lines(paths)}
+    engine = create_db_engine(paths.database_file)
+    SqlSettingsRepository(engine, container.clock).save(Settings(log_detail=LogDetail.VERBOSE))
+
+    run_app(options(), paths, build_container(paths), wait=Visit(), console=None)
+
+    assert "api.request" not in normal_events
+    assert "api.request" in {line["event"] for line in log_lines(paths)}
+
+
+def test_old_log_files_are_removed_at_start(paths: AppPaths) -> None:
+    """R-LG-01: files older than 14 days are deleted at start."""
+    now = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
+    paths.logs_dir.mkdir(parents=True)
+    old = paths.logs_dir / f"yt-mirror-{(now - timedelta(days=15)).date()}.jsonl"
+    recent = paths.logs_dir / f"yt-mirror-{(now - timedelta(days=14)).date()}.jsonl"
+    old.write_text("{}\n", encoding="utf-8")
+    recent.write_text("{}\n", encoding="utf-8")
+
+    run_app(
+        options(), paths, build_container(paths, clock=FakeClock(now)), wait=Visit(), console=None
+    )
+
+    assert not old.exists()
+    assert recent.exists()
+    assert (paths.logs_dir / "yt-mirror-2026-11-20.jsonl").exists()
+
+
+def test_a_crash_is_logged_with_its_stack_trace_and_passed_on(paths: AppPaths) -> None:
+    """R-LG-01: ``app.crashed`` records an unexpected end, and the error is not swallowed."""
+
+    def broken_window(_url: str) -> None:
+        raise RuntimeError("window library exploded")
+
+    with pytest.raises(RuntimeError, match="window library exploded"):
+        run_app(options(), paths, build_container(paths), wait=broken_window, console=None)
+
+    lines = log_lines(paths)
+    crashed = next(line for line in lines if line["event"] == "app.crashed")
+    assert crashed["level"] == "error"
+    assert crashed["error_code"] == "INTERNAL"
+    assert "window library exploded" in str(crashed["exception"])
+    assert [line["event"] for line in lines][-2:] == ["app.stopping", "app.crashed"]
+
+
+def test_update_says_it_is_not_available_yet(capsys: pytest.CaptureFixture[str]) -> None:
+    """R-UP-02: ``--update`` exists but the updater arrives in milestone M9, and it says so."""
+    exit_code = main(["--update"], {})
+
+    assert exit_code == 2
+    assert capsys.readouterr().err == UPDATE_NOT_AVAILABLE
+
+
+def test_doctor_prints_the_report_and_creates_no_data(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R-IN-02: ``./start --doctor`` reports the environment without changing it."""
+    exit_code = main(["--doctor"], {"YTM_HOME": str(tmp_path)})
+
+    output = capsys.readouterr().out
+    assert exit_code in (0, 1)
+    assert output.startswith("yt-mirror environment report\n")
+    assert "macOS:" in output
+    assert "Database: not created yet" in output
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_default_way_to_show_the_app_is_the_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R-PL-02: the UI runs in a dedicated app window, not a browser tab."""
+    opened: list[tuple[str, bool]] = []
+
+    def fake_open_window(url: str, *, debug: bool) -> None:
+        opened.append((url, debug))
+
+    monkeypatch.setattr(main_module, "open_window", fake_open_window)
+
+    choose_wait(options(no_window=False, debug=True))("http://127.0.0.1:1/?token=t")
+
+    assert opened == [("http://127.0.0.1:1/?token=t", True)]
+
+
+def test_the_browser_flag_opens_the_default_browser_instead(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R-PL-02: a ``--browser`` flag opens the UI in the default browser instead."""
+    opened: list[str] = []
+    waited: list[bool] = []
+    monkeypatch.setattr(main_module.webbrowser, "open", opened.append)
+    monkeypatch.setattr(main_module, "wait_for_stop_signal", lambda: waited.append(True))
+    monkeypatch.setattr(main_module, "open_window", _no_window_expected)
+
+    choose_wait(options(no_window=False, browser=True))("http://127.0.0.1:1/?token=t")
+
+    assert opened == ["http://127.0.0.1:1/?token=t"]
+    assert waited == [True]
+    assert capsys.readouterr().err == BROWSER_HINT
+
+
+def test_without_a_window_the_app_just_waits_for_a_stop_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R-PL-02: automated tests run the server alone and stop it with a signal."""
+    waited: list[bool] = []
+    monkeypatch.setattr(main_module, "wait_for_stop_signal", lambda: waited.append(True))
+    monkeypatch.setattr(main_module, "open_window", _no_window_expected)
+
+    choose_wait(options(no_window=True, browser=True))("http://127.0.0.1:1/")
+
+    assert waited == [True]
+
+
+@pytest.mark.parametrize("stop_signal", [signal.SIGINT, signal.SIGTERM])
+def test_a_stop_signal_ends_the_wait_and_old_handlers_come_back(
+    monkeypatch: pytest.MonkeyPatch, stop_signal: signal.Signals
+) -> None:
+    """R-PL-09: Ctrl+C or a termination signal ends the app. Nothing keeps running."""
+
+    class EventThatGetsTheSignal(threading.Event):
+        def wait(self, timeout: float | None = None) -> bool:
+            signal.raise_signal(stop_signal)
+            return super().wait(timeout=5)
+
+    monkeypatch.setattr(main_module.threading, "Event", EventThatGetsTheSignal)
+    before = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
+
+    wait_for_stop_signal()
+
+    after = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
+    assert after == before

@@ -115,3 +115,53 @@ extraPaths = ["backend", "scripts"]
 typeCheckingMode = "strict"
 pythonVersion = "3.14"
 pythonPlatform = "Darwin"
+
+# --- Layer rules (docs/ARCHITECTURE.md section 4) ----------------------------
+
+[tool.importlinter]
+root_package = "ytmirror"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers: tools, app, api, services, ports, core. Each imports only what is below it"
+type = "layers"
+layers = [
+    "ytmirror.tools",
+    "ytmirror.app",
+    "ytmirror.api",
+    "ytmirror.services",
+    "ytmirror.ports",
+    "ytmirror.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "Services and the API never import an adapter or a migration"
+type = "forbidden"
+source_modules = ["ytmirror.services", "ytmirror.api", "ytmirror.ports", "ytmirror.core"]
+forbidden_modules = ["ytmirror.adapters", "ytmirror.migrations"]
+
+[[tool.importlinter.contracts]]
+name = "Adapters and migrations import only core and ports"
+type = "forbidden"
+source_modules = ["ytmirror.adapters", "ytmirror.migrations"]
+forbidden_modules = ["ytmirror.services", "ytmirror.api", "ytmirror.app", "ytmirror.tools"]
+
+[[tool.importlinter.contracts]]
+name = "An adapter never imports another adapter"
+type = "independence"
+modules = ["ytmirror.adapters.*"]
+
+[[tool.importlinter.contracts]]
+name = "Core and ports are pure: no framework, no database, no network, no logging"
+type = "forbidden"
+source_modules = ["ytmirror.core", "ytmirror.ports"]
+forbidden_modules = [
+    "alembic",
+    "fastapi",
+    "sqlalchemy",
+    "starlette",
+    "structlog",
+    "ulid",
+    "uvicorn",
+    "webview",
+]
