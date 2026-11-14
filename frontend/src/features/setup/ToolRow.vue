@@ -10,7 +10,8 @@ import { useI18n } from 'vue-i18n'
 
 import type { Tool } from '@/api/client'
 import AppButton from '@/components/AppButton.vue'
-import AppIcon, { type IconName } from '@/components/AppIcon.vue'
+import AppIcon from '@/components/AppIcon.vue'
+import type { IconName } from '@/components/icons'
 import ProgressBar from '@/components/ProgressBar.vue'
 
 const props = defineProps<{

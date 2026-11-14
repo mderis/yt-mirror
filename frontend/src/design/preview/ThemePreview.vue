@@ -10,17 +10,29 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import AppBadge from '@/components/AppBadge.vue'
 import AppBanner from '@/components/AppBanner.vue'
 import AppButton from '@/components/AppButton.vue'
-import AppIcon, { type IconName } from '@/components/AppIcon.vue'
+import AppDialog from '@/components/AppDialog.vue'
+import AppIcon from '@/components/AppIcon.vue'
+import AppMenu from '@/components/AppMenu.vue'
+import DateLabel from '@/components/DateLabel.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import IconButton from '@/components/IconButton.vue'
+import { ICON_NAMES } from '@/components/icons'
 import ProgressBar from '@/components/ProgressBar.vue'
+import RadioGroup from '@/components/RadioGroup.vue'
+import SelectField from '@/components/SelectField.vue'
+import SidebarItem from '@/components/SidebarItem.vue'
+import SkeletonBlock from '@/components/SkeletonBlock.vue'
+import StatusChip from '@/components/StatusChip.vue'
+import TextField from '@/components/TextField.vue'
+import VideoRow from '@/components/VideoRow.vue'
 
 import { BrandIcon } from '../brand'
 import { THEME_NAMES } from '../themes'
 import { groupOf, parseTokens, shortName, TOKEN_GROUPS, type TokenGroup } from '../tokens'
 import tokensCss from '../tokens.css?raw'
-
-const ICONS: IconName[] = ['check', 'download', 'clock', 'warning', 'retry']
 
 interface TokenRow {
   name: string
@@ -187,7 +199,7 @@ function ref(name: string): string {
               </AppButton>
             </div>
             <div class="flex items-center gap-3 text-text-dim" data-component="icon">
-              <AppIcon v-for="icon in ICONS" :key="icon" :name="icon" />
+              <AppIcon v-for="icon in ICON_NAMES" :key="icon" :name="icon" />
             </div>
             <div class="flex flex-col gap-2" data-component="progress">
               <ProgressBar :value="0.64" :label="t('themePreview.sampleProgress')" />
@@ -200,6 +212,151 @@ function ref(name: string): string {
               </template>
             </AppBanner>
             <AppBanner tone="error">{{ t('themePreview.sampleErrorBanner') }}</AppBanner>
+            <AppBanner tone="info">{{ t('themePreview.sampleInfoBanner') }}</AppBanner>
+            <div class="flex flex-wrap items-center gap-3" data-component="more-buttons">
+              <AppButton variant="ghost">{{ t('themePreview.sampleGhostButton') }}</AppButton>
+              <AppButton variant="danger" icon="trash">
+                {{ t('themePreview.sampleDangerButton') }}
+              </AppButton>
+              <IconButton icon="more" :label="t('themePreview.sampleIconButton')" />
+              <IconButton icon="retry" size="sm" :label="t('themePreview.sampleSecondaryButton')" />
+            </div>
+            <div class="flex flex-wrap items-center gap-2" data-component="chip">
+              <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
+              <StatusChip tone="neutral" icon="clock">
+                {{ t('themePreview.sampleChips.neutral') }}
+              </StatusChip>
+              <StatusChip tone="progress" icon="download">
+                {{ t('themePreview.sampleChips.progress') }}
+              </StatusChip>
+              <StatusChip tone="ok" icon="check">{{ t('themePreview.sampleChips.ok') }}</StatusChip>
+              <StatusChip tone="failed" icon="warning">
+                {{ t('themePreview.sampleChips.failed') }}
+              </StatusChip>
+              <AppBadge>{{ t('themePreview.sampleBadge') }}</AppBadge>
+              <AppBadge shape="tag">{{ t('themePreview.sampleTag') }}</AppBadge>
+            </div>
+            <div class="flex flex-col gap-3" data-component="field">
+              <TextField
+                model-value=""
+                :label="t('themePreview.sampleField')"
+                :placeholder="t('themePreview.samplePlaceholder')"
+                :hint="t('themePreview.sampleFieldHint')"
+              />
+              <TextField
+                model-value="https://youtu.be/abc"
+                :label="t('themePreview.sampleField')"
+                :error="t('themePreview.sampleFieldError')"
+              />
+              <SelectField
+                model-value="best"
+                :label="t('themePreview.sampleSelect')"
+                :options="[
+                  { value: 'best', label: t('themePreview.sampleSelectOptions.best') },
+                  { value: '1080', label: t('themePreview.sampleSelectOptions.p1080') },
+                ]"
+              />
+              <RadioGroup
+                model-value="pick"
+                :legend="t('themePreview.sampleRadio')"
+                :options="[
+                  {
+                    value: 'pick',
+                    label: t('themePreview.sampleRadioOptions.pick'),
+                    hint: t('themePreview.sampleRadioOptions.pickHint'),
+                  },
+                  { value: 'all', label: t('themePreview.sampleRadioOptions.all') },
+                ]"
+              />
+            </div>
+            <div class="relative h-36" data-component="menu">
+              <AppMenu
+                class="left-0"
+                :label="t('themePreview.sampleMenu')"
+                :items="[
+                  { id: 'check', label: t('themePreview.sampleMenuItems.check'), icon: 'retry' },
+                  {
+                    id: 'open',
+                    label: t('themePreview.sampleMenuItems.open'),
+                    icon: 'external',
+                    href: '#',
+                  },
+                  {
+                    id: 'remove',
+                    label: t('themePreview.sampleMenuItems.remove'),
+                    icon: 'trash',
+                    danger: true,
+                  },
+                ]"
+              />
+            </div>
+            <AppDialog
+              inline
+              data-component="dialog"
+              :title="t('themePreview.sampleDialog')"
+              :close-label="t('themePreview.sampleDialogClose')"
+            >
+              <p class="text-text-dim">{{ t('themePreview.sampleDialogBody') }}</p>
+              <template #actions>
+                <AppButton variant="ghost">{{ t('themePreview.sampleGhostButton') }}</AppButton>
+                <AppButton variant="danger">{{ t('themePreview.sampleDangerButton') }}</AppButton>
+              </template>
+            </AppDialog>
+            <div class="flex flex-col gap-1 bg-surface-side p-2" data-component="sidebar-item">
+              <SidebarItem
+                selected
+                status-icon="check"
+                status-tone="ok"
+                :title="t('themePreview.sampleChannel')"
+                :status="t('themePreview.sampleChannelStatus')"
+                :new-videos="t('themePreview.sampleBadge')"
+              />
+              <SidebarItem
+                status-icon="retry"
+                status-tone="progress"
+                :title="t('themePreview.sampleChannel')"
+                :status="t('themePreview.sampleChannelChecking')"
+              />
+            </div>
+            <div role="list" data-component="video-row">
+              <VideoRow
+                :title="t('themePreview.sampleVideo')"
+                :duration="t('themePreview.sampleDuration')"
+                :new-tag="t('themePreview.sampleTag')"
+              >
+                <template #facts>
+                  <span>{{ t('themePreview.sampleUploaded') }}</span>
+                  <DateLabel :text="t('themePreview.sampleExactDate')" />
+                  <span>{{ t('themePreview.sampleViews') }}</span>
+                </template>
+                <template #status>
+                  <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
+                </template>
+              </VideoRow>
+              <VideoRow :title="t('themePreview.sampleVideo')">
+                <template #facts>
+                  <span>{{ t('themePreview.sampleUploaded') }}</span>
+                  <DateLabel
+                    approximate
+                    :text="t('themePreview.sampleAroundDate')"
+                    :note="t('themePreview.sampleDateNote')"
+                  />
+                </template>
+                <template #status>
+                  <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
+                </template>
+              </VideoRow>
+            </div>
+            <div class="flex items-center gap-3" data-component="skeleton">
+              <SkeletonBlock class="h-18 w-32" />
+              <div class="flex flex-1 flex-col gap-2">
+                <SkeletonBlock class="h-3 w-1/2" />
+                <SkeletonBlock class="h-3 w-1/4" />
+              </div>
+            </div>
+            <EmptyState icon="video" :title="t('themePreview.sampleEmpty')" data-component="empty">
+              {{ t('themePreview.sampleEmptyText') }}
+            </EmptyState>
           </div>
         </section>
       </section>

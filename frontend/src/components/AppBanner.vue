@@ -5,6 +5,7 @@
  * condition goes into the `action` slot.
  *
  * An `error` banner interrupts a screen reader, the others wait their turn.
+ * Every tone has an icon of its own, so it is never told by colour alone.
  */
 import { computed } from 'vue'
 
@@ -12,8 +13,8 @@ import AppIcon from './AppIcon.vue'
 
 const props = withDefaults(
   defineProps<{
-    /** How urgent the condition is. */
-    tone?: 'attention' | 'error'
+    /** How urgent the condition is. `info` only tells something. */
+    tone?: 'attention' | 'error' | 'info'
   }>(),
   { tone: 'attention' },
 )
@@ -21,10 +22,14 @@ const props = withDefaults(
 const LOOKS = {
   attention: 'bg-warn-bg text-warn-text',
   error: 'bg-err-bg text-err-text',
+  info: 'bg-ok-bg text-ok-text',
 } as const
-const ROLES = { attention: 'status', error: 'alert' } as const
+const ROLES = { attention: 'status', error: 'alert', info: 'status' } as const
+const ICON = { attention: 'warning', error: 'warning', info: 'info' } as const
+
 const look = computed(() => LOOKS[props.tone])
 const role = computed(() => ROLES[props.tone])
+const icon = computed(() => ICON[props.tone])
 </script>
 
 <template>
@@ -33,7 +38,7 @@ const role = computed(() => ROLES[props.tone])
     :class="look"
     :role="role"
   >
-    <AppIcon name="warning" />
+    <AppIcon :name="icon" />
     <div class="min-w-0 flex-1"><slot /></div>
     <slot name="action" />
   </div>
