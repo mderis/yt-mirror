@@ -46,11 +46,13 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 | R-PL-10 | Every call to the local API must carry a session token created at random at each start. The window receives it in its first address, where it is exchanged for a cookie that scripts cannot read. A missing or wrong token is refused. The server also accepts the same token in an `Authorization: Bearer` header, which tools and tests use. No other credential opens the API. |
 | R-PL-11 | The local server serves the built interface and nothing else from the disk, and does not expose its API description. |
 | R-PL-12 | A health endpoint reports that the server runs, with the app version and the database schema version. |
-| R-PL-13 | The app stops cleanly however it is asked to quit: Quit in the menu bar, Cmd+Q, Quit in the Dock, closing the window, logout, restart, shutdown, Ctrl+C or a termination signal. It stops its work and closes the database before the process ends. A server that cannot start is reported, not a hang. |
+| R-PL-13 | The app stops cleanly however it is asked to quit: Quit in the menu bar, Cmd+Q, Quit in the Dock, closing the window, logout, restart, shutdown, Ctrl+C or a termination signal. It stops its work and closes the database before the process ends. This requirement is the shutdown work of the quit path only: whether a quit is first held for a question is R-NA-06 and R-QU-12. A server that cannot start is reported, not a hang. |
 
 ### 2.1 Native Mac app
 
-yt-mirror must feel like a native Mac app. Details: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10 and [DESIGN.md](DESIGN.md) section 7. That the window library can do all of this from a locally built, unsigned app bundle was shown by experiment in milestone M1 (DECISIONS D-048 to D-051).
+yt-mirror must feel like a native Mac app. Details: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10 and [DESIGN.md](DESIGN.md) section 7. That the window library can do all of this from a locally built, unsigned app bundle was shown by experiment in milestone M1 (DECISIONS D-048 to D-052).
+
+The quit path is built in two steps (D-052). Milestone M1 builds the shutdown work: R-PL-13. Milestone M5 builds the decision whether a quit is held, with the "quit while downloading" confirmation: R-NA-06 and R-QU-12. Until M5 the app never holds a quit and never asks before it.
 
 | ID | Requirement |
 |---|---|

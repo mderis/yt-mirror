@@ -37,7 +37,7 @@ Requirements: R-IN-03, R-IN-04, R-IN-05, R-NA-01, R-NA-02, R-NA-07, R-NA-08. Res
 - First-run screen (`Setup.html`). Banner and "Install now" for a missing tool. When which of the two is shown: D-055.
 - The event bus and `GET /api/events`, with the one event this milestone needs (D-057). The first shared components: button, progress bar, banner, icons.
 - Rebuild of the Python environment after the folder moved.
-- The quit path (D-052): the shutdown work runs however the app is asked to quit (R-PL-13). The "quit while downloading" confirmation is built on it in M5.
+- The quit path, first part (D-052): the shutdown work runs however the app is asked to quit (R-PL-13). Nothing can hold a quit yet. The decision part and the "quit while downloading" confirmation are built in M5.
 - Native Mac app, first part ([ARCHITECTURE.md](ARCHITECTURE.md) section 7.10). **Q-24 is resolved before any of it is built. If the window library cannot do it, stop and ask.**
   - Brand icon ([DESIGN.md](DESIGN.md) section 5): the build script that generates assets from `frontend/src/design/brand/icon.svg`, the test that every generated asset is newer than the source, and the macOS icon (`.icns`).
   - The app bundle: `./start` on a clone builds `yt-mirror.app` locally and starts the app through it. It is rebuilt after the folder moved.
@@ -84,6 +84,7 @@ Requirements: R-QU-01 to R-QU-12, R-MI-02 to R-MI-07, R-UI-03 to R-UI-13 (remain
 - Auto-mirror with the date limit. Mirror everything missing. File missing status.
 - Quality change with re-download.
 - Frontend: queue bar and downloads panel, selection and bulk bar, grid view, tabs, search, sort, context menus, virtual scrolling, keyboard shortcuts, quit confirmation.
+- The quit path, second part (D-052, [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10). M1 built only the shutdown work, and nothing in the app listens to the window's `closing` event. This milestone builds the decision part: the handler of the `closing` event that can hold a quit, the "quit while downloading" confirmation (R-NA-06, R-QU-12), and the reading of the reason of a quit request, so that a logout, a restart and a shutdown are never held for a question. Tests with a real window cover every way of quitting, held and confirmed.
 - Native Mac app, second part: the menu bar ([DESIGN.md](DESIGN.md) section 7.1), now that the actions exist. File, Edit, View (List, Grid, Show Downloads), Channel and Window menus, items enabled only when they apply. One quit path for Cmd+Q, Close Window and the window button, with the quit confirmation. The in-app shortcut list follows the menu bar ([DESIGN.md](DESIGN.md) section 7.3). A menu item whose target does not exist yet is added by the milestone that builds the target, never shown disabled without one.
 
 Acceptance: end-to-end flows 2, 3, 6, 7, 10 and 13 pass. The `large` fixture scrolls smoothly. Every menu item of this milestone does the same as its control in the interface, and Cmd+Q during a download asks for confirmation.
@@ -99,7 +100,7 @@ Acceptance: end-to-end flows 4 and 5 pass. A property test shows that no path qu
 Requirements: section 10 of the spec, R-SE-*, R-FB-*, R-ER-*, R-AC-*, R-HE-*, R-LG-04, R-LG-05, R-CH-33, R-NA-05. Resolve: Q-07.
 
 - Settings and channel settings screens with every control wired. Folder move for a channel.
-- The activity entry for an installed tool, with the source it came from (R-IN-03, D-057).
+- The activity log must record every installed tool with the source it came from (R-IN-03, D-057), with a test. Since M1 the source is only in the debug log (`tool.install.finished`), in `./start --doctor` and in the answer of `/api/tools`: the maintainer accepted that for the time before the activity log exists.
 - Banners, toasts, notifications. Error details dialog for every error code, with texts.
 - Activity log. Help page. Report a problem. Debug report. Health check. The `explain` tool.
 - Native Mac app, third part: the About window, and the menu items whose targets are built here: About yt-mirror, Settings..., Show Activity, yt-mirror Help, Keyboard Shortcuts, Report a Problem....

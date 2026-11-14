@@ -371,7 +371,7 @@ Flags: `--debug` (verbose logs, developer tools in the window), `--browser` (def
 
 ### 7.10 Native Mac app
 
-Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-051. The experiment of open question Q-24 showed in milestone M1 that all of this works from a locally built, unsigned bundle: on macOS 15 (Apple Silicon and Intel) and on macOS 27. The parts are built in M1 (bundle, identity, one instance), M5 (menu bar, quit path), M7 (About window) and M9 (installer).
+Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-052. The experiment of open question Q-24 showed in milestone M1 that all of this works from a locally built, unsigned bundle: on macOS 15 (Apple Silicon and Intel) and on macOS 27. The parts are built in M1 (bundle, identity, one instance, the app menu and the Edit menu, the shutdown work of the quit path), M5 (the full menu bar, the decision part of the quit path with the quit confirmation), M7 (About window) and M9 (installer).
 
 **App bundle (R-NA-01, R-NA-02).**
 - A small program builds the app bundle on the user's Mac: a folder with `Contents/Info.plist` (the name, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/` with the icon (`.icns`) generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/` with the program macOS starts.
@@ -395,11 +395,30 @@ Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-051. The experim
 
 **Quit, Dock and single instance (R-NA-06 to R-NA-08).**
 - There is one quit path (D-052). It has two parts: a decision (may the app quit now?) and the shutdown work (stop the workers and the server, close the database, write the last log line), which runs exactly once, whoever asks.
-- Every way of quitting reaches the decision through one public hook, the `closing` event of the pywebview window. The red window button, Cmd+W and "Close Window" reach it directly. Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown reach it because pywebview asks the same event when AppKit asks whether the app may terminate. Ctrl+C and a termination signal are turned into the same AppKit quit request: Python's `signal` module with a wake-up pipe, because a Python signal handler does not run while AppKit's loop waits.
-- The decision can hold the quit: the event answers no, the app and its workers keep running, and the interface asks. This is the place of the "quit while downloading" confirmation (R-QU-12, built in M5). When the user confirms, the app closes its window itself.
-- Logout, restart and shutdown are never held for a question. The quit request of macOS carries its reason. The app does its shutdown work at once, which holds the logout for that moment, and then lets macOS go on. This work must stay short: macOS does not wait for an app without limit.
-- The shutdown work is reached from two ends. Closing the window ends the window loop, and the code after it runs. Quit ends the process inside AppKit, and the code after the window loop never runs: there the work hangs on AppKit's "will terminate" notification.
+- **What exists when.** The two parts are built in different milestones:
+
+  | Part | Built in | State after M1 |
+  |---|---|---|
+  | The shutdown work, for every way of quitting (R-PL-13) | M1 | Exists, with tests that use a real window |
+  | Ctrl+C and a termination signal become a quit request | M1 | Exists |
+  | The decision: a handler of the `closing` event that can hold a quit | M5 | Does not exist. Nothing in the app listens to the `closing` event |
+  | The "quit while downloading" confirmation (R-NA-06, R-QU-12) | M5 | Does not exist. No quit is ever held, and the app never asks |
+  | Reading the reason of a quit request, so that a logout, a restart and a shutdown are never held for a question | M5 | Does not exist, and is not needed before a quit can be held: every quit gets the same shutdown work |
+
+  The M5 rows were shown to work in the experiment of Q-24 with throwaway code that is not in the repository. They are a design, not code.
+
+*The shutdown work (built in M1):*
+- It is reached from two ends. Closing the window (the red window button, Cmd+W) ends the window loop, and the code after it runs. Quit ends the process inside AppKit, and the code after the window loop never runs: there the work hangs on AppKit's "will terminate" notification. This covers Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown.
+- Ctrl+C and a termination signal are turned into the same AppKit quit request: Python's `signal` module with a wake-up pipe, because a Python signal handler does not run while AppKit's loop waits.
+- At a logout, a restart or a shutdown the app does its shutdown work at once, which holds macOS for that moment, and then lets it go on. This work must stay short: macOS does not wait for an app without limit.
 - A handler of an AppKit notification must return nothing. A returned value makes pyobjc raise inside AppKit, and AppKit then drops the event it was handling. In the experiment a logout hung on exactly this.
+
+*The decision (built in M5, not in the code yet):*
+- Every way of quitting will reach the decision through one public hook, the `closing` event of the pywebview window. The red window button, Cmd+W and "Close Window" reach it directly. Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown reach it because pywebview asks the same event when AppKit asks whether the app may terminate. Ctrl+C and a termination signal reach it as the quit request they were turned into.
+- The decision can hold the quit: the event answers no, the app and its workers keep running, and the interface asks. This is the place of the "quit while downloading" confirmation (R-NA-06, R-QU-12). When the user confirms, the app closes its window itself.
+- Logout, restart and shutdown must never be held for a question. The quit request of macOS carries its reason, and the decision lets these through to the shutdown work.
+
+*Dock and single instance:*
 - A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020). This is what AppKit does by itself, also for a minimized window and for a hidden app.
 - One instance per data folder, in every mode (D-050). A running app holds a lock on the file `data/instance.lock` and writes its process ID and its bundle into `data/instance.json`. A second start that finds the lock held never loads the window library, so no second Dock icon appears. Started for a window, it asks macOS to open the app bundle again and ends: macOS then brings the running app's window to the front, exactly as a click on the Dock icon does. Started with `--browser` or without a window, it ends with a plain message. When the bundle is opened from Finder or the Dock while the app runs, macOS itself starts no second copy and brings the running app to the front.
 
