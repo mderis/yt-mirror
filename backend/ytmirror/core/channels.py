@@ -382,3 +382,19 @@ class YouTubePauseChanged:
     """
 
     pause: YouTubePause | None
+
+
+@dataclass(frozen=True, slots=True)
+class VideoView:
+    """A video as the interface shows it in a list (R-CH-10).
+
+    Attributes:
+        video: The stored video.
+        is_new: Whether it counts as new right now (R-CH-15).
+        published_around: For an approximate date, the moment to show it from: the
+            middle of the range the real date lies in (R-DT-04). Otherwise None.
+    """
+
+    video: Video
+    is_new: bool
+    published_around: int | None

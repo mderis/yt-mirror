@@ -159,6 +159,7 @@ class ChannelsService:
         self._lock = threading.Lock()
         self._looked_up: dict[str, ChannelFacts] = {}
         self._counts: dict[str, _Count] = {}
+        self._preview_avatars: dict[str, bytes] = {}
         self._chosen: set[str] = set()
 
     def lookup(self, text: str) -> ChannelLookup:
@@ -208,6 +209,32 @@ class ChannelsService:
             _unavailable(channel_id, "It took longer than the time limit")
             return None
         return count.value
+
+    def preview_avatar(self, channel_id: str) -> bytes | None:
+        """Return the avatar of a channel that was looked up, for its preview (R-CH-03).
+
+        The user waits for this one picture, so it is fetched when it is asked
+        for. It is kept in memory until the channel is added or the app ends.
+
+        Args:
+            channel_id: The channel ID.
+
+        Returns:
+            The picture, or None when the channel was not looked up, has no avatar,
+            or the avatar could not be fetched.
+        """
+        with self._lock:
+            facts = self._looked_up.get(channel_id)
+            kept = self._preview_avatars.get(channel_id)
+        if kept is not None or facts is None or facts.avatar_url is None:
+            return kept
+        try:
+            picture = self._youtube.fetch_image(facts.avatar_url, by_user=True)
+        except AppError:
+            return None
+        with self._lock:
+            self._preview_avatars[channel_id] = picture
+        return picture
 
     def choose_folder(self) -> ChosenFolder | None:
         """Let the user choose a folder for a channel in the dialog of macOS (R-CH-05).
@@ -270,6 +297,10 @@ class ChannelsService:
             folder_is_custom=channel.folder_is_custom,
             auto_mirror=channel.auto_mirror,
         )
+        with self._lock:
+            avatar = self._preview_avatars.pop(channel.id, None)
+        if avatar is not None:
+            self._thumbnails.keep_avatar(channel.id, avatar)
         self._catalogue.request_check(
             channel.id, CheckKind.FULL, preview_count=self._finished_count(channel.id)
         )

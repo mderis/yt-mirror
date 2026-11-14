@@ -153,8 +153,16 @@ class World:
         later: Work that was scheduled for later, with its delay in seconds.
     """
 
-    def __init__(self, folder: Path, *channels: dict[str, Any]) -> None:
-        """Build the services on a new database and a fake YouTube with the given channels."""
+    def __init__(
+        self, folder: Path, *channels: dict[str, Any], bus: EventBus | None = None
+    ) -> None:
+        """Build the services on a new database and a fake YouTube with the given channels.
+
+        Args:
+            folder: A temp folder of the test.
+            channels: The channels of the fake YouTube. Default: one small channel.
+            bus: The event bus to publish on. Default: a new one.
+        """
         world_dir = folder / "youtube"
         world_dir.mkdir()
         for index, channel in enumerate(channels or (channel_file(),)):
@@ -163,7 +171,7 @@ class World:
         self.clock = FakeClock()
         self.fixture = FixtureYouTube(world_dir)
         self.gateway = RefusingGateway(self.fixture)
-        self.bus = EventBus()
+        self.bus = bus if bus is not None else EventBus()
         self.events: list[AppEvent] = []
         self.bus.subscribe(lambda event: self.events.append(event) if event is not None else None)
         self.background: list[Callable[[], None]] = []

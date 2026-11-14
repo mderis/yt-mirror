@@ -125,17 +125,18 @@ class YouTubeAccess:
         )
         return ChannelListing(listing.facts, self._watched(listing.videos))
 
-    def fetch_image(self, url: str) -> bytes:
-        """Fetch a picture. The app does this by itself, so a pause holds it up.
+    def fetch_image(self, url: str, *, by_user: bool = False) -> bytes:
+        """Fetch a picture. Unless the user waits for it, a pause holds it up.
 
         Args:
             url: The address of the picture.
+            by_user: Whether the user waits for this picture, as for the avatar of a preview.
 
         Raises:
             AppError: ``BOT_CHECK`` without asking while the app pauses, or as the
                 gateway raises it.
         """
-        return self._ask("image", lambda: self._gateway.fetch_image(url), by_user=False)
+        return self._ask("image", lambda: self._gateway.fetch_image(url), by_user=by_user)
 
     def _ask[T](self, request: str, ask: Callable[[], T], *, by_user: bool) -> T:
         pause = self.pause()

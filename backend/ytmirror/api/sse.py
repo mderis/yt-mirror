@@ -20,7 +20,16 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
+from ytmirror.api.catalogue_schemas import (
+    BannerChangedEvent,
+    Channel,
+    ChannelUpdatedEvent,
+    Pause,
+    Progress,
+    TaskProgressEvent,
+)
 from ytmirror.api.schemas import Tool, ToolUpdatedEvent
+from ytmirror.core.channels import ChannelUpdated, TaskProgressed
 from ytmirror.core.models import AppEvent, ToolUpdated
 from ytmirror.services.events import EventBus
 
@@ -28,6 +37,13 @@ KEEP_ALIVE_S = 15.0
 """A comment line is sent this often while nothing happens, so the connection stays open."""
 
 TOOL_UPDATED = "tool.updated"
+CHANNEL_UPDATED = "channel.updated"
+TASK_PROGRESS = "task.progress"
+BANNER_CHANGED = "banner.changed"
+
+type EventData = ToolUpdatedEvent | ChannelUpdatedEvent | TaskProgressEvent | BannerChangedEvent
+"""The data of every event of the stream. It is named as the answer of the endpoint,
+so that the generated frontend types know all of them."""
 
 
 def encode(name: str, data: BaseModel) -> str:
@@ -53,10 +69,14 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
     router = APIRouter(tags=["events"])
 
     def wire_form(event: AppEvent) -> str:
-        if isinstance(event, ToolUpdated):  # pyright: ignore[reportUnnecessaryIsInstance]  (later milestones add events)
+        if isinstance(event, ToolUpdated):
             data = ToolUpdatedEvent(tool=Tool.of(event.report), setup_required=setup_required())
             return encode(TOOL_UPDATED, data)
-        raise TypeError(f"No wire format for {type(event).__name__}")  # pragma: no cover
+        if isinstance(event, ChannelUpdated):
+            return encode(CHANNEL_UPDATED, ChannelUpdatedEvent(channel=Channel.of(event.view)))
+        if isinstance(event, TaskProgressed):
+            return encode(TASK_PROGRESS, TaskProgressEvent(progress=Progress.of(event.progress)))
+        return encode(BANNER_CHANGED, BannerChangedEvent(youtube_pause=Pause.of(event.pause)))
 
     async def stream() -> AsyncIterator[str]:
         loop = asyncio.get_running_loop()
@@ -94,9 +114,11 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
         response_class=StreamingResponse,
         responses={
             200: {
-                "model": ToolUpdatedEvent,
+                "model": EventData,
                 "description": (
-                    "A stream of Server-Sent Events. The event ``tool.updated`` carries this data."
+                    "A stream of Server-Sent Events. The events ``tool.updated``, "
+                    "``channel.updated``, ``task.progress`` and ``banner.changed`` carry "
+                    "these data, in this order."
                 ),
             }
         },

@@ -20,8 +20,11 @@ from ytmirror.core.channels import (
     ChannelView,
     TaskProgress,
     TaskProgressed,
+    VideoView,
 )
-from ytmirror.core.status import NEW_FOR_S, channel_status
+from ytmirror.core.dates import moment_to_show
+from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.status import NEW_FOR_S, channel_status, is_new
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.services.events import EventBus
@@ -84,6 +87,29 @@ class ChannelViews:
             return None
         totals = self._repository.totals(self._new_since())
         return self._view(channel, totals.get(channel_id, ChannelTotals()))
+
+    def videos(self, channel_id: str) -> tuple[VideoView, ...]:
+        """Return the catalogue of a channel as a list shows it, in channel order (R-CH-10).
+
+        Args:
+            channel_id: The channel ID.
+
+        Raises:
+            AppError: ``NOT_FOUND`` for an unknown channel.
+        """
+        if self._repository.channel(channel_id) is None:
+            raise AppError(ErrorCode.NOT_FOUND, {"channel": channel_id})
+        now = int(self._clock.now().timestamp())
+        return tuple(
+            VideoView(
+                video=video,
+                is_new=is_new(video, now),
+                published_around=None
+                if video.published_at is None or video.published_precision is None
+                else moment_to_show(video.published_at, video.published_precision),
+            )
+            for video in self._repository.videos(channel_id)
+        )
 
     def publish(self, channel_id: str) -> None:
         """Tell the interface how a channel is now. A removed channel is not told.

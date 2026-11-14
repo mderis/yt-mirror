@@ -11,6 +11,7 @@ app holds it up (R-ER-05) and it is taken up again when the pause ends.
 Tests: backend/tests/unit/services/test_thumbnails.py
 """
 
+import re
 import threading
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -33,6 +34,9 @@ GIVE_UP_AFTER_FAILED_BATCHES = 2
 """A channel whose pictures fail for this many groups in a row is left for later."""
 
 type _Wanted = tuple[ImageKind, str, str]
+
+_AN_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+"""What the ID of a video or a channel looks like. Anything else has no picture."""
 
 
 class ThumbnailService:
@@ -99,6 +103,8 @@ class ThumbnailService:
         Args:
             video_id: The video ID.
         """
+        if not _AN_ID.fullmatch(video_id):
+            return None
         return self._cache.load(ImageKind.THUMBNAIL, video_id)
 
     def avatar(self, channel_id: str) -> bytes | None:
@@ -107,7 +113,18 @@ class ThumbnailService:
         Args:
             channel_id: The channel ID.
         """
+        if not _AN_ID.fullmatch(channel_id):
+            return None
         return self._cache.load(ImageKind.AVATAR, channel_id)
+
+    def keep_avatar(self, channel_id: str, picture: bytes) -> None:
+        """Cache an avatar that was fetched already, as for the preview of a new channel.
+
+        Args:
+            channel_id: The channel ID.
+            picture: The bytes of the avatar.
+        """
+        self._cache.store(ImageKind.AVATAR, channel_id, picture)
 
     def forget(self, channel_id: str, video_ids: Iterable[str]) -> None:
         """Drop the pictures of a channel that was removed (R-CH-32).
