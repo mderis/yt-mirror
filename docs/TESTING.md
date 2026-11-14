@@ -56,6 +56,8 @@ Coverage is a floor, not the goal. The review in section 7 is what establishes t
 | `tricky-titles` | Titles with `/`, `:`, emoji, right-to-left text, very long titles, duplicates, leading dots |
 | `changing` | A script of changes between checks: every listing of this channel serves the next step. New video on top, new video between two older known ones, title change, removed video, video that reappears, a check that fails. It covers both kinds of check: a quick check never marks a video as removed |
 | `empty` | A channel without any regular video |
+| `slow` | 300 videos that arrive page by page with a pause, so that what the window shows while a check runs can be seen and tested. Its first check fails, and the retry waits before it answers (R-CH-25, R-CH-27) |
+| `slow-start` | Like `slow`, but its first listing fails and its retry is a slow first listing (R-CH-11, R-CH-25) |
 | `failures` | One video per error code |
 | `premieres` | Scheduled and premiered videos, for R-DT-03 |
 | `no-subtitles`, `auto-subtitles-only` | Subtitle fallback (R-MD-03) |

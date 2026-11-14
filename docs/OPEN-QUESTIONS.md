@@ -29,6 +29,17 @@ Facts verified in milestone M2 (November 2026), against the real YouTube with th
 - YouTube's "not a bot" check (R-ER-05, D-071). From the two CI runners of GitHub every metadata lookup of a video was refused with "Sign in to confirm you're not a bot": 23 combinations of options, 32 videos, one at a time and in parallel. Listings of channels and playlists worked from the same runners. From the maintainer's network during this milestone: never in a listing (about 13,000 listed videos), never in a lookup with the default or the lightest options (about 260 lookups), and in 12 of 12 lookups with two unusual clients that skip the video's page, which the app does not use. The count at the end of the milestone is the same: the three live tests (a lookup, a listing, a video count and two pictures) were answered too. No request of the kinds the app makes in milestone M2 was ever refused from this network.
 - Seen on the side for Q-04 (M3): with the path of Deno given, yt-dlp still warned that its JavaScript challenge solver component is not installed ("Some formats may be missing"). Reading metadata worked. Downloading needs this looked at.
 
+- Exact dates with the free YouTube API key, measured on 15 November 2026 from the maintainer's network with the maintainer's key (162 requests, 162 quota units of the 10,000 a day). The playlist of a channel's regular videos (`UULF` followed by the channel ID without `UC`) gives the exact time of every video, 50 per request, with `playlistItems.list` and `contentDetails.videoPublishedAt`. One request took about 1.1 seconds there.
+
+  | Channel | Regular videos | Requests (= units) | Time | Videos without a date |
+  |---|---|---|---|---|
+  | @jawed | 1 | 1 | 0.9 s | 0 |
+  | @CGPGrey | 149 | 3 | 3.4 s | 0 |
+  | @veritasium | 453 | 10 | 10.3 s | 0 |
+  | @LinusTechTips | 6,599 | 132 | 153 s | 0 |
+
+  Finding the channel takes one more request (`channels.list` by handle). Looking videos up by ID (`videos.list`, 50 per request) took 4 requests and about 10 seconds for 200 videos. For 549 videos of four channels, the day from the playlist and the day from `videos.list` (with the start time of a premiere where there was one) were the same in every case. The counts of the playlist were those of the channel listing through yt-dlp, which found 6,597 for the largest channel two days earlier. Whether the playlist time equals the release time of a premiere to the second (R-DT-03) was not checked.
+
 Facts verified in milestone M1 (November 2026):
 - Q-24 is answered: from a locally built, unsigned app bundle, pywebview with AppKit does all three, on macOS 15 (Apple Silicon and Intel) and on macOS 27. Custom menus with shortcuts and items that are enabled and disabled while the app runs work when the menu bar is built with AppKit (pywebview's own menu API cannot do it, D-049). The app appears as "yt-mirror" with its icon and never as "Python" (D-048). A second start brings the first window to the front, also when it is minimized or hidden (D-050). A fourth point was added during the experiment: every way of quitting goes through one quit path that the app controls, checked with a real logout on macOS 15 as well (D-052). Details: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10.
 - AppKit renders the icon source file (SVG) correctly on macOS 15 and macOS 27, so the icon can be built on the user's Mac without Node.js.
@@ -43,6 +54,34 @@ Facts already verified during planning (November 2026):
 - yt-dlp stopped setting file modification times by default in release 2025.07.21, so yt-mirror must set dates itself.
 - The YouTube Data API `videos.list` accepts up to 50 IDs per request and costs 1 quota unit. The default quota is 10,000 units per day.
 - The YouTube Data API is free: no charge per request and no payment details needed to create a key. When the daily quota is used up, requests fail until it resets.
+
+## Proposed design of the exact date fetch (milestone M4)
+
+A proposal from milestone M2, not in the specification. It is decided in the plan of M4. The numbers come from the facts above.
+
+**Two ways, chosen by whether a key is set (R-DT-05, R-DT-12).**
+
+| | With the free API key | Without a key |
+|---|---|---|
+| Source | The playlist of regular videos, 50 exact times per request. New videos of a check: `videos.list`, 50 per request | One metadata lookup per video through yt-dlp, with the lightest options that still return the exact time |
+| 1,000 videos | about 20 requests, about 25 seconds, 20 of 10,000 daily units | about 58 minutes one at a time, about 33 at two in parallel, about 15 at four |
+| 6,600 videos | 132 requests, about 2.5 minutes, 132 units | about 6.4 hours one at a time, about 3.7 at two, about 1.7 at four |
+| Risk | The daily quota. A full channel of 6,600 videos costs 1.3 % of it | YouTube slowing the app down or showing its "not a bot" check (Q-08, R-ER-05). From CI every lookup was refused |
+
+**Without a key**
+- Start at two lookups in parallel. Not four: no error appeared in 96 parallel lookups, but no run was longer than 32 videos (Q-08). M4 settles it on a real channel of 1,000 videos.
+- Order: videos a decision waits for (R-MI-03), then videos on the screen, then selected or queued videos, then newest to oldest.
+- The time left is computed from the rate the app measures while it runs ("Exact dates: 340 of 1,000, about 50 minutes left"). No fixed number is promised anywhere.
+- When the estimate for a channel is longer than 10 minutes, the app offers the key, with the measured comparison of this table.
+- The fetch yields to downloads and stops with the pause of R-ER-05. While it is held up by that pause, the channel says "Waiting for YouTube", not "Exact dates" (R-FB-01: held-up work is not running work).
+
+**With a key**
+- The first listing of a channel is followed by one pass over its playlist: every exact date at once.
+- After every check, the new videos are looked up by ID, 50 per request.
+- A key that fails or whose quota is used up falls back to the way without a key, without an error dialog (R-DT-12).
+- The key is a secret of the logs (R-LG-07). Since M2 the logger already removes the value of `YTM_YOUTUBE_API_KEY`, the variable that live tests and probes take it from. The app itself reads the key from its settings.
+
+**To check in M4 before this is built:** that the playlist time is the release time of a premiere to the second (R-DT-03), and how the playlist treats a video that was public and became private.
 
 ## Decisions the maintainer still has to make
 

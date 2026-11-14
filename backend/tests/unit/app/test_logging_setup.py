@@ -20,6 +20,7 @@ from ytmirror.app.logging_setup import (
     configure_logging,
     new_run_id,
     remove_old_logs,
+    secret_redactor,
     set_verbose,
 )
 
@@ -328,3 +329,29 @@ def test_only_daily_log_files_are_ever_deleted(tmp_path: Path) -> None:
 
     assert removed == []
     assert sorted(path.name for path in tmp_path.iterdir()) == sorted([*keep, "jobs"])
+
+
+def test_a_youtube_api_key_from_the_environment_never_reaches_a_line() -> None:
+    """R-LG-07: the value of YTM_YOUTUBE_API_KEY is removed wherever it appears, like the token."""
+    stand_in = "AIza-not-a-real-key-0123456789"
+    redactor = secret_redactor("session-token", {"YTM_YOUTUBE_API_KEY": stand_in})
+
+    line = redactor(
+        None,
+        "info",
+        {"event": "probe", "url": f"https://www.googleapis.com/youtube/v3/videos?key={stand_in}"},
+    )
+    token_line = redactor(None, "info", {"event": "probe", "text": "session-token"})
+
+    assert stand_in not in json.dumps(line)
+    assert str(line["url"]).endswith("key=[redacted]")
+    assert token_line["text"] == "[redacted]"
+
+
+def test_without_a_youtube_api_key_only_the_token_is_a_secret() -> None:
+    """R-LG-07: an empty or missing key adds no secret, so nothing else is removed by mistake."""
+    redactor = secret_redactor("session-token", {"YTM_YOUTUBE_API_KEY": ""})
+
+    line = redactor(None, "info", {"event": "probe", "text": "nothing to hide here"})
+
+    assert line["text"] == "nothing to hide here"

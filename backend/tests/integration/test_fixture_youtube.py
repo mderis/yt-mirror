@@ -46,10 +46,39 @@ def ids(youtube: FixtureYouTube, channel_id: str) -> list[str]:
 
 
 def test_the_world_has_the_channels_this_milestone_needs() -> None:
-    """infra: small, tricky-titles, large, changing and empty exist (TESTING section 4)."""
+    """infra: the channels of TESTING section 4 that milestone M2 needs exist."""
     names = sorted(file.stem for file in WORLD.glob("*.json"))
 
-    assert names == ["changing", "empty", "large", "small", "tricky-titles"]
+    assert names == [
+        "changing",
+        "empty",
+        "large",
+        "slow",
+        "slow-start",
+        "small",
+        "tricky-titles",
+    ]
+
+
+def test_the_slow_channels_answer_page_by_page_and_fail_as_their_flows_need() -> None:
+    """infra: slow fails its first check and is slow at its retry, slow-start fails its listing."""
+    waits: list[float] = []
+    youtube = FixtureYouTube(WORLD, sleep=waits.append)
+
+    first = len(list(youtube.list_channel("UCslowchannel00000000006").videos))
+    with pytest.raises(AppError) as failed_check:
+        youtube.list_channel("UCslowchannel00000000006")
+    waits.clear()
+    retry = youtube.list_channel("UCslowchannel00000000006")
+    with pytest.raises(AppError) as failed_start:
+        youtube.list_channel("UCslowfailing00000000007")
+
+    assert first == 300
+    assert failed_check.value.code is ErrorCode.NETWORK_UNREACHABLE
+    assert waits == [2.5]
+    assert next(retry.videos).id == "slw00000300"
+    assert waits == [2.5, 0.4]
+    assert failed_start.value.code is ErrorCode.NETWORK_UNREACHABLE
 
 
 def test_small_has_twelve_videos_newest_first() -> None:

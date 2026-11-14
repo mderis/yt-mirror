@@ -38,10 +38,10 @@ from ytmirror.app.config import AppPaths, RunOptions, parse_options, resolve_pat
 from ytmirror.app.container import Container, build_container
 from ytmirror.app.doctor import run_doctor
 from ytmirror.app.logging_setup import (
-    SecretRedactor,
     configure_logging,
     new_run_id,
     remove_old_logs,
+    secret_redactor,
     set_verbose,
 )
 from ytmirror.app.menus import menu_bar
@@ -245,8 +245,7 @@ def run_app(
         The process exit code.
     """
     token = options.session_token or secrets.token_urlsafe(_TOKEN_BYTES)
-    redactor = SecretRedactor()
-    redactor.register(token)
+    redactor = secret_redactor(token, os.environ)
     writer = configure_logging(
         logs_dir=paths.logs_dir,
         verbose=options.debug,

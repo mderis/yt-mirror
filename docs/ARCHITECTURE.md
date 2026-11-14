@@ -562,6 +562,7 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
 | `YTM_FAKE_YOUTUBE` | app | A folder with a recorded world of channels (`e2e/fixtures/youtube/`). The app then never talks to the real YouTube. For tests and for reproducing a problem |
 | `YTM_LIBRARY_DIR` | app | The default of the library folder instead of `~/Movies/YouTube`. For tests, so that no test creates a folder in the user's own library |
+| `YTM_YOUTUBE_API_KEY` | live tests, probes | A YouTube API key for measurements and, from M4, live tests. The app does not use it: its key is a setting (R-DT-12). Its value is a secret of the logs, so the app removes it from every line (R-LG-07). Never written to a file, a fixture or a commit |
 | `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
 | `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |
 | `YTM_TOOL_SOURCE` | app | Use only the tool source of this name. The automated checks install from each source on its own (D-053) |

@@ -38,7 +38,7 @@ Rules:
 1. Event names are `area.action` in lower case and never change once released. New events are added to the catalogue in this file in the same commit.
 2. Log at the boundary of every use case: one line when it starts, one when it ends (with `duration_ms`), one for every decision that changes what happens next (retry, skip, fallback).
 3. Log every external call (YouTube, API, GitHub, ffmpeg) at `debug` with its duration and outcome.
-4. Never log secrets. The API key and the session token are redacted by a processor that runs on every line.
+4. Never log secrets. The API key and the session token are redacted by a processor that runs on every line. So is the value of `YTM_YOUTUBE_API_KEY` when it is set.
 5. `error` means a requirement was not met and someone should look. Expected failures (a members-only video) are `warning`.
 6. Exceptions are logged once, where they are handled, with `exc_info` and the mapped `error_code`.
 7. The console shows the same events in a readable one-line form.
