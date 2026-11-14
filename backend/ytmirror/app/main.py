@@ -16,13 +16,13 @@ Tests: backend/tests/integration/app/test_main.py
 """
 
 import dataclasses
-import functools
 import json
 import os
 import secrets
 import signal
 import sys
 import threading
+import time
 import webbrowser
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -60,6 +60,8 @@ EXIT_OK = 0
 EXIT_ALREADY_RUNNING = 1
 EXIT_USAGE = 2
 _TOKEN_BYTES = 32
+WINDOW_WAIT_S = 20.0
+"""How long a second start waits for the window of a first one that is still starting."""
 
 UPDATE_NOT_AVAILABLE = (
     "Updating from inside yt-mirror is not available yet.\n"
@@ -117,9 +119,14 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if not instance.acquire():
         return leave_it_to_the_running_app(options, instance, sys.stderr)
     with_window = not options.no_window and not options.browser
-    instance.describe(os.getpid(), bundle_of(Path(sys.executable)) if with_window else None)
+    bundle = bundle_of(Path(sys.executable)) if with_window else None
+    instance.describe(os.getpid(), bundle)
     try:
-        wait = choose_wait(options, container)
+        wait = choose_wait(
+            options,
+            container,
+            window_is_up=lambda: instance.describe(os.getpid(), bundle, window_is_up=True),
+        )
         return run_app(options, paths, container, wait=wait, console=sys.stderr)
     finally:
         instance.release()
@@ -130,6 +137,7 @@ def leave_it_to_the_running_app(
     instance: InstanceLock,
     console: TextIO,
     bring_forward: Callable[[Path], bool] = bring_to_front,
+    pause: Callable[[float], None] = time.sleep,
 ) -> int:
     """End a second start: only one app runs per data folder.
 
@@ -143,12 +151,15 @@ def leave_it_to_the_running_app(
         instance: The lock that another process holds.
         console: Where the message goes.
         bring_forward: Brings the window of an app bundle forward. For tests.
+        pause: Waits for the given number of seconds. For tests.
 
     Returns:
         The process exit code: 0 when the running app came forward, otherwise 1.
     """
-    running = instance.running_instance()
     wants_window = not options.no_window and not options.browser
+    if wants_window:
+        instance.wait_for_the_window(WINDOW_WAIT_S, pause)
+    running = instance.running_instance()
     bundle = running.bundle if wants_window and running is not None else None
     if bundle is not None and bring_forward(bundle):
         console.write(BROUGHT_TO_FRONT)
@@ -157,7 +168,9 @@ def leave_it_to_the_running_app(
     return EXIT_ALREADY_RUNNING
 
 
-def choose_wait(options: RunOptions, container: Container) -> Wait:
+def choose_wait(
+    options: RunOptions, container: Container, window_is_up: Callable[[], None] | None = None
+) -> Wait:
     """Return how this run shows the app: window, browser, or nothing.
 
     Implements R-PL-02. The window gets the app's name and its menu bar
@@ -166,6 +179,7 @@ def choose_wait(options: RunOptions, container: Container) -> Wait:
     Args:
         options: The options of this run.
         container: The wired adapters and services.
+        window_is_up: Called once the window is on the screen.
 
     Returns:
         A function that shows the app and returns when the app should stop.
@@ -176,9 +190,14 @@ def choose_wait(options: RunOptions, container: Container) -> Wait:
         return lambda url, _before_quit: _wait_in_browser(url)
     name = app_identity(container.info.install_kind).name
     native = container.native
-    when_shown: Callable[[], None] | None = None
-    if options.window_report is not None:
-        when_shown = functools.partial(write_window_report, options.window_report, native)
+    report = options.window_report
+
+    def when_shown() -> None:
+        if window_is_up is not None:
+            window_is_up()
+        if report is not None:
+            write_window_report(report, native)
+
     return lambda url, before_quit: open_window(
         url,
         title=name,

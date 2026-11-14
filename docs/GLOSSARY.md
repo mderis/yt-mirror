@@ -38,6 +38,8 @@ Use these words, with these meanings, in code, UI text, logs, tests and docs. If
 | **Quality** | The target video height, or "Best available" | `Quality` |
 | **Disk space guard** | Pauses the queue when free space is below a threshold | `disk_guard` |
 | **Tool** | An external program the app manages: yt-dlp, ffmpeg, Deno, Python | `toolchain` |
+| **Tool source** | One place a downloaded tool can come from, with its own pinned version, address and checksum. A tool can have a second source (R-IN-03) | `ToolSource` |
+| **First-run screen** | The screen that shows the tools the app needs and downloads the missing ones (R-IN-03) | `setup` |
 | **Activity log** | The user-facing history of what the app did | `activity` |
 | **Debug log** | Structured logs for developers and agents | `data/logs` |
 | **Debug report** | The exported bundle for bug reports | `diagnostics` |
@@ -45,6 +47,7 @@ Use these words, with these meanings, in code, UI text, logs, tests and docs. If
 | **Toast** | A short confirmation that disappears | `Toast` |
 | **Install kind** | How this copy was installed: `clone` or `archive` | `install_kind` |
 | **App bundle** | The macOS application folder (`yt-mirror.app`) built locally on the user's Mac, which gives the running app its name and icon (R-NA-02) | `yt-mirror.app` |
+| **Quit path** | The one way out of the app that every way of quitting ends in: a decision whether the app may quit now, and the shutdown work, which runs once (R-PL-13, R-NA-06) | `before_quit` |
 | **Menu bar** | The macOS menu bar of the app with its menus and shortcuts (R-NA-03) | `menus` |
 | **Theme center** | The one folder that holds every visual value: tokens, Tailwind preset, fonts, brand icon (R-TH-01) | `frontend/src/design/` |
 | **Token** | A named visual value, stored as a CSS variable and named after its purpose (R-TH-02, R-TH-03) | `--ytm-*` |

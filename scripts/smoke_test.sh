@@ -130,11 +130,14 @@ say "ok: the app stopped cleanly and logged it"
 if [ -n "${YTM_SMOKE_TOOLS:-}" ]; then
     say ""
     say "Downloading ffmpeg from its second source, into a folder of its own ..."
-    YTM_TOOL_SOURCE=jellyfin-ffmpeg YTM_TOOL_DIR="$DATA_DIR/second-source-tools" \
-        start_without_window "$ROOT/start"
+    # Exported and taken back by hand: in sh, a variable set in front of a call of a
+    # shell function would stay set for the rest of this script.
+    export YTM_TOOL_SOURCE=jellyfin-ffmpeg YTM_TOOL_DIR="$DATA_DIR/second-source-tools"
+    start_without_window "$ROOT/start"
     install_tool ffmpeg
     [ "$(tool_field ffmpeg source)" = "jellyfin-ffmpeg" ] || fail "ffmpeg did not come from the second source"
     stop_app
+    unset YTM_TOOL_SOURCE YTM_TOOL_DIR
 fi
 
 say ""

@@ -90,6 +90,72 @@ def test_the_holder_writes_down_who_it_is(tmp_path: Path) -> None:
 
     assert with_bundle == RunningInstance(pid=4321, bundle=Path("/Applications/yt-mirror.app"))
     assert without == RunningInstance(pid=4321, bundle=None)
+    assert with_bundle is not None and not with_bundle.window_is_up
+
+
+def test_a_second_start_waits_until_the_first_window_is_up(tmp_path: Path) -> None:
+    """R-NA-08: a second start right after the first one still starts no second app.
+
+    macOS knows a running app only once its window is up. Asked to open the
+    bundle before that, it would start the app again.
+    """
+    lock = InstanceLock(tmp_path)
+    assert lock.acquire()
+    bundle = Path("/somewhere/yt-mirror.app")
+    lock.describe(1, bundle)
+    pauses: list[float] = []
+    asked_when: list[bool] = []
+
+    def pause(seconds: float) -> None:
+        pauses.append(seconds)
+        if len(pauses) == 3:
+            lock.describe(1, bundle, window_is_up=True)
+
+    def bring_forward(_bundle: Path) -> bool:
+        running = InstanceLock(tmp_path).running_instance()
+        asked_when.append(running is not None and running.window_is_up)
+        return True
+
+    exit_code = leave_it_to_the_running_app(
+        options(), InstanceLock(tmp_path), io.StringIO(), bring_forward, pause
+    )
+    lock.release()
+
+    assert exit_code == 0
+    assert len(pauses) == 3
+    assert asked_when == [True]
+
+
+def test_a_second_start_does_not_wait_forever_for_a_window(tmp_path: Path) -> None:
+    """R-NA-08: when the first window never comes up, the second start still ends."""
+    lock = InstanceLock(tmp_path)
+    assert lock.acquire()
+    lock.describe(1, Path("/somewhere/yt-mirror.app"))
+    pauses: list[float] = []
+
+    exit_code = leave_it_to_the_running_app(
+        options(), InstanceLock(tmp_path), io.StringIO(), lambda _bundle: True, pauses.append
+    )
+    lock.release()
+
+    assert exit_code == 0
+    assert 19.0 < sum(pauses) < 21.0
+
+
+@pytest.mark.parametrize("mode", [{"browser": True}, {"no_window": True}])
+def test_a_start_without_a_window_never_waits(tmp_path: Path, mode: dict[str, bool]) -> None:
+    """R-NA-08: a second start with ``--browser`` says at once that the app runs."""
+    lock = InstanceLock(tmp_path)
+    assert lock.acquire()
+    lock.describe(1, Path("/somewhere/yt-mirror.app"))
+    pauses: list[float] = []
+
+    leave_it_to_the_running_app(
+        options(**mode), InstanceLock(tmp_path), io.StringIO(), lambda _bundle: True, pauses.append
+    )
+    lock.release()
+
+    assert pauses == []
 
 
 @pytest.mark.parametrize("content", [None, "", "not json", "{}", '{"pid": "x", "bundle": null}'])
@@ -131,7 +197,7 @@ def test_a_second_start_for_a_window_brings_the_running_app_forward(tmp_path: Pa
     """R-NA-08: starting the app again focuses the existing window."""
     lock = InstanceLock(tmp_path)
     assert lock.acquire()
-    lock.describe(1, Path("/somewhere/yt-mirror.app"))
+    lock.describe(1, Path("/somewhere/yt-mirror.app"), window_is_up=True)
     asked: list[Path] = []
     console = io.StringIO()
 
@@ -177,7 +243,11 @@ def test_when_no_window_can_come_forward_the_second_start_says_so(
     """R-NA-08: the second start never opens a second app, whatever the first one is."""
     lock = InstanceLock(tmp_path)
     assert lock.acquire()
-    lock.describe(1, None if case == "no window to bring forward" else Path("/gone/yt-mirror.app"))
+    lock.describe(
+        1,
+        None if case == "no window to bring forward" else Path("/gone/yt-mirror.app"),
+        window_is_up=True,
+    )
     console = io.StringIO()
 
     exit_code = leave_it_to_the_running_app(
@@ -222,7 +292,7 @@ def test_a_second_app_on_the_same_data_folder_does_not_start(
         note = json.loads((tmp_path / "data" / "instance.json").read_text(encoding="utf-8"))
         assert exit_code == 1
         assert capsys.readouterr().err == ALREADY_RUNNING
-        assert note == {"pid": first.pid, "bundle": None}
+        assert note == {"pid": first.pid, "bundle": None, "window_is_up": False}
     finally:
         first.send_signal(signal.SIGTERM)
         first.wait(timeout=30)

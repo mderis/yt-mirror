@@ -378,7 +378,6 @@ def test_the_window_carries_the_name_and_the_menu_bar_of_this_installation(
     assert installed["menus"] == menu_bar("yt-mirror")
     assert clone["title"] == "yt-mirror (dev)"
     assert clone["menus"] == menu_bar("yt-mirror (dev)")
-    assert installed["when_shown"] is None
 
 
 def test_asked_for_a_window_report_the_app_writes_what_macos_shows(

@@ -17,6 +17,7 @@ Tests: backend/tests/integration/app/test_single_instance.py
 import fcntl
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
@@ -25,6 +26,7 @@ LOCK_FILE = "instance.lock"
 INFO_FILE = "instance.json"
 _BUNDLE_SUFFIX = ".app"
 _OPEN_PROGRAM = "/usr/bin/open"
+_POLL_S = 0.1
 _BUNDLE_DEPTH = 3
 """A program inside a bundle lies at ``<name>.app/Contents/MacOS/<program>``."""
 
@@ -36,10 +38,12 @@ class RunningInstance:
     Attributes:
         pid: Its process ID.
         bundle: The app bundle it runs in, or None for a run without a window.
+        window_is_up: Whether its window is on the screen already.
     """
 
     pid: int
     bundle: Path | None
+    window_is_up: bool = False
 
 
 class InstanceLock:
@@ -70,14 +74,19 @@ class InstanceLock:
         self._file = file
         return True
 
-    def describe(self, pid: int, bundle: Path | None) -> None:
+    def describe(self, pid: int, bundle: Path | None, *, window_is_up: bool = False) -> None:
         """Write down who holds the lock, for a second start to read.
 
         Args:
             pid: The process ID of this app.
             bundle: The app bundle this app runs in, or None.
+            window_is_up: Whether the window of this app is on the screen already.
         """
-        info = {"pid": pid, "bundle": None if bundle is None else str(bundle)}
+        info = {
+            "pid": pid,
+            "bundle": None if bundle is None else str(bundle),
+            "window_is_up": window_is_up,
+        }
         (self._data_dir / INFO_FILE).write_text(json.dumps(info), encoding="utf-8")
 
     def running_instance(self) -> RunningInstance | None:
@@ -85,9 +94,32 @@ class InstanceLock:
         try:
             info = json.loads((self._data_dir / INFO_FILE).read_text(encoding="utf-8"))
             bundle = info["bundle"]
-            return RunningInstance(pid=int(info["pid"]), bundle=Path(bundle) if bundle else None)
-        except OSError, ValueError, KeyError, TypeError:
+            return RunningInstance(
+                pid=int(info["pid"]),
+                bundle=Path(bundle) if bundle else None,
+                window_is_up=info.get("window_is_up") is True,
+            )
+        except OSError, ValueError, KeyError, TypeError, AttributeError:
             return None
+
+    def wait_for_the_window(self, seconds: float, pause: Callable[[float], None]) -> None:
+        """Wait until the app that holds the lock has its window up, but not for long.
+
+        macOS knows a running app only once its window is up. Asked to open the
+        bundle before that, it would start the app once more instead of bringing
+        it forward.
+
+        Args:
+            seconds: How long to wait at most.
+            pause: Waits for the given number of seconds.
+        """
+        waited = 0.0
+        while waited < seconds:
+            running = self.running_instance()
+            if running is None or running.bundle is None or running.window_is_up:
+                return
+            pause(_POLL_S)
+            waited += _POLL_S
 
     def release(self) -> None:
         """Give the lock back. Does nothing when this process does not hold it."""
