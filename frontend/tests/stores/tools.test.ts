@@ -62,6 +62,45 @@ describe('the tools store', () => {
     expect(store.installing).toBe(true)
   })
 
+  it('R-FB-03: a tool that is installed before the request is answered stays installed', async () => {
+    const newestStream = fakeEventStream()
+    let answer: (response: Response) => void = () => {}
+    mockApi({
+      'GET /api/tools': jsonResponse(firstStart()),
+      'POST /api/tools/deno/install': () => new Promise<Response>((resolve) => (answer = resolve)),
+    })
+    const store = useToolsStore()
+    await store.load()
+    store.listen()
+
+    const installing = store.install('deno')
+    newestStream().toolUpdated(tool('deno', 'installing', { progress: 0 }))
+    newestStream().toolUpdated(tool('deno', 'ok', { version: '2.9.8', source: 'deno' }))
+    answer(jsonResponse(tool('deno', 'installing', { progress: 0 })))
+    await installing
+
+    expect(store.tools[3]).toMatchObject({ status: 'ok', version: '2.9.8' })
+  })
+
+  it('R-FB-03: a failure that arrives on the stream is not replaced by a late refusal', async () => {
+    const newestStream = fakeEventStream()
+    let answer: (response: Response) => void = () => {}
+    mockApi({
+      'GET /api/tools': jsonResponse(firstStart()),
+      'POST /api/tools/deno/install': () => new Promise<Response>((resolve) => (answer = resolve)),
+    })
+    const store = useToolsStore()
+    await store.load()
+    store.listen()
+
+    const installing = store.install('deno')
+    newestStream().toolUpdated(tool('deno', 'failed', { error_code: 'DISK_FULL' }))
+    answer(jsonResponse(errorBody('INTERNAL'), 500))
+    await installing
+
+    expect(store.tools[3]?.error_code).toBe('DISK_FULL')
+  })
+
   it('R-ER-02: a refused installation shows as a failed tool with the error code', async () => {
     mockApi({
       'GET /api/tools': jsonResponse(firstStart()),

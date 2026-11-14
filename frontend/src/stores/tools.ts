@@ -62,15 +62,25 @@ export const useToolsStore = defineStore('tools', () => {
     closeStream = null
   }
 
-  /** Start installing a tool. A refusal of the backend shows as a failed tool with its code. */
+  /**
+   * Start installing a tool. A refusal of the backend shows as a failed tool with its code.
+   *
+   * The answer of the request and the events of the stream race each other. A
+   * small tool can be installed before the answer arrives, and the answer
+   * ("installing") must then not replace the newer state from the stream.
+   */
   async function install(name: ToolName): Promise<void> {
+    const before = tools.value.find((tool) => tool.name === name)
+    const untouched = (): boolean => tools.value.find((tool) => tool.name === name) === before
     try {
-      apply(await api.installTool(name))
+      const started = await api.installTool(name)
+      if (untouched()) {
+        apply(started)
+      }
     } catch (error) {
-      const known = tools.value.find((tool) => tool.name === name)
-      if (known) {
+      if (before && untouched()) {
         apply({
-          ...known,
+          ...before,
           status: 'failed',
           progress: null,
           error_code: error instanceof ApiError ? error.code : UNKNOWN_ERROR,
