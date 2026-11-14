@@ -1,0 +1,258 @@
+# A one-off probe for open questions Q-06 and Q-08 (docs/OPEN-QUESTIONS.md),
+# asked for by the maintainer in milestone M2: where can exact dates come from,
+# and how fast, seen from a CI runner and not only from the maintainer's network.
+#
+# It talks to the real YouTube, which the normal checks never do. It runs only
+# when this file itself changes, and it is removed again before the review of M2.
+name: Probe exact dates (temporary)
+
+on:
+  push:
+    branches: [m2-channels-and-catalogue]
+    paths: [.github/workflows/probe-exact-dates.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Ask YouTube from ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.8"
+          enable-cache: false
+      - name: Measure
+        run: |
+          cat > probe.py <<'PROBE_END'
+          """One-off probe for open questions Q-06 and Q-08: where exact dates can come from.
+
+          Uses only public options of yt-dlp and plain requests of the channel feed.
+          Prints what it measures. Changes nothing.
+          """
+
+          import concurrent.futures as cf
+          import datetime
+          import re
+          import statistics
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          import yt_dlp
+
+          UTC = datetime.UTC
+          CHANNELS = (
+              ("UCHnyfMqiRRG1u-2MsSQLbXA", "@veritasium", 10),
+              ("UCXuqSBlHAE6Xw-yeJA0Tunw", "@LinusTechTips", 10),
+              ("UC2C_jShtL725hvbm1arSV9w", "@CGPGrey", 6),
+              ("UCBJycsmduvYEL83R_U4JriQ", "@mkbhd", 6),
+          )
+          LIGHT_SKIP = ["hls", "dash", "translated_subs"]
+
+
+          class Quiet:
+              def __init__(self) -> None:
+                  self.problems: list[str] = []
+
+              def debug(self, message: str) -> None:
+                  pass
+
+              def info(self, message: str) -> None:
+                  pass
+
+              def warning(self, message: str) -> None:
+                  if "challenge" not in message and "jsc" not in message and "JavaScript" not in message:
+                      self.problems.append("w:" + message[:160])
+
+              def error(self, message: str) -> None:
+                  self.problems.append("e:" + message[:200])
+
+
+          def say(*parts: object) -> None:
+              print(*parts, flush=True)
+
+
+          def feed_checks() -> None:
+              say("=== 1. channel feed")
+              agents = {
+                  "plain": "yt-mirror-probe",
+                  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+              }
+              addresses = []
+              for channel_id, handle, _ in CHANNELS[:3]:
+                  addresses.append(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}")
+              addresses.append("https://www.youtube.com/feeds/videos.xml?playlist_id=UULFHnyfMqiRRG1u-2MsSQLbXA")
+              addresses.append("https://www.youtube.com/feeds/videos.xml?playlist_id=UUHnyfMqiRRG1u-2MsSQLbXA")
+              addresses.append("https://www.youtube.com/feeds/videos.xml?user=1veritasium")
+              for address in addresses:
+                  for name, agent in agents.items():
+                      started = time.monotonic()
+                      try:
+                          request = urllib.request.Request(address, headers={"User-Agent": agent})
+                          with urllib.request.urlopen(request, timeout=25) as answer:
+                              body = answer.read().decode("utf-8", "replace")
+                              published = re.findall(r"<published>([^<]+)", body)
+                              say(f"   {address.split('?')[1]:45} {name:7} HTTP {answer.status} entries={body.count('<entry>')} newest={published[1:3]} {time.monotonic() - started:.1f}s")
+                      except urllib.error.HTTPError as error:
+                          say(f"   {address.split('?')[1]:45} {name:7} HTTP {error.code} {time.monotonic() - started:.1f}s")
+                      except Exception as error:  # noqa: BLE001
+                          say(f"   {address.split('?')[1]:45} {name:7} FAILED {type(error).__name__} {str(error)[:80]}")
+
+
+          def listed_ids() -> list[str]:
+              ids: list[str] = []
+              for _, handle, wanted in CHANNELS:
+                  options = {"extract_flat": "in_playlist", "quiet": True, "logger": Quiet(), "cachedir": False, "socket_timeout": 20}
+                  try:
+                      with yt_dlp.YoutubeDL(options) as ydl:
+                          info = ydl.extract_info(f"https://www.youtube.com/{handle}/videos", download=False, process=False)
+                          entries = []
+                          for entry in info["entries"]:
+                              entries.append(entry["id"])
+                              if len(entries) >= 240:
+                                  break
+                      # spread over ages: every n-th of the first 240
+                      step = max(1, len(entries) // wanted)
+                      ids.extend(entries[::step][:wanted])
+                  except Exception as error:  # noqa: BLE001
+                      say("   listing failed", handle, str(error)[:150])
+              return ids
+
+
+          def variant_options(name: str) -> tuple[dict, bool]:
+              """Return (options, process) for a named way of asking for one video's metadata."""
+              base = {"quiet": True, "cachedir": False, "skip_download": True, "socket_timeout": 20}
+              if name == "default":
+                  return base, True
+              if name == "no_process":
+                  return base, False
+              client, _, mode = name.partition("+")
+              skips = {"page": ["configs", "js"], "api": ["webpage", "configs", "js"], "api_nodata": ["webpage", "configs", "js", "initial_data"]}[mode]
+              args = {"youtube": {"player_client": [client], "player_skip": skips, "skip": LIGHT_SKIP}}
+              return {**base, "extractor_args": args, "check_formats": False}, False
+
+
+          def one(name: str, video_id: str) -> dict:
+              options, process = variant_options(name)
+              log = Quiet()
+              started = time.monotonic()
+              try:
+                  with yt_dlp.YoutubeDL({**options, "logger": log}) as ydl:
+                      info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False, process=process)
+                  return {
+                      "s": time.monotonic() - started,
+                      "timestamp": info.get("timestamp"),
+                      "release_timestamp": info.get("release_timestamp"),
+                      "upload_date": info.get("upload_date"),
+                      "error": None,
+                      "problems": log.problems[:2],
+                  }
+              except Exception as error:  # noqa: BLE001
+                  return {"s": time.monotonic() - started, "timestamp": None, "release_timestamp": None, "upload_date": None, "error": str(error)[:220], "problems": log.problems[:2]}
+
+
+          def summary(name: str, results: list[dict], truth: dict[str, int | None], ids: list[str], wall: float | None = None) -> str:
+              times = [r["s"] for r in results]
+              ok = [r for r in results if r["error"] is None]
+              with_time = [r for r in ok if r["timestamp"] is not None]
+              same = sum(1 for i, r in zip(ids, results) if r["timestamp"] is not None and truth.get(i) == r["timestamp"])
+              errors = [r["error"] for r in results if r["error"]]
+              limited = sum(1 for e in errors if re.search(r"429|rate|confirm you|bot|Too Many", e, re.I))
+              text = (
+                  f"{name:22} n={len(results):2} ok={len(ok):2} exact time={len(with_time):2} same as default={same:2} "
+                  f"median={statistics.median(times):5.1f}s mean={statistics.mean(times):5.1f}s slowest={max(times):5.1f}s "
+                  f"errors={len(errors)} rate-limit-like={limited}"
+              )
+              if wall is not None:
+                  text += f" wall={wall:5.1f}s => {wall / len(results):4.1f}s per video"
+              if errors:
+                  text += f" first error: {errors[0][:150]}"
+              return text
+
+
+          def main() -> int:
+              say("yt-dlp", yt_dlp.version.__version__, "python", sys.version.split()[0], "at", datetime.datetime.now(UTC).isoformat(timespec="seconds"))
+              phase = sys.argv[1] if len(sys.argv) > 1 else "all"
+              if phase in ("all", "pilot"):
+                  feed_checks()
+              say("=== 2. per-video lookup")
+              ids = listed_ids()
+              say("   videos:", len(ids))
+              if not ids:
+                  return 1
+              pilot_ids = ids[:3]
+              names = ["default", "no_process"]
+              for client in ("web", "web_safari", "mweb", "tv", "web_embedded", "android_vr", "ios"):
+                  for mode in ("page", "api", "api_nodata"):
+                      names.append(f"{client}+{mode}")
+              pilot: dict[str, list[dict]] = {}
+              truth: dict[str, int | None] = {}
+              if phase == "full":
+                  names = []
+              else:
+                  say("--- pilot on 3 videos: which ways return the exact time")
+              for name in names:
+                  results = [one(name, video_id) for video_id in pilot_ids]
+                  pilot[name] = results
+                  if name == "default":
+                      truth = {i: r["timestamp"] for i, r in zip(pilot_ids, results)}
+                      say("   default sample:", {k: results[0][k] for k in ("timestamp", "release_timestamp", "upload_date")})
+                  say("  ", summary(name, results, truth, pilot_ids))
+              good = [n for n in names[2:] if all(r["timestamp"] is not None and truth.get(i) == r["timestamp"] for i, r in zip(pilot_ids, pilot[n]))]
+              good.sort(key=lambda n: statistics.mean(r["s"] for r in pilot[n]))
+              say("   ways with the right exact time, fastest first:", good)
+              chosen = good[:2] if phase != "full" else sys.argv[2:]
+              if phase == "pilot":
+                  say("done (pilot)")
+                  return 0
+              say(f"--- full run on {len(ids)} videos, one at a time")
+              full: dict[str, list[dict]] = {}
+              for name in ["default", *chosen]:
+                  started = time.monotonic()
+                  full[name] = [one(name, video_id) for video_id in ids]
+                  if name == "default":
+                      truth = {i: r["timestamp"] for i, r in zip(ids, full[name])}
+                  say("  ", summary(name, full[name], truth, ids, time.monotonic() - started))
+              best = chosen[0] if chosen else "no_process"
+              say(f"--- parallel, way: {best}")
+              for workers in (2, 3, 4):
+                  started = time.monotonic()
+                  with cf.ThreadPoolExecutor(max_workers=workers) as pool:
+                      results = list(pool.map(lambda video_id: one(best, video_id), ids))
+                  say("  ", summary(f"{workers} in parallel", results, truth, ids, time.monotonic() - started))
+                  time.sleep(3)
+              say("=== 3. other sources in bulk")
+              for address, extra in (
+                  ("https://www.youtube.com/playlist?list=UULFHnyfMqiRRG1u-2MsSQLbXA", {}),
+                  ("https://www.youtube.com/playlist?list=UULFHnyfMqiRRG1u-2MsSQLbXA", {"extractor_args": {"youtubetab": {"approximate_date": ["true"]}}}),
+              ):
+                  try:
+                      started = time.monotonic()
+                      with yt_dlp.YoutubeDL({"extract_flat": "in_playlist", "quiet": True, "logger": Quiet(), "cachedir": False, "socket_timeout": 20, **extra}) as ydl:
+                          info = ydl.extract_info(address, download=False, process=False)
+                          first = []
+                          for entry in info["entries"]:
+                              first.append(entry)
+                              if len(first) >= 100:
+                                  break
+                      keys = sorted({k for e in first for k, v in e.items() if v is not None})
+                      stamps = [e.get("timestamp") for e in first]
+                      say(f"   uploads playlist, flat, {'with' if extra else 'without'} approximate_date: {len(first)} entries in {time.monotonic() - started:.1f}s, fields={keys}, timestamps set={sum(1 for s in stamps if s)}, distinct={len(set(stamps))}, sample={stamps[:3]}")
+                  except Exception as error:  # noqa: BLE001
+                      say("   uploads playlist failed:", str(error)[:200])
+              say("done")
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PROBE_END
+          uv run --no-project --python 3.14 --with yt-dlp==2026.10.26 python -u probe.py all
