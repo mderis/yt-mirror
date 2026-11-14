@@ -2,7 +2,10 @@
 
 From milestone M2: the folder of a channel (R-FI-01, R-CH-30), the video
 files a folder already has (R-CH-06), and the disk a folder is on (R-UI-01).
-File dates, safe moves and the Trash arrive in milestone M3.
+From milestone M3: file dates (R-DT-07), moves that never overwrite
+(R-FN-05), the Trash (R-CH-32), and showing or opening a file (R-UI-10).
+Nothing here deletes a file for good, except the temp folder of a job of
+the app's own (R-FI-03).
 
 Tests: backend/tests/integration/test_file_system_contract.py
 """
@@ -26,6 +29,23 @@ class Disk:
 
     name: str
     free_bytes: int
+
+
+TEMP_FOLDER_PARTS = (".yt-mirror", "tmp")
+"""Where the temp folders of jobs are, inside a channel folder (R-FI-03)."""
+
+
+@dataclass(frozen=True, slots=True)
+class FileDates:
+    """The creation and modification date of a file, in whole seconds since the epoch, UTC.
+
+    Attributes:
+        created: The creation date, as Finder shows it.
+        modified: The modification date.
+    """
+
+    created: int
+    modified: int
 
 
 class FileSystem(Protocol):
@@ -79,5 +99,147 @@ class FileSystem(Protocol):
 
         Args:
             folder: The folder. It does not have to exist yet.
+        """
+        ...
+
+    def file_names(self, folder: Path) -> list[str]:
+        """Return the names of the visible files and folders directly in a folder.
+
+        Hidden names (starting with a dot) are left out. A folder that does
+        not exist or cannot be read has none.
+
+        Args:
+            folder: The folder.
+        """
+        ...
+
+    def exists(self, path: Path) -> bool:
+        """Return whether a file or folder exists, without following a last symlink.
+
+        Args:
+            path: The file or folder.
+        """
+        ...
+
+    def size_of(self, path: Path) -> int:
+        """Return the size of a file in bytes, or 0 when it does not exist.
+
+        Args:
+            path: The file.
+        """
+        ...
+
+    def is_inside(self, path: Path, folder: Path) -> bool:
+        """Return whether a path stays inside a folder once every symlink is followed.
+
+        Used before anything is moved to the Trash, so that no symlink leads
+        out of a channel folder (R-CH-32).
+
+        Args:
+            path: The file or folder.
+            folder: The folder it must stay in.
+        """
+        ...
+
+    def write_file(self, path: Path, data: bytes, *, overwrite: bool) -> bool:
+        """Write a whole file at once, so that no half-written file is ever seen (R-QA-06).
+
+        A short-lived hidden temp file is written next to the file, so this is
+        for files of the hidden folder. A visible file is written into the
+        temp folder of its job and moved (R-FI-03).
+
+        Args:
+            path: The file. Its folder is created when missing.
+            data: The content.
+            overwrite: Whether a file that is there may be replaced. Only files
+                of the app's own hidden folder are ever replaced.
+
+        Returns:
+            False when the file is there and ``overwrite`` is false: nothing was written.
+
+        Raises:
+            AppError: ``PERMISSION_DENIED``, ``DISK_FULL`` or ``FOLDER_UNAVAILABLE``.
+        """
+        ...
+
+    def move(self, source: Path, target: Path) -> bool:
+        """Move a file to its place in one step, on the same volume, never overwriting.
+
+        Args:
+            source: The file.
+            target: Where it goes. It must not exist.
+
+        Returns:
+            False when something is at the target already: nothing was moved (R-FN-05).
+
+        Raises:
+            AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
+        """
+        ...
+
+    def set_dates(self, path: Path, moment: int) -> None:
+        """Set the creation and the modification date of a file to one moment (R-DT-07).
+
+        Args:
+            path: The file.
+            moment: Seconds since the epoch, UTC.
+
+        Raises:
+            AppError: ``DATES_NOT_APPLIED`` when macOS refuses.
+        """
+        ...
+
+    def read_dates(self, path: Path) -> FileDates:
+        """Read the creation and the modification date of a file back (R-DT-07).
+
+        Args:
+            path: The file.
+        """
+        ...
+
+    def trash(self, path: Path) -> None:
+        """Move a file or folder to the Trash of macOS, never deleting it for good (R-CH-32).
+
+        Args:
+            path: The file or folder.
+
+        Raises:
+            AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
+        """
+        ...
+
+    def remove_temp_folder(self, folder: Path) -> None:
+        """Delete the temp folder of one job with everything in it (R-FI-03).
+
+        Only a folder directly inside ``<channel folder>/.yt-mirror/tmp/`` is
+        ever deleted. A folder that is not there is fine.
+
+        Args:
+            folder: The temp folder of the job.
+
+        Raises:
+            ValueError: When the folder is not the temp folder of a job.
+        """
+        ...
+
+    def reveal(self, path: Path) -> None:
+        """Show a file selected in Finder (R-UI-10).
+
+        Args:
+            path: The file.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` when the file is not there.
+        """
+        ...
+
+    def open_file(self, path: Path) -> None:
+        """Open a file with the default app of macOS (R-UI-10).
+
+        Args:
+            path: The file.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` when the file is not there.
         """
         ...
