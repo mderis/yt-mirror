@@ -26,6 +26,7 @@ Status values: `Not started`, `In progress`, `In review` (pull request open), `D
 
 Short facts the next session needs and cannot get from the code or the other docs: an open question that was answered, something that was deliberately postponed, a known problem. Newest first. Remove a note when it no longer matters.
 
+- **The help of M7 recommends IINA for playing the MKV files (R-UI-10).** "Play" keeps opening the user's default player. The help says why: IINA is free and plays MKV with its chapters and subtitles.
 - **Hand tests that delete a tool are done on a copy of the app folder (TESTING rule 9).** In the review of M2, `rm -r tools/deno tools/ffmpeg` followed by `./start` was run again from the shell history of M1, so the tools were downloaded again at two starts. No code was at fault. The backend test session and the smoke test now fail when the tools of the app folder change.
 - **The design of the exact date fetch for M4 is a proposal in OPEN-QUESTIONS,** with the measurements with and without the free API key. With the key, 6,599 videos got their exact dates in 132 requests and 153 seconds. Decide it in the plan of M4.
 - **`YTM_YOUTUBE_API_KEY` is read by nothing but the log redactor (M2).** Live tests and probes take a key from it. It is never written to a file, a fixture or a commit.

@@ -62,7 +62,7 @@ Run from the repository root. `uv` here means a uv on your PATH. If you have non
 | The same, with the real tool downloads and a moved folder, as CI does | `YTM_SMOKE_TOOLS=1 YTM_SMOKE_MOVE=1 scripts/smoke_test.sh` |
 | Run against the fake YouTube, with data and a library of its own | `YTM_FAKE_YOUTUBE=e2e/fixtures/youtube YTM_DATA_DIR=/tmp/ytm-fake/data YTM_LIBRARY_DIR=/tmp/ytm-fake/library ./start` |
 | Backend tests | `uv run pytest` |
-| Backend tests without the ones that open the app window | `uv run pytest -m "not window"` |
+| Backend tests without the ones that open the app window | `uv run pytest -m "not window and not live"` (a `-m` of your own replaces the default `-m "not live"`) |
 | Backend tests with the coverage thresholds | `uv run pytest --cov --cov-report=json:coverage.json && uv run python scripts/check_coverage.py coverage.json` |
 | Backend lint, format, types | `uv run ruff check . && uv run ruff format --check . && uv run pyright` |
 | Layer rules | `uv run lint-imports` |

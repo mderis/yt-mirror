@@ -33,6 +33,8 @@ Not committed. Each needs its own spec section, designs and decision record befo
 | Windows and Linux | The macOS-specific parts are isolated in two adapters |
 | Command line interface | For scripting |
 | Comments, live chat | Large data, low priority |
+| A YouTube player inside the app for videos not mirrored yet | After 1.0. Starts with the experiment of Q-29 in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md): whether YouTube allows its embedded player in the app's window at `127.0.0.1`, and what the app shows for a video that forbids embedding. "Play" for a downloaded file keeps opening the user's own player (R-UI-10) |
+| A storyboard preview when the pointer rests on a video | After 1.0, lowest priority. Shown only after a hover delay, and cached. Starts with the experiment of Q-30 in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md), which measures what the preview costs in requests to YouTube |
 
 ### A signed app in a DMG
 

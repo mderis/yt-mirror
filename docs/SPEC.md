@@ -248,7 +248,7 @@ Design: `Main.html`, `WebGrid.html`, `ListLight.html`, `GridLight.html`, `Detail
 | R-UI-07 | Lists must stay smooth with 5,000 videos in one channel. |
 | R-UI-08 | A details panel shows, for one video: thumbnail, title, status, actions, file facts (name, folder, size, video and audio format, upload time, download time, thumbnail, video ID), description and chapters. |
 | R-UI-09 | Per-video actions, shown according to status: Mirror, Mirror first, Cancel, Retry, Play, Show in Finder, Details, Open on YouTube, Copy link, Re-download, Repair metadata, Exclude forever, Restore. |
-| R-UI-10 | "Play" opens the file in the system default player. "Show in Finder" reveals and selects the file. |
+| R-UI-10 | "Play" opens the file in the system default player. "Show in Finder" reveals and selects the file. The help recommends IINA, a free player that plays MKV files with their chapters and subtitles. |
 | R-UI-11 | Every action that can take more than half a second shows progress or a busy state on the control that started it. |
 | R-UI-12 | Destructive or bulk actions confirm with a toast that offers Undo for a few seconds, or with a dialog when they cannot be undone. |
 | R-UI-13 | Keyboard shortcuts as listed in `Shortcuts.html`, changed where the menu bar decides otherwise (R-NA-09, [DESIGN.md](DESIGN.md) section 7.3). All functions are reachable by keyboard. |
