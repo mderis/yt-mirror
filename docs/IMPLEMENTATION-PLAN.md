@@ -75,7 +75,7 @@ Requirements: R-MI-01, R-QL-01 to R-QL-04, R-FI-*, R-FN-01 to R-FN-05, R-FN-07, 
 Acceptance: a video mirrored from the fake YouTube is a valid MKV with the right name, embedded metadata, cover, subtitles, and creation and modification dates equal to the published time, verified by integration tests on macOS. The live test downloads one real video. The requirement coverage and the end-to-end tests include the element postponed from M2.
 
 ## M4. Exact dates and automatic checks
-Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11 to R-DT-13, R-FN-06, R-CH-20 to R-CH-22, R-CH-25 (the automatic retry with backoff), R-CH-26, R-CH-28 (date repair with every check), R-PL-07. Resolve: Q-08, Q-11.
+Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11 to R-DT-13, R-FN-06, R-CH-20 to R-CH-22, R-CH-25 (the automatic retry with backoff), R-CH-26, R-CH-28 (date repair with every check), R-PL-07. Resolve: Q-08.
 
 - Background fetch with backoff and persistence: newest videos first, and an entry at the front of the queue for videos a decision waits for (R-DT-05). Optional API key with guide dialog and test button.
 - The updating and unavailable states of an approximate date (R-DT-13), driven by the fetch queue, in the list, the details panel and on the theme preview page.
