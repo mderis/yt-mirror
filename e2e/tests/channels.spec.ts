@@ -383,6 +383,128 @@ test('R-UI-01: a list that fits into the window does not scroll at all', async (
   expect(facts.scrollers).toEqual([])
 })
 
+const SLOW_ID = 'UCslowchannel00000000006'
+const SLOW_START_ID = 'UCslowfailing00000000007'
+
+/** What the window shows about a failed check at one moment. */
+interface RetrySample {
+  banner: boolean
+  retrying: boolean
+  busy: boolean
+  status: string
+  listing: string
+  skeleton: boolean
+}
+
+/** Look at the window every 100 ms until the banner of the failed check is gone. */
+async function watchRetry(page: Page): Promise<RetrySample[]> {
+  const samples: RetrySample[] = []
+  const deadline = Date.now() + 40_000
+  for (;;) {
+    const sample = await page.evaluate(() => {
+      const banner = document.querySelector('[data-banner="check-failed"]')
+      return {
+        banner: banner !== null,
+        retrying: banner?.textContent?.includes('Trying again now.') ?? false,
+        busy: banner?.querySelector('button')?.getAttribute('aria-busy') === 'true',
+        status: document.querySelector('nav [data-status]')?.textContent?.trim() ?? '',
+        listing: document.querySelector('[data-listing]')?.textContent?.trim() ?? '',
+        skeleton: document.querySelector('[data-skeleton-list]') !== null,
+      }
+    })
+    if (!sample.banner) {
+      return samples
+    }
+    samples.push(sample)
+    if (Date.now() > deadline) {
+      throw new Error('The banner of the failed check did not go within 40 s')
+    }
+    await page.waitForTimeout(100)
+  }
+}
+
+test('R-CH-25, R-FB-01, R-UI-11: a retry after a failed check is seen the whole time it runs', async ({
+  page,
+  freshApp,
+}) => {
+  test.setTimeout(90_000)
+  await openApp(page, freshApp)
+  await addChannel(freshApp, '@samplechannelslow', SLOW_ID)
+  await check(freshApp, SLOW_ID, 'quick')
+  await page.reload()
+  const banner = page.locator('[data-banner="check-failed"]')
+  await expect(banner).toContainText('The check failed on')
+  await expect(sidebar(page).locator('[data-status]')).toHaveText('Could not check')
+
+  await banner.getByRole('button', { name: 'Try again' }).click()
+  await expect(banner).toContainText('Trying again now.')
+  const samples = await watchRetry(page)
+
+  expect(samples.length).toBeGreaterThan(10)
+  expect(samples.every((sample) => sample.retrying && sample.busy)).toBe(true)
+  expect(samples.every((sample) => sample.status === 'Checking for new videos...')).toBe(true)
+  await expect(sidebar(page).locator('[data-status]')).toHaveText('Up to date · checked just now')
+  await expect(rows(page)).toHaveCount(300)
+})
+
+test('R-CH-11, R-CH-25: the retry of a failed first listing shows its progress the whole time', async ({
+  page,
+  freshApp,
+}) => {
+  test.setTimeout(90_000)
+  await openApp(page, freshApp)
+  await freshApp.send('POST', '/channels/lookup', { text: '@samplechannelslowstart' })
+  await freshApp.send('POST', '/channels', { channel_id: SLOW_START_ID, auto_mirror: false })
+  await checked(freshApp, SLOW_START_ID)
+  await page.reload()
+  const banner = page.locator('[data-banner="check-failed"]')
+  await expect(banner).toContainText('The video list could not be read yet.')
+  await expect(page.locator('[data-listing]')).toHaveCount(0)
+
+  await banner.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.locator('[data-listing]')).toBeVisible()
+  const samples = await watchRetry(page)
+
+  const counts = samples
+    .map((sample) => Number(/: ([\d,]+) videos? found/.exec(sample.listing)?.[1]?.replace(',', '')))
+    .filter((count) => !Number.isNaN(count))
+  expect(samples.length).toBeGreaterThan(10)
+  expect(samples.every((sample) => sample.retrying && sample.busy && sample.skeleton)).toBe(true)
+  expect(samples.every((sample) => sample.status === 'Checking for new videos...')).toBe(true)
+  expect(new Set(counts).size).toBeGreaterThan(2)
+  expect(counts).toEqual([...counts].sort((first, second) => first - second))
+  await expect(rows(page)).toHaveCount(300)
+})
+
+test('R-CH-27: a full check shows its progress and can be cancelled, and then nothing changed', async ({
+  page,
+  freshApp,
+}) => {
+  test.setTimeout(90_000)
+  await openApp(page, freshApp)
+  await addChannel(freshApp, '@samplechannelslow', SLOW_ID)
+  // The script of this channel: its first check fails, the second waits and works.
+  await check(freshApp, SLOW_ID, 'quick')
+  await check(freshApp, SLOW_ID, 'quick')
+  const before = (await freshApp.api(`/channels/${SLOW_ID}`)) as Record<string, unknown>
+  await page.reload()
+  await expect(rows(page)).toHaveCount(300)
+
+  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('menuitem', { name: 'Full check' }).click()
+  const progress = page.locator('[data-full-check]')
+  await expect(progress).toContainText(/Full check: \d+ of about 300/)
+  await progress.getByRole('button', { name: 'Cancel' }).click()
+
+  await expect(progress).toHaveCount(0)
+  await expect(sidebar(page).locator('[data-status]')).not.toHaveText('Checking for new videos...')
+  const after = (await freshApp.api(`/channels/${SLOW_ID}`)) as Record<string, unknown>
+  expect(after.last_full_check_at).toBe(before.last_full_check_at)
+  expect(after.last_check_error).toBeNull()
+  expect(after.videos).toBe(300)
+  await expect(rows(page)).toHaveCount(300)
+})
+
 test('R-UI-13: the channel menu and the dialogs work with the keyboard alone', async ({
   page,
   freshApp,

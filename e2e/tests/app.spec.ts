@@ -72,7 +72,10 @@ test('R-PL-04: the API refuses another website even when it knows the token', as
   expect((await foreign.json()).error.code).toBe('ORIGIN_REJECTED')
 })
 
-test('infra: "Try again" recovers once the session exists', async ({ page, context }) => {
+test('R-ER-04: "Try again" recovers once the server accepts the session', async ({
+  page,
+  context,
+}) => {
   await page.goto('/')
   await expect(page.getByRole('alert')).toBeVisible()
   await context.addCookies([{ name: 'ytm_session', value: SESSION_TOKEN, url: APP_URL }])
