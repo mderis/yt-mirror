@@ -4,6 +4,14 @@
 
 Everything in [SPEC.md](SPEC.md). The build order is in [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md).
 
+## To decide before the first public release
+
+Not in the specification and in no milestone yet. Each needs the maintainer's decision, requirements in the spec and a milestone before work starts.
+
+| Idea | Notes |
+|---|---|
+| Optional crash reports and anonymous usage counts | Opt-in, off by default, asked once at first start, a switch for each in Settings. Sent to Sentry or a service that speaks its protocol. Never sent: paths, the user name, channel names, video titles or IDs, the API key. Behind a Telemetry port, with an adapter that sends nothing in tests and CI. Conflicts with R-HE-03 as it stands. Proposed requirements and the privacy page: [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md), Q-28 |
+
 ## Candidates for later versions
 
 Not committed. Each needs its own spec section, designs and decision record before work starts.

@@ -90,4 +90,60 @@ A proposal from milestone M2, not in the specification. It is decided in the pla
 | Q-22 | Contact for the code of conduct and for security reports | GitHub private vulnerability reporting, no email |
 | Q-23 | Should the app check for updates on first run before the user has seen the setting? | Yes, it is one request to GitHub with no personal data |
 | Q-25 | Should "Full Check" also be an item of the Channel menu in the menu bar (R-NA-03, [DESIGN.md](DESIGN.md) section 7.1)? In M2 it is an item of the channel menu inside the interface. Needed by M5 | No. It stays in the channel menu of the interface |
+| Q-28 | Should version 1.0 offer optional crash reports and anonymous usage counts? The proposal is in the section "Proposed: crash reports and usage counts" below. Needed before the first public release | Nothing is sent: no crash reports and no counts, as R-HE-03 says today |
 | Q-26 | Can removing a channel be undone? `States.html` shows a toast "removed, files kept" with Undo, but R-CH-32 deletes the catalogue, the exclude list and the settings of the channel. Needed by M7 | No Undo. The toast only confirms the removal |
+
+## Proposed: crash reports and usage counts (Q-28)
+
+Raised by the maintainer in the review of milestone M2, for before the first public release. Not in the specification, in no milestone, and no SDK is added until it is decided.
+
+**What stands against it today.** R-HE-03 says that the app never sends any data anywhere on its own and names every destination. Principle 3 of the spec ("nothing is silently lost") and the promise of a local app make silence the default. So the proposal changes R-HE-03 rather than working around it, and keeps everything off until the user says yes.
+
+### Proposed requirements
+
+New IDs are given only when the maintainer takes them into the spec. Prefix `R-TL` (telemetry) is a placeholder.
+
+| Proposed | Requirement |
+|---|---|
+| R-TL-01 | Two separate choices: crash reports and usage counts. Both are off by default. Nothing is sent before the user turned one on. |
+| R-TL-02 | The app asks once, at the first start after the first-run screen: one dialog, two switches, both off, with "Continue" and a link to the privacy page. Closing the dialog leaves both off. It never asks again. Settings has the same two switches. |
+| R-TL-03 | A crash report holds only: the kind of error, its error code, the stack trace with file names reduced to the module names of the app's own code, the versions of the app, yt-dlp, ffmpeg and Deno, the macOS version, the processor and the install kind (clone, installer). |
+| R-TL-04 | Never sent, in any report or count: a path (home folder, library, channel folder, app folder), the user name or computer name, a channel name, handle or ID, a video title or ID, an address (URL), the API key, the session token, the text of a log line, the values of variables. A report is built from an allow-list of fields, and every value passes the redactor of R-LG-07 before it leaves. |
+| R-TL-05 | Usage counts are numbers only, sent at most once a day: how many channels (in ranges such as 1, 2 to 5, 6 to 20, more), how many videos were mirrored that day (in ranges), whether auto-mirror and exclude rules are used, the app version and the macOS major version. They carry no ID that stays the same from one day to the next. |
+| R-TL-06 | Turning a switch off stops sending at once and drops what waits to be sent. |
+| R-TL-07 | Sending never delays the app and never shows an error. A report that cannot be sent is dropped after one retry. |
+| R-TL-08 | "Report a problem" and the debug report (R-HE-02, R-LG-04) stay manual and are not affected by these switches. |
+| R-TL-09 | Tests, CI, the end-to-end tests and a clone started with `./start` never send: there the app uses an adapter that sends nothing, whatever the settings say. Only an installed release can send. |
+| R-HE-03 (changed) | Add to the destinations: "the crash report service and the usage count service, each only when the user turned it on (R-TL-01)." |
+
+Settings of section 10 (proposed): "Send crash reports", general, default Off. "Send usage counts", general, default Off.
+
+### Proposed architecture
+
+- A port `ports/telemetry.py`: `report_crash(report)` and `count(day_counts)`, both taking values of `core` types that can only hold the fields of R-TL-03 and R-TL-05. Services depend on the port, never on an SDK (rule 4 of AGENTS.md).
+- `adapters/telemetry_none.py`: sends nothing. The default of the container, the adapter of every test, of CI and of a clone (R-TL-09). Its contract test is the same as the real adapter's.
+- Later, `adapters/telemetry_sentry.py`: the only module that imports the SDK, chosen by the container only for an installed release with a switch on. The address of the service is part of the release, not a setting.
+- Tests that prove R-TL-04: a report built from a crash in a world full of planted values (a path, a user name, a channel name, a video ID, a stand-in key) contains none of them. The same check runs on the frontend's error reports, if the window reports too.
+- A CI check that fails when an SDK of a telemetry service is imported anywhere but in its adapter.
+
+### Proposed privacy page
+
+One page on the website (milestone M10) and the same text in the help (R-HE-01), linked from the dialog of R-TL-02 and from Settings:
+
+1. What yt-mirror sends by default: nothing but the requests it needs to work, to YouTube, the optional YouTube API, GitHub and the download sources of its tools (R-HE-03).
+2. Crash reports, if you turn them on: the list of R-TL-03, word for word, and an example report.
+3. Usage counts, if you turn them on: the list of R-TL-05, word for word, and an example.
+4. What is never sent: the list of R-TL-04.
+5. Where it goes: the name of the service, the country of its servers, who can read the reports, and how long they are kept.
+6. How to turn it off, and that turning it off takes effect at once.
+7. That "Report a problem" is separate and always shows you what you send before you send it.
+8. Your YouTube API key stays on your Mac (R-DT-12).
+
+### Still to decide within Q-28
+
+- Whether usage counts are worth it at all, or crash reports alone are enough.
+- Which service: Sentry's own (with servers in the EU), or one that speaks its protocol and can be run by the maintainer, such as GlitchTip.
+- How long reports are kept, and who can read them.
+- Whether errors of the window (the interface) are reported too, or only of the backend.
+- The milestone that builds it: the dialog and the switches fit M7 (settings), the adapter and its checks M11 (hardening), the privacy page M10.
+
