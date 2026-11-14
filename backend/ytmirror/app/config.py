@@ -20,6 +20,7 @@ ENV_SESSION_TOKEN = "YTM_SESSION_TOKEN"
 ENV_NO_WINDOW = "YTM_NO_WINDOW"
 ENV_FRONTEND_URL = "YTM_FRONTEND_URL"
 ENV_WINDOW_REPORT = "YTM_WINDOW_REPORT"
+ENV_TOOL_DIR = "YTM_TOOL_DIR"
 ENV_TOOL_MANIFEST = "YTM_TOOL_MANIFEST"
 ENV_TOOL_SOURCE = "YTM_TOOL_SOURCE"
 
@@ -40,6 +41,7 @@ class AppPaths:
         database_file: The SQLite database.
         frontend_dir: The built interface.
         uv_executable: The bundled uv program.
+        tool_dir: The folder the downloaded tools are kept in.
         tool_manifest: The file that pins the downloadable tools.
         only_tool_source: The one tool source to use, or None for all. For automated tests.
     """
@@ -51,6 +53,7 @@ class AppPaths:
     database_file: Path
     frontend_dir: Path
     uv_executable: Path
+    tool_dir: Path
     tool_manifest: Path = DEFAULT_TOOL_MANIFEST
     only_tool_source: str | None = None
 
@@ -89,7 +92,8 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
 
     Args:
         env: The environment variables. ``YTM_HOME`` and ``YTM_DATA_DIR`` override the
-            defaults. ``YTM_TOOL_MANIFEST`` and ``YTM_TOOL_SOURCE`` are for tests.
+            defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST`` and ``YTM_TOOL_SOURCE`` are
+            for tests.
 
     Returns:
         The paths. Nothing is created.
@@ -105,6 +109,7 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
         database_file=data_dir / "yt-mirror.db",
         frontend_dir=code_root / "frontend" / "dist",
         uv_executable=home_dir / "tools" / "uv" / "uv",
+        tool_dir=Path(env[ENV_TOOL_DIR]) if env.get(ENV_TOOL_DIR) else home_dir / "tools",
         tool_manifest=Path(env[ENV_TOOL_MANIFEST])
         if env.get(ENV_TOOL_MANIFEST)
         else DEFAULT_TOOL_MANIFEST,

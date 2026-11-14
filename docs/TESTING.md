@@ -100,6 +100,8 @@ Visual regression: Playwright screenshots of every screen and of the theme previ
 
 The end-to-end tests start the real app themselves with `./start`, without a window, using the test variables of [ARCHITECTURE.md](ARCHITECTURE.md) section 10.
 
+The tools the app downloads are stand-ins in these tests: tiny shell scripts, packed like the real downloads and served from the same Mac (`e2e/fixtures/tools/`), installed into a folder of the tests. The tests of the first run (flow 1) each start an app of their own on empty folders, and can make a download fail to see the retry and the second source. That the real tools download and run is checked by the smoke test of a fresh clone, on every supported macOS, from both sources (D-053).
+
 Where the browsers come from:
 
 | Browser | In CI | On a developer's Mac |

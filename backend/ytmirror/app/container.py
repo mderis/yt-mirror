@@ -109,7 +109,7 @@ def build_container(
     engine = create_db_engine(paths.database_file)
     schema = AlembicSchema(engine, paths.database_file)
     events = EventBus()
-    used_tool_box = tool_box if tool_box is not None else LocalToolBox(paths.home_dir / "tools")
+    used_tool_box = tool_box if tool_box is not None else LocalToolBox(paths.tool_dir)
     toolchain = ToolchainService(
         specs=parse_manifest(paths.tool_manifest.read_text(encoding="utf-8")),
         tool_box=used_tool_box,

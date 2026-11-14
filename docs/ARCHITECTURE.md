@@ -481,6 +481,7 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_SESSION_TOKEN` | app | A fixed session token instead of a random one. For tests only |
 | `YTM_NO_WINDOW` | app | Serve without opening a window or a browser, until a stop signal. For tests |
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
+| `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
 | `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |
 | `YTM_TOOL_SOURCE` | app | Use only the tool source of this name. The automated checks install from each source on its own (D-053) |
 | `YTM_WINDOW_REPORT` | app | A file to which the app writes what macOS shows of it, once the window is up: its name, its bundle identifier and its menu bar. For tests |

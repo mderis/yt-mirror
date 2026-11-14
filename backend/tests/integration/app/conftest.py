@@ -24,4 +24,5 @@ def paths(tmp_path: Path) -> AppPaths:
         database_file=data_dir / "yt-mirror.db",
         frontend_dir=frontend_dir,
         uv_executable=tmp_path / "tools" / "uv" / "uv",
+        tool_dir=tmp_path / "tools",
     )
