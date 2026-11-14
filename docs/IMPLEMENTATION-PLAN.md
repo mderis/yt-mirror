@@ -115,6 +115,7 @@ Requirements: section 10 of the spec, R-SE-*, R-FB-*, R-ER-*, R-AC-*, R-HE-*, R-
 - Banners, toasts, notifications. Error details dialog for every error code, with texts.
 - Activity log. Help page. Report a problem. Debug report. Health check. The `explain` tool.
 - Native Mac app, third part: the About window, and the menu items whose targets are built here: About yt-mirror, Settings..., Show Activity, yt-mirror Help, Keyboard Shortcuts, Report a Problem....
+- The activity entry of a video that another channel already has (R-CH-17, D-075): it names the video and the channel that has it. Since M2 this is only in the debug log (`check.video_of_other_channel`).
 - Postponed from M2 (D-066):
   - Sidebar (`Main.html`, `Welcome.html`): the entries Activity, Settings, Help and Report a problem.
   - Welcome screen (`Welcome.html`): the link "Change in Settings" after "Videos will be saved in ...".

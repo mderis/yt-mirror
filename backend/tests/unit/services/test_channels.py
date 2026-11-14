@@ -244,7 +244,7 @@ def test_a_cancelled_folder_dialog_chooses_nothing(tmp_path: Path) -> None:
 
 
 def test_a_folder_that_did_not_come_from_the_dialog_is_refused(tmp_path: Path) -> None:
-    """R-PL-04: the app accepts a path from the window only when the folder dialog gave it."""
+    """R-PL-14: the app accepts a path from the window only when the folder dialog gave it."""
     world = World(tmp_path)
     looked_up = world.channels.lookup("@small")
 
@@ -257,7 +257,7 @@ def test_a_folder_that_did_not_come_from_the_dialog_is_refused(tmp_path: Path) -
 
 
 def test_a_channel_that_was_not_looked_up_cannot_be_added(tmp_path: Path) -> None:
-    """R-CH-03: a channel is added only after its preview was shown."""
+    """R-PL-14: a channel is added only after its preview was shown."""
     failure = failure_of(lambda: World(tmp_path).channels.add(NewChannel(SMALL_ID)))
 
     assert failure.code is ErrorCode.INVALID_REQUEST
@@ -399,7 +399,7 @@ def test_a_channel_paused_during_its_first_listing_is_listed_when_it_is_resumed(
 
 
 def test_pausing_a_paused_channel_changes_nothing(tmp_path: Path) -> None:
-    """infra: setting what is already set publishes and logs nothing."""
+    """R-CH-31: setting what is already set publishes and logs nothing."""
     world = World(tmp_path)
     channel_id = world.add_and_list()
     world.channels.set_paused(channel_id, True)
@@ -471,7 +471,7 @@ def test_the_folder_of_a_channel_is_shown_in_finder(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("action", ["remove", "open_folder", "pause"])
 def test_an_unknown_channel_is_not_found(tmp_path: Path, action: str) -> None:
-    """R-CH-30: every action on a channel needs a channel that was added."""
+    """R-ER-02: every action on a channel needs a channel that was added."""
     channels = World(tmp_path).channels
     calls = {
         "remove": lambda: channels.remove("UCunknown"),

@@ -5,12 +5,17 @@ status (R-FB-01), its totals (R-CH-35) and the progress of a long check. The
 services that change a channel publish its new view through here, so the
 interface hears of every change within a second (R-FB-03).
 
+A channel also shows when the app holds work for it until YouTube answers
+again (R-ER-05, R-FB-01). The views listen for the beginning and the end of
+that pause and tell the interface about the channels it concerns.
+
 This module must not start or change anything itself.
 
 Tests: backend/tests/unit/services/test_channel_views.py
 """
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from ytmirror.core.channels import (
@@ -21,10 +26,12 @@ from ytmirror.core.channels import (
     TaskProgress,
     TaskProgressed,
     VideoView,
+    YouTubePauseChanged,
 )
 from ytmirror.core.dates import moment_to_show
 from ytmirror.core.errors import AppError, ErrorCode
-from ytmirror.core.status import NEW_FOR_S, channel_status, is_new
+from ytmirror.core.models import AppEvent
+from ytmirror.core.status import NEW_FOR_S, channel_status, is_new, waits_for_youtube
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.services.events import EventBus
@@ -40,6 +47,7 @@ class ChannelViews:
         settings: SettingsService,
         clock: Clock,
         events: EventBus,
+        youtube_paused: Callable[[], bool] = lambda: False,
     ) -> None:
         """Create the views.
 
@@ -47,12 +55,15 @@ class ChannelViews:
             repository: The stored channels and videos.
             settings: The general settings, for the library folder.
             clock: The source of time.
-            events: Where changes are published.
+            events: Where changes are published, and where the pause of YouTube is heard.
+            youtube_paused: Tells whether the app pauses what it asks of YouTube by itself.
         """
         self._repository = repository
         self._settings = settings
         self._clock = clock
         self._events = events
+        self._youtube_paused = youtube_paused
+        events.subscribe(self._on_event)
         self._lock = threading.Lock()
         self._checking: set[str] = set()
         self._progress: dict[str, TaskProgress] = {}
@@ -195,6 +206,15 @@ class ChannelViews:
             self._avatars.pop(channel_id, None)
             self._catalogues.pop(channel_id, None)
 
+    def _on_event(self, event: AppEvent | None) -> None:
+        """Tell the interface about the channels whose status follows the pause of YouTube."""
+        if not isinstance(event, YouTubePauseChanged):
+            return
+        for channel in self._repository.channels():
+            # These are the channels that wait when the pause is in force (R-FB-01).
+            if waits_for_youtube(channel, youtube_paused=True):
+                self.publish(channel.id)
+
     def _view(self, channel: Channel, totals: ChannelTotals) -> ChannelView:
         with self._lock:
             checking = channel.id in self._checking
@@ -204,7 +224,14 @@ class ChannelViews:
             catalogue_version = self._catalogues.get(channel.id, 0)
         return ChannelView(
             channel=channel,
-            status=channel_status(channel, checking=checking, new_videos=totals.new),
+            status=channel_status(
+                channel,
+                checking=checking,
+                new_videos=totals.new,
+                waiting_for_youtube=waits_for_youtube(
+                    channel, youtube_paused=self._youtube_paused()
+                ),
+            ),
             totals=totals,
             progress=progress,
             folder=str(self.folder_of(channel)),

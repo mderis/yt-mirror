@@ -212,7 +212,7 @@ def test_adding_a_channel_twice_opens_the_existing_one(client: TestClient, world
 def test_a_channel_that_was_not_looked_up_or_a_foreign_folder_is_refused(
     client: TestClient, world: World
 ) -> None:
-    """R-PL-04: a channel is added from its preview, into a folder the dialog gave."""
+    """R-PL-14: a channel is added from its preview, into a folder the dialog gave."""
     unknown = client.post("/api/channels", json={"channel_id": SMALL_ID})
     looked_up(client, world)
     foreign = client.post("/api/channels", json={"channel_id": SMALL_ID, "folder": "/etc"})
@@ -251,6 +251,30 @@ def test_a_channel_is_returned_with_its_totals_and_times(client: TestClient, wor
     assert channel["last_check_error"] is None
     assert channel["progress"] is None
     assert channel["url"] == f"https://www.youtube.com/channel/{SMALL_ID}"
+
+
+def test_a_failed_check_is_returned_with_its_time_and_a_retry_shows_as_checking(
+    client: TestClient, world: World
+) -> None:
+    """R-CH-25, R-FB-01: the banner gets the code and the time, and a retry outranks the failure."""
+    added(client, world)
+    world.gateway.refuse["listing"] = ErrorCode.NETWORK_UNREACHABLE
+    client.post(f"/api/channels/{SMALL_ID}/check", json={"kind": "quick"})
+    world.work()
+
+    failed = client.get(f"/api/channels/{SMALL_ID}").json()
+    client.post(f"/api/channels/{SMALL_ID}/check", json={"kind": "quick"})
+    retrying = client.get(f"/api/channels/{SMALL_ID}").json()
+
+    assert (failed["status"], failed["last_check_error"], failed["last_check_error_at"]) == (
+        "could_not_check",
+        "NETWORK_UNREACHABLE",
+        world.now(),
+    )
+    assert (retrying["status"], retrying["last_check_error"]) == (
+        "checking",
+        "NETWORK_UNREACHABLE",
+    )
 
 
 def test_pausing_and_resuming_a_channel(client: TestClient, world: World) -> None:

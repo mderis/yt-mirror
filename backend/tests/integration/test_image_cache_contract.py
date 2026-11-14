@@ -77,7 +77,7 @@ def test_an_id_that_is_no_id_is_refused(cache: ImageCache, bad: str) -> None:
 def test_pictures_are_files_in_the_cache_folder_and_nothing_is_left_half_written(
     tmp_path: Path,
 ) -> None:
-    """R-CH-16, R-QA-06: one file per picture, in place only when complete."""
+    """R-CH-16: one file per picture, in place only when complete."""
     cache = FileImageCache(tmp_path / "cache")
     assert not (tmp_path / "cache").exists()
 

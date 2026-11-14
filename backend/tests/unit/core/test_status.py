@@ -15,6 +15,7 @@ from ytmirror.core.status import (
     change_status,
     channel_status,
     is_new,
+    waits_for_youtube,
 )
 
 S = VideoStatus
@@ -136,10 +137,51 @@ def test_checking_comes_before_new_videos() -> None:
     assert status is ChannelStatus.CHECKING
 
 
-def test_a_failed_check_comes_first() -> None:
-    """R-FB-01: by priority, an error is shown before everything else."""
+def test_what_is_running_comes_before_a_past_failure() -> None:
+    """R-FB-01: a check that waits or runs is shown before "Could not check", so a retry is seen."""
     failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE, paused=True)
 
-    status = channel_status(failed, checking=True, new_videos=3)
+    status = channel_status(failed, checking=True, new_videos=3, waiting_for_youtube=True)
+
+    assert status is ChannelStatus.CHECKING
+
+
+def test_waiting_for_youtube_comes_before_a_failed_check() -> None:
+    """R-FB-01: by priority, "Waiting for YouTube" is shown before "Could not check"."""
+    failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
+
+    status = channel_status(failed, checking=False, new_videos=3, waiting_for_youtube=True)
+
+    assert status is ChannelStatus.WAITING_FOR_YOUTUBE
+
+
+def test_a_failed_check_comes_before_new_videos_and_paused() -> None:
+    """R-FB-01: by priority, a failed check is shown before new videos, paused and up to date."""
+    failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE, paused=True)
+
+    status = channel_status(failed, checking=False, new_videos=3)
 
     assert status is ChannelStatus.COULD_NOT_CHECK
+
+
+def test_a_channel_whose_first_listing_is_held_up_waits_for_youtube() -> None:
+    """R-FB-01, R-ER-05: while the app pauses, a channel that is still to be listed waits."""
+    never_listed = make_channel(first_listed_at=None, last_check_at=None, last_full_check_at=None)
+
+    assert waits_for_youtube(never_listed, youtube_paused=True)
+    assert not waits_for_youtube(never_listed, youtube_paused=False)
+
+
+def test_only_work_the_app_would_do_by_itself_waits_for_youtube() -> None:
+    """R-FB-01, R-ER-05: a listed channel, a paused one and a failed first listing do not wait."""
+    listed = make_channel()
+    paused = make_channel(first_listed_at=None, paused=True)
+    failed = make_channel(first_listed_at=None, last_check_error=ErrorCode.NETWORK_UNREACHABLE)
+
+    assert [
+        waits_for_youtube(channel, youtube_paused=True) for channel in (listed, paused, failed)
+    ] == [
+        False,
+        False,
+        False,
+    ]

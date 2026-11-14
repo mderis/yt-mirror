@@ -8,7 +8,7 @@ is ``core/catalogue.py``.
 Tests: backend/tests/integration/db/test_catalogue_repository.py
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from ytmirror.core.catalogue import CheckChanges
@@ -77,6 +77,18 @@ class CatalogueRepository(Protocol):
 
         Args:
             video_id: The video ID.
+        """
+        ...
+
+    def owners_of(self, video_ids: Sequence[str], *, other_than: str) -> Mapping[str, str]:
+        """Return which of the videos belong to another channel, with that channel (R-CH-17).
+
+        Args:
+            video_ids: The video IDs to look up.
+            other_than: The channel that asks. Its own videos are left out.
+
+        Returns:
+            The channel ID by video ID, for the videos another channel has.
         """
         ...
 

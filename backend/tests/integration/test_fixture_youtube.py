@@ -278,3 +278,56 @@ def test_a_file_that_describes_no_channel_is_refused(
     """infra: a mistake in a fixture file is reported with the name of the file."""
     with pytest.raises(ValueError, match="'test'"):
         one_channel(tmp_path, **broken)
+
+
+def test_a_channel_can_answer_slowly_page_by_page(tmp_path: Path) -> None:
+    """infra: with ``page_delay_ms`` a listing waits once per page of 30 videos while it is read."""
+    waits: list[float] = []
+    folder = tmp_path / "world"
+    folder.mkdir()
+    channel = {
+        "id": "UCslowslowslowslowslow001",
+        "title": "Slow",
+        "listed_at": "2026-11-14T06:42:00Z",
+        "video_count": 70,
+        "generate": {"count": 70, "id_prefix": "slow", "title": "Video {number}"},
+        "page_delay_ms": 250,
+    }
+    (folder / "slow.json").write_text(json.dumps(channel), encoding="utf-8")
+    youtube = FixtureYouTube(folder, sleep=waits.append)
+
+    listing = youtube.list_channel("UCslowslowslowslowslow001")
+    before_reading = list(waits)
+    first = next(listing.videos)
+    after_one = list(waits)
+    rest = list(listing.videos)
+
+    assert before_reading == []
+    assert first.id == "slow0000070"
+    assert after_one == [0.25]
+    assert len(rest) == 69
+    assert waits == [0.25, 0.25, 0.25]
+
+
+def test_one_listing_can_be_slow_and_one_can_fail_by_its_number(tmp_path: Path) -> None:
+    """infra: a step can make its listing wait first, and any listing can be made to fail."""
+    waits: list[float] = []
+    one_channel(
+        tmp_path,
+        checks=[{}, {"delay_ms": 1500}],
+        listing_failures={"0": "NETWORK_UNREACHABLE"},
+    )
+    youtube = FixtureYouTube(tmp_path, sleep=waits.append)
+    channel_id = "UCtestchannel00000000001"
+
+    with pytest.raises(AppError) as first:
+        youtube.list_channel(channel_id)
+    second = ids(youtube, channel_id)
+    waits_before_third = list(waits)
+    third = ids(youtube, channel_id)
+
+    assert first.value.code is ErrorCode.NETWORK_UNREACHABLE
+    assert len(second) == 3
+    assert waits_before_third == []
+    assert len(third) == 3
+    assert waits == [1.5]

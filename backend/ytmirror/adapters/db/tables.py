@@ -57,6 +57,7 @@ class ChannelRow(Base):
     last_check_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_full_check_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_check_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_check_error_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)

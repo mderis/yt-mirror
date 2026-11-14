@@ -35,6 +35,7 @@ def make_channel(
     last_check_at: int | None = NOW,
     last_full_check_at: int | None = NOW,
     last_check_error: ErrorCode | None = None,
+    last_check_error_at: int | None = None,
     position: int = 0,
 ) -> Channel:
     """Return a channel that was added and listed once."""
@@ -51,6 +52,7 @@ def make_channel(
         last_check_at=last_check_at,
         last_full_check_at=last_full_check_at,
         last_check_error=last_check_error,
+        last_check_error_at=last_check_error_at,
         position=position,
     )
 

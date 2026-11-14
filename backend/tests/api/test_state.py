@@ -72,7 +72,7 @@ def test_the_open_channel_is_remembered_for_the_next_start(
 
 
 def test_an_unknown_channel_cannot_be_the_open_one(client: TestClient) -> None:
-    """R-UI-02: only a channel that was added is remembered."""
+    """R-ER-02: only a channel that was added is remembered."""
     answer = client.put("/api/state/open-channel", json={"channel_id": "UCunknown"})
 
     assert answer.status_code == 404

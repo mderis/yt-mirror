@@ -169,7 +169,8 @@ class World:
             (world_dir / f"{index}.json").write_text(json.dumps(channel), encoding="utf-8")
         self.library = folder / "library"
         self.clock = FakeClock()
-        self.fixture = FixtureYouTube(world_dir)
+        self.slept: list[float] = []
+        self.fixture = FixtureYouTube(world_dir, sleep=self.slept.append)
         self.gateway = RefusingGateway(self.fixture)
         self.bus = bus if bus is not None else EventBus()
         self.events: list[AppEvent] = []
@@ -186,7 +187,15 @@ class World:
         self.youtube = YouTubeAccess(
             self.gateway, self.clock, self.bus, lambda delay, work: self.later.append((delay, work))
         )
-        self.views = ChannelViews(self.repository, self.settings, self.clock, self.bus)
+        self.views = ChannelViews(
+            self.repository,
+            self.settings,
+            self.clock,
+            self.bus,
+            youtube_paused=lambda: self.youtube.pause() is not None,
+        )
+        self.waited: list[float] = []
+        self.during_wait: Callable[[], None] | None = None
         self.thumbnails = ThumbnailService(
             self.repository,
             self.youtube,
@@ -204,6 +213,8 @@ class World:
             after_check=lambda channel_id, kind: self.thumbnails.fill(
                 channel_id, renew_avatar=kind is CheckKind.FULL
             ),
+            choose_delay=lambda least, most: (least + most) / 2,
+            wait=self._wait,
         )
         self.channels = ChannelsService(
             self.repository,
@@ -235,6 +246,12 @@ class World:
     def now(self) -> int:
         """Return the time of the fake clock as seconds since the epoch."""
         return int(self.clock.now().timestamp())
+
+    def _wait(self, seconds: float) -> None:
+        """Stand in for the wait between two channels: note it, and let a test act meanwhile."""
+        self.waited.append(seconds)
+        if self.during_wait is not None:
+            self.during_wait()
 
     def run_background(self) -> None:
         """Run everything that was handed to the background, except the worker of the checks."""

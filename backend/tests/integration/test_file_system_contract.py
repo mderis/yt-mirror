@@ -122,7 +122,7 @@ def test_files_in_subfolders_are_not_counted(tmp_path: Path) -> None:
 
 
 def test_a_folder_that_cannot_be_created_is_reported_with_the_reason(tmp_path: Path) -> None:
-    """R-FI-01: a folder below a file cannot exist, which is reported as unavailable."""
+    """R-ER-02: a folder below a file cannot exist, which is reported as unavailable."""
     blocker = tmp_path / "a-file"
     blocker.write_bytes(b"x")
 
@@ -134,7 +134,7 @@ def test_a_folder_that_cannot_be_created_is_reported_with_the_reason(tmp_path: P
 
 
 def test_a_folder_that_macos_denies_is_reported_as_denied(tmp_path: Path) -> None:
-    """R-FI-01: a place the app may not write to is reported as permission denied."""
+    """R-ER-02: a place the app may not write to is reported as permission denied."""
     locked = tmp_path / "locked"
     locked.mkdir()
     locked.chmod(0o500)

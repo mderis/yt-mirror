@@ -105,7 +105,7 @@ def test_every_form_of_answer_of_the_dialog_is_understood(
 
 
 def test_a_run_that_never_loaded_the_window_library_has_no_dialog() -> None:
-    """R-NA-08: asking for the dialog never loads the window library by itself."""
+    """R-CH-05: asking for the dialog never loads the window library by itself."""
     subject = WebviewFolderPicker(lambda: None)
 
     assert subject.available() is False
@@ -115,7 +115,7 @@ def test_a_run_that_never_loaded_the_window_library_has_no_dialog() -> None:
 def test_by_default_the_picker_looks_for_the_loaded_window_library(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """infra: the real picker finds pywebview among the loaded modules, and only there."""
+    """R-CH-05: the real picker finds pywebview among the loaded modules, and only there."""
     monkeypatch.delitem(__import__("sys").modules, "webview", raising=False)
     assert WebviewFolderPicker().available() is False
 

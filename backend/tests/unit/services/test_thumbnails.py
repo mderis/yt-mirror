@@ -220,7 +220,7 @@ def test_a_channel_that_is_removed_before_its_pictures_were_fetched_is_skipped(
 
 
 def test_asking_twice_for_the_same_channel_fetches_once(tmp_path: Path) -> None:
-    """infra: a channel waits in line once, and one worker empties the line."""
+    """R-CH-16: a channel waits in line once, and one worker empties the line."""
     world = World(tmp_path)
     channel_id = world.add_and_list()
     world.cache.pictures.clear()

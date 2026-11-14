@@ -63,8 +63,9 @@ class ChannelStatus(StrEnum):
     Each milestone adds the statuses that can occur from it on.
     """
 
-    COULD_NOT_CHECK = "could_not_check"
     CHECKING = "checking"
+    WAITING_FOR_YOUTUBE = "waiting_for_youtube"
+    COULD_NOT_CHECK = "could_not_check"
     NEW_VIDEOS = "new_videos"
     PAUSED = "paused"
     UP_TO_DATE = "up_to_date"
@@ -185,6 +186,7 @@ class Channel:
         last_check_at: The last successful check of either kind, or None.
         last_full_check_at: The last successful full check, or None.
         last_check_error: The error code of the last check when it failed, or None.
+        last_check_error_at: When that check failed, or None.
         position: The place in the sidebar, from 0.
     """
 
@@ -203,6 +205,7 @@ class Channel:
     last_check_at: int | None = None
     last_full_check_at: int | None = None
     last_check_error: ErrorCode | None = None
+    last_check_error_at: int | None = None
     position: int = 0
 
 

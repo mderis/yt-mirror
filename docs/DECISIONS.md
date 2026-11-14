@@ -335,3 +335,13 @@ Format: **Decision**, **Why**, **Consequences**.
 **Why:** The number in D-067 was an estimate that was written before the pictures were measured.
 **Consequences:** None for the code. The cache counts towards the disk space the app uses, and is removed with the channel. If it ever becomes too large, smaller thumbnails are a setting of a later version.
 
+### D-075 A video belongs to the first channel that listed it
+**Decision:** When two channels list the same video (a collaboration), the video belongs to the channel whose check listed it first (R-CH-17). The check of the other channel leaves it out, never counts it as new, and logs it (`check.video_of_other_channel`). From milestone M7 it also writes an activity entry. When the first channel is removed, the other one takes the video at its next check.
+**Why:** The video ID is the key of a video everywhere: in the database, in the file's metadata and in the hidden folder. One video in two channels would need another key and a rule for which folder holds the file. Version 1 keeps one channel per video.
+**Consequences:** The count of a channel can be one lower than its Videos tab. Showing such a video in both channels with one file is on the roadmap.
+
+### D-076 What is running now outranks a past failure
+**Decision:** The status of a channel is chosen in this order (R-FB-01): what is running now (mirroring, checking or a first listing, matching, exact dates), waiting for YouTube, could not check, new videos, paused, up to date. The failure of the last check stays visible as secondary information: its banner remains while a new attempt waits or runs, says so, and its button is busy.
+**Why:** With the error first, a retry after a failed check showed nothing: the status stayed "Could not check" and the buttons looked idle, for minutes in the case of a first listing. The maintainer found this in the review of milestone M2.
+**Consequences:** While something long runs on a channel (mirroring from M3, exact dates from M4), the sidebar does not show that its last check failed. The channel page still shows the banner. The time of a failed check is stored (`channels.last_check_error_at`, migration 0005), so the banner can say when it failed.
+

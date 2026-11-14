@@ -104,7 +104,7 @@ def test_yt_dlp_is_never_given_a_proxy_of_ours(options: dict[str, Any]) -> None:
 def test_yt_dlp_writes_nothing_outside_the_app_folder_and_waits_a_set_time(
     options: dict[str, Any],
 ) -> None:
-    """R-CH-11: the app sets the time limits itself, and yt-dlp keeps no cache elsewhere."""
+    """R-PL-15, R-CH-25: yt-dlp keeps no cache elsewhere, and the app sets the time limits."""
     assert options["cachedir"] is False
     assert options["skip_download"] is True
     assert 0 < options["socket_timeout"] <= 20
@@ -247,7 +247,7 @@ def test_a_channel_without_a_videos_tab_has_an_empty_listing() -> None:
 
 
 def test_an_answer_that_names_no_channel_is_not_trusted() -> None:
-    """R-CH-03: an answer without a channel ID means YouTube changed, not "a channel"."""
+    """R-ER-02: an answer without a channel ID means YouTube changed, not "a channel"."""
 
     def no_channel(answer: dict[str, Any]) -> None:
         answer["channel_id"] = None
@@ -375,7 +375,7 @@ def test_an_error_while_reading_is_an_error_with_a_code() -> None:
 
 
 def test_an_error_of_ours_passes_through_unchanged() -> None:
-    """infra: an error that already has a code is not classified a second time."""
+    """R-ER-02: an error that already has a code is not classified a second time."""
 
     def refuses(address: str, options: Any, process: bool) -> Any:
         raise AppError(ErrorCode.RATE_LIMITED, {"from": "a stand-in"})
@@ -389,7 +389,7 @@ def test_an_error_of_ours_passes_through_unchanged() -> None:
 
 
 def test_another_error_than_a_missing_tab_is_not_retried_without_the_tab() -> None:
-    """infra: only "no videos tab" leads to a second question."""
+    """R-CH-07: only "no videos tab" leads to a second question."""
     replay = Replay()
 
     with pytest.raises(AppError):
@@ -399,7 +399,7 @@ def test_another_error_than_a_missing_tab_is_not_retried_without_the_tab() -> No
 
 
 def test_an_error_of_our_own_while_reading_passes_through() -> None:
-    """infra: an error with a code that comes up while reading is not wrapped again."""
+    """R-ER-02: an error with a code that comes up while reading is not wrapped again."""
 
     def entries() -> Any:
         yield {"id": "rec00000001", "title": "One"}

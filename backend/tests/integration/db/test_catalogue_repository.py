@@ -95,6 +95,37 @@ def test_a_channel_is_stored_with_every_value(repository: CatalogueRepository) -
     assert repository.channels() == (channel,)
 
 
+def test_a_failed_check_is_stored_with_its_code_and_its_time(
+    repository: CatalogueRepository,
+) -> None:
+    """R-CH-25: a channel keeps the error of its last check and when that check failed."""
+    repository.add_channel(make_channel())
+    failed = make_channel(last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW + 60)
+
+    repository.save_channel(failed)
+    stored = repository.channel(CHANNEL_ID)
+    repository.save_channel(make_channel())
+
+    assert stored == failed
+    assert repository.channel(CHANNEL_ID) == make_channel()
+
+
+def test_the_repository_tells_which_channel_has_a_video(repository: CatalogueRepository) -> None:
+    """R-CH-17: a video belongs to one channel, and a check of another one can ask which."""
+    repository.add_channel(make_channel(CHANNEL_ID))
+    repository.add_channel(make_channel(OTHER_CHANNEL_ID, position=1))
+    repository.apply_check(make_channel(CHANNEL_ID), changes(inserted=[make_video(1)]))
+    repository.apply_check(
+        make_channel(OTHER_CHANNEL_ID, position=1),
+        changes(inserted=[make_video(2, channel_id=OTHER_CHANNEL_ID)]),
+    )
+    asked = [video_id(1), video_id(2), video_id(3)]
+
+    assert repository.owners_of(asked, other_than=OTHER_CHANNEL_ID) == {video_id(1): CHANNEL_ID}
+    assert repository.owners_of(asked, other_than=CHANNEL_ID) == {video_id(2): OTHER_CHANNEL_ID}
+    assert repository.owners_of([], other_than=CHANNEL_ID) == {}
+
+
 def test_a_channel_without_optional_values_is_stored_as_it_is(
     repository: CatalogueRepository,
 ) -> None:
@@ -246,7 +277,7 @@ def test_a_check_of_a_removed_channel_stores_nothing(repository: CatalogueReposi
 def test_a_video_belongs_to_the_channel_that_listed_it_first(
     repository: CatalogueRepository,
 ) -> None:
-    """R-CH-10: a video that two channels list is stored once, for the first of them."""
+    """R-CH-17: a video that two channels list is stored once, for the first of them."""
     repository.add_channel(make_channel(CHANNEL_ID))
     repository.add_channel(make_channel(OTHER_CHANNEL_ID, position=1))
     repository.apply_check(make_channel(CHANNEL_ID), changes(inserted=[make_video(1)]))
@@ -262,7 +293,7 @@ def test_a_video_belongs_to_the_channel_that_listed_it_first(
 
 
 def test_a_large_check_is_stored(repository: CatalogueRepository) -> None:
-    """R-CH-11: the first listing of a large channel is stored in one piece."""
+    """R-CH-12: the first listing of a large channel is stored in one piece."""
     repository.add_channel(make_channel())
     first = changes_of_check(
         CheckKind.FULL,
@@ -350,7 +381,7 @@ def test_the_count_of_new_videos_agrees_with_the_rule_for_one_video(
 
 
 def test_totals_are_kept_apart_by_channel(repository: CatalogueRepository) -> None:
-    """R-CH-34: every channel has its own numbers."""
+    """R-CH-35: every channel has its own numbers."""
     other = make_channel(OTHER_CHANNEL_ID, position=1)
     repository.add_channel(make_channel())
     repository.add_channel(other)

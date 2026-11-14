@@ -208,6 +208,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | last_check_at | int, null | Last successful check, quick or full |
 | last_full_check_at | int, null | Last successful full check (R-CH-26, R-CH-35) |
 | last_check_error | text, null | Error code of the last failed check |
+| last_check_error_at | int, null | When that check failed (R-CH-25) |
 | position | int | Sidebar order |
 
 ### videos
@@ -300,7 +301,7 @@ Rules:
 
 ### 6.2 Channel status (derived, never stored)
 
-Computed by `core/status.py` from the channel row, its jobs and running background tasks, using the priority in R-FB-01. Stored facts are only `paused`, `last_check_at` and `last_check_error`.
+Computed by `core/status.py` from the channel row, its jobs and running background tasks, using the priority in R-FB-01: what is running now comes first, so a check that waits or runs outranks the failure of the check before it (D-076). Stored facts are only `paused`, `last_check_at` and `last_check_error`. Whether a channel waits for YouTube is derived as well: the pause of R-ER-05 is in force and the app would otherwise work on the channel by itself. From milestone M2 that is a first listing that is still to come.
 
 ## 7. Key flows
 
@@ -330,7 +331,7 @@ Measured in November 2026 on four real channels: a quick check with nothing new 
 11. If auto-mirror is on, enqueue eligible videos (R-MI-02, R-MI-03).
 12. Emit the new channel state, write activity entries, send a notification if there are new videos.
 
-Checks never run side by side: one worker takes them one after another (R-CH-24), so two listings never ask YouTube at the same time. A first listing that a quit interrupted has written nothing, and is started again at the next start (R-CH-11).
+Checks never run side by side: one worker takes them one after another (R-CH-24), so two listings never ask YouTube at the same time. Before every channel of "Check all channels now" but the first, the worker waits a random time of 1 to 3 seconds. The wait ends at once when the app stops or the check is dropped. A video that a check lists and that another channel already has is left out of the check and logged (R-CH-17, D-075): a video has one channel. A first listing that a quit interrupted has written nothing, and is started again at the next start (R-CH-11).
 
 **Approximate dates (R-DT-04, D-060).** The listing gives a point in time, not the words YouTube showed ("2 years ago"). The point is "now minus N units", and it is the latest date the video can have: the real date lies up to one unit before it. `core/dates.py` finds the unit from the point and the time of the listing, with the same arithmetic yt-dlp uses. YouTube counts in days up to 13, in weeks from 2 to 4, in months from 1 to 11, and then in years. Where two units fit, the coarser one is stored. The first approximate date of a video is kept: a later listing never replaces it, because it can only be coarser.
 

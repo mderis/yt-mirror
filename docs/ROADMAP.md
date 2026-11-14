@@ -11,6 +11,7 @@ Not committed. Each needs its own spec section, designs and decision record befo
 | Idea | Notes |
 |---|---|
 | SponsorBlock | Mark sponsor segments as chapters. Declined for V1 |
+| A video in two channels | A video that two channels list (a collaboration) is shown in both, with one file on disk. Version 1 gives it to the channel that listed it first (R-CH-17, D-075) |
 | Shorts and live streams | Per-channel toggles for the other tabs |
 | Playlists and single videos as sources | |
 | Proxy setting | |

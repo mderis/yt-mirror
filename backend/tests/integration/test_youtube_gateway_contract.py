@@ -176,7 +176,7 @@ def test_a_listing_asks_for_no_more_than_was_read(world: World) -> None:
 
 
 def test_a_listing_can_be_read_only_once(world: World) -> None:
-    """R-CH-12: a listing is a reading of YouTube, not a stored list."""
+    """infra: a listing is a reading of YouTube, not a stored list."""
     listing = world.gateway.list_channel(ytdlp_replay.CHANNEL_ID)
     list(listing.videos)
 
@@ -184,7 +184,7 @@ def test_a_listing_can_be_read_only_once(world: World) -> None:
 
 
 def test_a_listing_of_an_unknown_channel_is_not_found(world: World) -> None:
-    """R-CH-12: a channel that YouTube no longer has cannot be listed."""
+    """R-ER-02: a channel that YouTube no longer has cannot be listed."""
     failure = failure_of(lambda: world.gateway.list_channel(ytdlp_replay.UNKNOWN_CHANNEL_ID))
 
     assert failure.code is ErrorCode.CHANNEL_NOT_FOUND

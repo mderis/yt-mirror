@@ -8,21 +8,27 @@ keeps the catalogue and leaves its error code on the channel (R-CH-25).
 What a check changes is decided by ``core/catalogue.py``.
 
 One worker takes the checks one after another, so two listings never ask
-YouTube at the same time. The checks that run by themselves on a schedule
-arrive in milestone M4.
+YouTube at the same time. Between two channels of "Check all channels now"
+it waits a short random time (R-CH-24). The checks that run by themselves
+on a schedule arrive in milestone M4.
+
+A video belongs to one channel (R-CH-17). A video that a check lists and
+that another channel already has is left with that channel, and logged.
 
 Tests: backend/tests/unit/services/test_catalogue.py
 """
 
+import random
 import threading
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 
 import structlog
 from structlog.typing import FilteringBoundLogger
 
 from ytmirror.core.catalogue import (
+    CHECK_ALL_DELAY_S,
     CheckChanges,
     changes_of_check,
     listing_is_implausible,
@@ -35,6 +41,7 @@ from ytmirror.core.channels import (
     ListedVideo,
     TaskKind,
     TaskProgress,
+    Video,
 )
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.ports.catalogue_repository import CatalogueRepository
@@ -56,6 +63,7 @@ class _Request:
     kind: CheckKind
     by_user: bool
     preview_count: int | None = None
+    delay_s: float = 0.0
 
 
 class _CancelledError(Exception):
@@ -73,6 +81,8 @@ class CatalogueService:
         clock: Clock,
         run_in_background: Callable[[Callable[[], None]], None],
         after_check: Callable[[str, CheckKind], None] | None = None,
+        choose_delay: Callable[[float, float], float] = random.uniform,
+        wait: Callable[[float], None] | None = None,
     ) -> None:
         """Create the service. Nothing runs before ``start``.
 
@@ -85,6 +95,10 @@ class CatalogueService:
             after_check: Told the channel ID and the kind of check after every
                 successful check, for work that follows a check, such as caching
                 its pictures.
+            choose_delay: Chooses the seconds to wait between two channels of "Check
+                all channels now", between a least and a most (R-CH-24).
+            wait: Waits a number of seconds. Default: a wait that ends early when
+                the app stops or the check is dropped.
         """
         self._repository = repository
         self._youtube = youtube
@@ -92,6 +106,8 @@ class CatalogueService:
         self._clock = clock
         self._run_in_background = run_in_background
         self._after_check = after_check
+        self._choose_delay = choose_delay
+        self._wait = wait
         self._wake = threading.Condition()
         self._waiting: deque[_Request] = deque()
         self._running: _Request | None = None
@@ -117,6 +133,7 @@ class CatalogueService:
         *,
         by_user: bool = True,
         preview_count: int | None = None,
+        delay_s: float = 0.0,
     ) -> None:
         """Put a check of a channel in line (R-CH-23).
 
@@ -130,6 +147,7 @@ class CatalogueService:
             kind: A quick or a full check.
             by_user: Whether the user started it. Otherwise a pause of the app holds it up.
             preview_count: For a first listing, the video count the preview showed.
+            delay_s: Seconds the worker waits before this check (R-CH-24).
 
         Raises:
             AppError: ``NOT_FOUND`` for an unknown channel. ``INVALID_REQUEST`` for
@@ -142,7 +160,7 @@ class CatalogueService:
             raise AppError(ErrorCode.INVALID_REQUEST, {"reason": "paused", "channel": channel_id})
         if channel.first_listed_at is None:
             kind = CheckKind.FULL
-        request = _Request(channel_id, kind, by_user, preview_count)
+        request = _Request(channel_id, kind, by_user, preview_count, delay_s)
         with self._wake:
             if not self._put_in_line(request):
                 return
@@ -154,12 +172,16 @@ class CatalogueService:
     def request_check_all(self) -> int:
         """Put a quick check of every channel that is not paused in line (R-CH-23).
 
+        Before every channel but the first the worker waits a random time
+        of 1 to 3 seconds, so that YouTube is not asked in a burst (R-CH-24).
+
         Returns:
             How many channels are checked.
         """
         channels = [channel for channel in self._repository.channels() if not channel.paused]
-        for channel in channels:
-            self.request_check(channel.id, CheckKind.QUICK)
+        for index, channel in enumerate(channels):
+            delay_s = 0.0 if index == 0 else self._choose_delay(*CHECK_ALL_DELAY_S)
+            self.request_check(channel.id, CheckKind.QUICK, delay_s=delay_s)
         return len(channels)
 
     def resume_first_listings(self) -> None:
@@ -209,13 +231,30 @@ class CatalogueService:
             self._running = request
             self._cancelled.discard(request.channel_id)
         try:
-            self._check(request)
+            if self._waited(request):
+                self._check(request)
         finally:
             with self._wake:
                 self._running = None
                 self._cancelled.discard(request.channel_id)
             self._views.set_checking(request.channel_id, False)
         return True
+
+    def _waited(self, request: _Request) -> bool:
+        """Wait the delay of a check. Returns False when it was dropped or the app stops."""
+        if request.delay_s <= 0:
+            return True
+
+        def over() -> bool:
+            return self._stopped or request.channel_id in self._cancelled
+
+        if self._wait is not None:
+            self._wait(request.delay_s)
+        else:
+            with self._wake:
+                self._wake.wait_for(over, timeout=request.delay_s)
+        with self._wake:
+            return not over()
 
     def _work_until_stopped(self) -> None:
         while True:
@@ -273,7 +312,13 @@ class CatalogueService:
                 error_code=ErrorCode.INTERNAL.value,
                 exc_info=True,
             )
-            self._repository.save_channel(replace(channel, last_check_error=ErrorCode.INTERNAL))
+            self._repository.save_channel(
+                replace(
+                    channel,
+                    last_check_error=ErrorCode.INTERNAL,
+                    last_check_error_at=int(self._clock.now().timestamp()),
+                )
+            )
         else:
             if changes is not None:
                 log.info(
@@ -296,6 +341,7 @@ class CatalogueService:
             read = read_for_quick_check(listing.videos, {video.id for video in known})
         else:
             read = self._read_all(listing, channel.id, first_listing, len(known) or None)
+        read = self._without_videos_of_other_channels(channel.id, read, known)
         if listing_is_implausible(request.kind, len(known), len(read)):
             raise AppError(
                 ErrorCode.YOUTUBE_CHANGED,
@@ -312,6 +358,7 @@ class CatalogueService:
             avatar_url=listing.facts.avatar_url or channel.avatar_url,
             last_check_at=now,
             last_check_error=None,
+            last_check_error_at=None,
             last_full_check_at=now
             if request.kind is CheckKind.FULL
             else channel.last_full_check_at,
@@ -331,6 +378,25 @@ class CatalogueService:
         if self._after_check is not None:
             self._after_check(channel.id, request.kind)
         return changes
+
+    def _without_videos_of_other_channels(
+        self, channel_id: str, read: list[ListedVideo], known: Sequence[Video]
+    ) -> list[ListedVideo]:
+        """Leave out the videos that belong to another channel, and log each (R-CH-17)."""
+        known_ids = {video.id for video in known}
+        unknown = [video.id for video in read if video.id not in known_ids]
+        if not unknown:
+            return read
+        owners = self._repository.owners_of(unknown, other_than=channel_id)
+        for video_id, owner in owners.items():
+            _log.info(
+                "check.video_of_other_channel",
+                msg="A listed video belongs to another channel and stays there",
+                channel_id=channel_id,
+                video_id=video_id,
+                owner_channel_id=owner,
+            )
+        return [video for video in read if video.id not in owners]
 
     def _read_all(
         self, listing: ChannelListing, channel_id: str, first_listing: bool, total: int | None
@@ -367,7 +433,13 @@ class CatalogueService:
             **error.details,
         )
         if error.code is not ErrorCode.BOT_CHECK:
-            self._repository.save_channel(replace(channel, last_check_error=error.code))
+            self._repository.save_channel(
+                replace(
+                    channel,
+                    last_check_error=error.code,
+                    last_check_error_at=int(self._clock.now().timestamp()),
+                )
+            )
             return
         with self._wake:
             dropped = list(self._waiting)

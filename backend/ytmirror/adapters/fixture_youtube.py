@@ -8,7 +8,10 @@ problem can be reproduced with it without the network.
 The folder holds one JSON file per channel (docs/TESTING.md section 4). A
 channel can have a script of changes: every listing of it serves the next
 step, so a test can let a new video appear, a title change, a video vanish
-and come back, or a check fail. Pictures are plain coloured rectangles.
+and come back, or a check fail. A channel can answer slowly on request
+(``page_delay_ms``, and ``delay_ms`` in a step), so that what the interface
+shows while a listing runs can be seen and tested. Pictures are plain
+coloured rectangles.
 
 This module must not talk to the network and must not decide anything
 about the catalogue.
@@ -22,8 +25,9 @@ import datetime
 import json
 import struct
 import threading
+import time
 import zlib
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -41,16 +45,19 @@ AVATAR_ADDRESS = "fixture://avatar/"
 _THUMBNAIL_SIZE = (320, 180)
 _AVATAR_SIZE = (96, 96)
 _DAY_S = 24 * 60 * 60
+_PAGE = 30
+"""A slow channel waits once per this many videos, as YouTube answers page by page."""
 
 
 class FixtureYouTube:
     """Serves channels, listings, counts and pictures from a folder of JSON files."""
 
-    def __init__(self, folder: Path) -> None:
+    def __init__(self, folder: Path, sleep: Callable[[float], None] = time.sleep) -> None:
         """Read every channel file of a folder.
 
         Args:
             folder: The folder with one ``*.json`` file per channel.
+            sleep: Waits a number of seconds, for the channels that answer slowly.
 
         Raises:
             ValueError: When a file does not describe a channel.
@@ -59,6 +66,7 @@ class FixtureYouTube:
         for file in sorted(folder.glob("*.json")):
             channel = _FixtureChannel(file.stem, json.loads(file.read_text(encoding="utf-8")))
             self._channels[channel.facts.channel_id] = channel
+        self._sleep = sleep
         self._lock = threading.Lock()
         self.listings_started: dict[str, int] = {}
         """How many listings of each channel were started, by channel ID."""
@@ -97,10 +105,15 @@ class FixtureYouTube:
             number = self.listings_started.get(channel_id, 0)
             self.listings_started[channel_id] = number + 1
             self.videos_served[channel_id] = 0
-        videos, failure, fails_after = channel.listing(number)
+        videos, failure, fails_after, delay_s = channel.listing(number)
+        if delay_s:
+            self._sleep(delay_s)
         if failure is not None and fails_after is None:
             raise AppError(failure, {"channel": channel_id})
-        return ChannelListing(channel.facts, self._served(channel_id, videos, failure, fails_after))
+        return ChannelListing(
+            channel.facts,
+            self._served(channel_id, videos, failure, fails_after, channel.page_delay_s),
+        )
 
     def preview_video_count(self, channel_id: str) -> int:
         """Return the video count a fixture gives for its preview.
@@ -146,10 +159,13 @@ class FixtureYouTube:
         videos: list[ListedVideo],
         failure: ErrorCode | None,
         fails_after: int | None,
+        page_delay_s: float,
     ) -> Iterator[ListedVideo]:
         for index, video in enumerate(videos):
             if failure is not None and index == fails_after:
                 raise AppError(failure, {"channel": channel_id})
+            if page_delay_s and index % _PAGE == 0:
+                self._sleep(page_delay_s)
             with self._lock:
                 self.videos_served[channel_id] += 1
             yield video
@@ -179,6 +195,11 @@ class _FixtureChannel:
             self._videos = [self._video(entry) for entry in data.get("videos", [])]
             self._videos += self._generated(data.get("generate"))
             self._steps: list[Mapping[str, Any]] = list(data.get("checks", []))
+            self.page_delay_s = float(data.get("page_delay_ms", 0)) / 1000
+            self._listing_failures = {
+                int(number): ErrorCode(code)
+                for number, code in dict(data.get("listing_failures", {})).items()
+            }
             self.unreachable_pictures = frozenset(
                 [self.facts.channel_id, *(video.id for video in self._videos)]
                 if data.get("pictures_fail")
@@ -198,25 +219,29 @@ class _FixtureChannel:
         name = names[reference.kind]
         return name is not None and name.casefold() == reference.value.casefold()
 
-    def listing(self, number: int) -> tuple[list[ListedVideo], ErrorCode | None, int | None]:
+    def listing(self, number: int) -> tuple[list[ListedVideo], ErrorCode | None, int | None, float]:
         """Return what listing number ``number`` (from 0) serves.
 
         Returns:
-            The videos, the failure of this listing if its step has one, and after
-            how many videos it fails (None: before the first).
+            The videos, the failure of this listing if it has one, after how many
+            videos it fails (None: before the first), and the seconds it waits
+            before it answers.
         """
         videos = list(self._videos)
         removed: dict[str, tuple[int, ListedVideo]] = {}
-        failure: ErrorCode | None = None
+        failure: ErrorCode | None = self._listing_failures.get(number)
         fails_after: int | None = None
+        delay_s = 0.0
         for index, step in enumerate(self._steps[:number]):
+            if index == number - 1:
+                delay_s = float(step.get("delay_ms", 0)) / 1000
             if "fail" in step:
                 if index == number - 1:
                     failure = ErrorCode(step["fail"])
                     fails_after = step.get("fail_after")
                 continue
             self._apply(step, videos, removed)
-        return videos, failure, fails_after
+        return videos, failure, fails_after, delay_s
 
     def _apply(
         self,

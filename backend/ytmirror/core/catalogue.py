@@ -18,6 +18,10 @@ from ytmirror.core.channels import CheckKind, DatePrecision, ListedVideo, Video
 from ytmirror.core.dates import precision_of
 
 QUICK_CHECK_STOPS_AFTER = 30
+
+CHECK_ALL_DELAY_S = (1.0, 3.0)
+"""Between two channels of "Check all channels now" the app waits a random time
+between these two numbers of seconds, so that YouTube is not asked in a burst (R-CH-24)."""
 """A quick check stops after this many known videos in a row: one full page (R-CH-12)."""
 
 MISSES_UNTIL_GONE = 2

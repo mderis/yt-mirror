@@ -102,7 +102,7 @@ def test_an_open_channel_that_was_removed_is_forgotten(tmp_path: Path) -> None:
 
 
 def test_an_unknown_channel_cannot_be_the_open_one(tmp_path: Path) -> None:
-    """R-UI-02: only a channel that was added can be remembered as open."""
+    """R-ER-02: only a channel that was added can be remembered as open."""
     with pytest.raises(AppError) as failure:
         World(tmp_path).state.open_channel("UCunknown")
 
@@ -190,3 +190,53 @@ def test_a_channel_that_is_not_stored_has_no_view_and_is_not_published(tmp_path:
 
     assert world.views.of("UCunknown") is None
     assert world.events == []
+
+
+BIG_FILE = channel_file(BIG_ID, title="Big Channel", handle="@big", videos=95, prefix="big")
+
+
+def test_a_channel_whose_first_listing_waits_for_the_pause_says_waiting_for_youtube(
+    tmp_path: Path,
+) -> None:
+    """R-FB-01, R-ER-05: while the app pauses, a channel that is still to be listed says so."""
+    world = World(tmp_path)
+    world.catalogue.start()
+    world.background.clear()
+    world.gateway.refuse["listing"] = ErrorCode.BOT_CHECK
+    channel_id = world.add_and_list()
+    waiting = world.views.of(channel_id)
+    told = [event.view.status for event in world.updates() if event.view.channel.id == channel_id]
+    world.gateway.refuse.clear()
+    world.events.clear()
+
+    world.youtube.try_now()
+    resumed = [event.view.status for event in world.updates()]
+    world.work()
+    listed = world.views.of(channel_id)
+
+    assert waiting is not None and listed is not None
+    assert waiting.status is ChannelStatus.WAITING_FOR_YOUTUBE
+    assert waiting.channel.last_check_error is None
+    assert told[-1] is ChannelStatus.WAITING_FOR_YOUTUBE
+    assert ChannelStatus.CHECKING in resumed
+    assert ChannelStatus.WAITING_FOR_YOUTUBE not in resumed[-1:]
+    assert listed.status is ChannelStatus.UP_TO_DATE
+    assert listed.channel.first_listed_at is not None
+
+
+def test_a_channel_the_app_has_no_work_for_does_not_wait_for_youtube(tmp_path: Path) -> None:
+    """R-FB-01, R-ER-05: a listed channel keeps its own status while the app pauses."""
+    world = World(tmp_path, channel_file(), {**BIG_FILE, "listing_failures": {"0": "RATE_LIMITED"}})
+    listed = world.add_and_list("@small")
+    failed = world.add_and_list("@big")
+    world.gateway.refuse["lookup"] = ErrorCode.BOT_CHECK
+
+    with pytest.raises(AppError):
+        world.channels.lookup("@small")
+
+    statuses = {view.channel.id: view.status for view in world.views.all()}
+    assert world.youtube.pause() is not None
+    assert statuses == {
+        listed: ChannelStatus.UP_TO_DATE,
+        failed: ChannelStatus.COULD_NOT_CHECK,
+    }

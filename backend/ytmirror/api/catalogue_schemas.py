@@ -77,6 +77,7 @@ class Channel(BaseModel):
         last_check_at: The last successful check of either kind, or None.
         last_full_check_at: The last successful full check, or None.
         last_check_error: The error code of the last check when it failed, or None.
+        last_check_error_at: When that check failed, or None.
         progress: The first listing or full check that is running, or None.
         pictures: A number that grows when more pictures of the channel are cached.
         avatar_version: A number that grows when the avatar of the channel was cached anew.
@@ -103,6 +104,7 @@ class Channel(BaseModel):
     last_check_at: int | None
     last_full_check_at: int | None
     last_check_error: ErrorCode | None
+    last_check_error_at: int | None
     progress: Progress | None
     pictures: int
     avatar_version: int
@@ -133,6 +135,7 @@ class Channel(BaseModel):
             last_check_at=channel.last_check_at,
             last_full_check_at=channel.last_full_check_at,
             last_check_error=channel.last_check_error,
+            last_check_error_at=channel.last_check_error_at,
             progress=None if view.progress is None else Progress.of(view.progress),
             pictures=view.pictures,
             avatar_version=view.avatar_version,

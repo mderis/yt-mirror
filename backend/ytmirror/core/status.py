@@ -116,23 +116,52 @@ def is_new(video: Video, now: int) -> bool:
     return now - video.first_seen_at < NEW_FOR_S
 
 
-def channel_status(channel: Channel, *, checking: bool, new_videos: int) -> ChannelStatus:
+def waits_for_youtube(channel: Channel, *, youtube_paused: bool) -> bool:
+    """Return whether the app holds work for a channel until YouTube answers again (R-ER-05).
+
+    While the app pauses what it asks of YouTube by itself, a channel waits
+    when the app would otherwise work on it by itself. From milestone M2 that
+    is a first listing that is still to come. A paused channel does not wait,
+    and neither does one whose first listing failed: that one is left to the
+    user (R-CH-25).
+
+    Args:
+        channel: The channel.
+        youtube_paused: Whether the pause of the whole app is in force.
+    """
+    return (
+        youtube_paused
+        and not channel.paused
+        and channel.first_listed_at is None
+        and channel.last_check_error is None
+    )
+
+
+def channel_status(
+    channel: Channel, *, checking: bool, new_videos: int, waiting_for_youtube: bool = False
+) -> ChannelStatus:
     """Return the one status line of a channel (R-FB-01, R-CH-34).
 
-    One status is shown at a time, by the priority of R-FB-01: error,
-    mirroring, checking, matching, exact dates, new, paused, up to date.
-    The statuses of later milestones take their place in this order when
-    they are built.
+    One status is shown at a time, by the priority of R-FB-01: what is
+    running now (mirroring, checking, a first listing, matching, exact dates),
+    then waiting for YouTube, then could not check, then new videos, then
+    paused, then up to date. What is running outranks a past failure, so a
+    retry after a failed check is seen. The statuses of later milestones take
+    their place in this order when they are built.
 
     Args:
         channel: The channel.
         checking: Whether a check of this channel is waiting or running.
         new_videos: How many of its videos are new.
+        waiting_for_youtube: Whether the app holds work for this channel until
+            YouTube answers again (``waits_for_youtube``).
     """
-    if channel.last_check_error is not None:
-        return ChannelStatus.COULD_NOT_CHECK
     if checking:
         return ChannelStatus.CHECKING
+    if waiting_for_youtube:
+        return ChannelStatus.WAITING_FOR_YOUTUBE
+    if channel.last_check_error is not None:
+        return ChannelStatus.COULD_NOT_CHECK
     if new_videos > 0:
         return ChannelStatus.NEW_VIDEOS
     if channel.paused:

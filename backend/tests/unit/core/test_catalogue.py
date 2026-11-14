@@ -315,7 +315,7 @@ def test_a_quick_check_leaves_the_count_of_misses_as_it_was() -> None:
 
 
 def test_a_quick_check_keeps_the_rest_of_the_channel_behind_what_it_read() -> None:
-    """R-CH-12: videos a quick check did not read keep their order after the new ones."""
+    """R-CH-12, R-UI-06: videos a quick check did not read keep their order after the new ones."""
     known = [make_video(number, position=number - 1) for number in range(1, 61)]
 
     changes = check(CheckKind.QUICK, known, listing_of([91, 92, *range(1, 31)]))
@@ -324,7 +324,7 @@ def test_a_quick_check_keeps_the_rest_of_the_channel_behind_what_it_read() -> No
 
 
 def test_a_new_video_between_two_older_known_ones_takes_its_place() -> None:
-    """R-CH-12: a new video that YouTube lists between known ones is placed between them."""
+    """R-CH-12, R-UI-06: a new video that is listed between known ones is placed between them."""
     known = [make_video(number, position=number - 1) for number in range(1, 41)]
     read = listing_of([1, 2, 99, *range(3, 33)])
 
@@ -403,7 +403,7 @@ def test_being_listed_once_ends_the_sequence_of_misses() -> None:
 
 
 def test_a_full_check_takes_the_order_of_the_listing() -> None:
-    """R-CH-12: after a full check the videos are in the order of the channel."""
+    """R-CH-12, R-UI-06: after a full check the videos are in the order of the channel."""
     known = [make_video(number, position=number - 1) for number in (1, 2, 3, 4)]
 
     changes = check(CheckKind.FULL, known, listing_of([4, 3, 2, 1]))

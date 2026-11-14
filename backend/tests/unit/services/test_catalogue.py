@@ -137,7 +137,7 @@ def test_a_first_listing_that_failed_is_left_to_the_user(tmp_path: Path) -> None
 
 
 def test_the_first_listing_logs_a_count_that_differs_from_the_preview(tmp_path: Path) -> None:
-    """R-CH-03: the catalogue is the source of truth, and a different preview count is logged."""
+    """R-LG-06: the catalogue is the source of truth, and a different preview count is logged."""
     world = World(tmp_path, channel_file(count=57))
 
     with capture_logs() as logs:
@@ -149,7 +149,7 @@ def test_the_first_listing_logs_a_count_that_differs_from_the_preview(tmp_path: 
 
 
 def test_a_preview_count_that_agrees_is_not_logged(tmp_path: Path) -> None:
-    """R-CH-03: nothing is said when the preview and the listing agree."""
+    """R-LG-06: nothing is said when the preview and the listing agree."""
     world = World(tmp_path)
 
     with capture_logs() as logs:
@@ -512,7 +512,7 @@ def test_a_paused_channel_is_not_checked_by_hand_either(tmp_path: Path) -> None:
 
 
 def test_a_check_of_an_unknown_channel_is_refused(tmp_path: Path) -> None:
-    """R-CH-23: only a channel that was added can be checked."""
+    """R-ER-02: only a channel that was added can be checked."""
     with pytest.raises(AppError) as refused:
         World(tmp_path).catalogue.request_check("UCunknown", CheckKind.QUICK)
 
@@ -555,7 +555,7 @@ def test_a_check_that_already_waits_is_not_put_in_line_twice(tmp_path: Path) -> 
 def test_a_waiting_quick_check_becomes_a_full_one_when_a_full_one_is_asked_for(
     tmp_path: Path,
 ) -> None:
-    """R-CH-23: "Full check" on top of a waiting "Check now" runs one full check."""
+    """R-CH-23, R-CH-24: "Full check" on top of a waiting "Check now" runs one full check."""
     world = World(tmp_path, BIG)
     channel_id = world.add_and_list("@big")
     world.clock.advance(60)
@@ -751,3 +751,233 @@ def test_a_check_that_reads_while_the_app_stops_ends_and_stores_nothing(tmp_path
     world.work()
 
     assert world.ids(channel_id) == []
+
+
+def test_a_retry_after_a_failed_check_shows_as_checking_and_a_success_clears_the_failure(
+    tmp_path: Path,
+) -> None:
+    """R-FB-01, R-CH-25: a retry is shown while it waits and runs, and success ends the failure."""
+    world = World(tmp_path, big_with({"fail": "NETWORK_UNREACHABLE"}, {}))
+    channel_id = world.add_and_list("@big")
+    world.check(channel_id)
+    failed = world.views.of(channel_id)
+
+    world.catalogue.request_check(channel_id, CheckKind.QUICK)
+    retrying = world.views.of(channel_id)
+    world.work()
+    after = world.views.of(channel_id)
+
+    assert failed is not None and retrying is not None and after is not None
+    assert failed.status is ChannelStatus.COULD_NOT_CHECK
+    assert retrying.status is ChannelStatus.CHECKING
+    assert retrying.channel.last_check_error is ErrorCode.NETWORK_UNREACHABLE
+    assert after.status is ChannelStatus.UP_TO_DATE
+    assert (after.channel.last_check_error, after.channel.last_check_error_at) == (None, None)
+
+
+def test_a_failed_check_stores_when_it_failed_and_a_new_failure_its_own_time(
+    tmp_path: Path,
+) -> None:
+    """R-CH-25: the banner of a failed check can say when the check failed, also the second time."""
+    world = World(tmp_path, big_with({"fail": "NETWORK_UNREACHABLE"}, {"fail": "RATE_LIMITED"}, {}))
+    channel_id = world.add_and_list("@big")
+    first_time = int(world.clock.now().timestamp())
+
+    world.check(channel_id)
+    first = world.repository.channel(channel_id)
+    world.clock.advance(120)
+    world.check(channel_id)
+    second = world.repository.channel(channel_id)
+
+    assert first is not None and second is not None
+    assert (first.last_check_error, first.last_check_error_at) == (
+        ErrorCode.NETWORK_UNREACHABLE,
+        first_time,
+    )
+    assert (second.last_check_error, second.last_check_error_at) == (
+        ErrorCode.RATE_LIMITED,
+        first_time + 120,
+    )
+
+
+def test_a_first_listing_that_failed_and_is_tried_again_tells_its_progress(
+    tmp_path: Path,
+) -> None:
+    """R-CH-11, R-CH-25: the retry of a failed first listing is a first listing, with its count."""
+    world = World(tmp_path, {**BIG, "listing_failures": {"0": "NETWORK_UNREACHABLE"}})
+    channel_id = world.add_and_list("@big")
+    failed = world.views.of(channel_id)
+    world.events.clear()
+
+    world.check(channel_id)
+
+    progress = [event.progress for event in world.progress()]
+    assert failed is not None and failed.status is ChannelStatus.COULD_NOT_CHECK
+    assert {step.kind for step in progress} == {TaskKind.FIRST_LISTING}
+    assert [step.done for step in progress][:3] == [0, 30, 60]
+    assert len(world.ids(channel_id)) == 95
+
+
+def test_check_all_waits_between_two_channels_and_not_before_the_first(tmp_path: Path) -> None:
+    """R-CH-24: between two channels of "Check all channels now" the worker waits a short time."""
+    third = channel_file("UCthirdthirdthirdthird03", title="Third", handle="@third", prefix="th")
+    world = World(tmp_path, channel_file(), BIG, third)
+    for handle in ("@small", "@big", "@third"):
+        world.add_and_list(handle)
+
+    world.catalogue.request_check_all()
+    world.work()
+    after_all = list(world.waited)
+    world.check(SMALL_ID)
+
+    assert after_all == [2.0, 2.0]
+    assert world.waited == after_all
+
+
+def test_the_wait_between_two_channels_is_chosen_between_one_and_three_seconds(
+    tmp_path: Path,
+) -> None:
+    """R-CH-24: the delay is a random time of 1 to 3 seconds."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list("@small")
+    world.add_and_list("@big")
+    asked: list[tuple[float, float]] = []
+
+    def choose(least: float, most: float) -> float:
+        asked.append((least, most))
+        return 1.5
+
+    catalogue = CatalogueService(
+        world.repository,
+        world.youtube,
+        world.views,
+        world.clock,
+        world.background.append,
+        choose_delay=choose,
+        wait=world.waited.append,
+    )
+    catalogue.request_check_all()
+    while catalogue.work_once():
+        pass
+
+    assert asked == [(1.0, 3.0)]
+    assert world.waited == [1.5]
+
+
+def test_a_channel_that_is_paused_while_its_check_waits_its_turn_is_not_checked(
+    tmp_path: Path,
+) -> None:
+    """R-CH-24, R-CH-31: a check that is dropped during the wait before it does not run."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list("@small")
+    world.add_and_list("@big")
+    started = dict(world.fixture.listings_started)
+
+    def pause_the_big_one() -> None:
+        world.channels.set_paused(BIG_ID, True)
+
+    world.during_wait = pause_the_big_one
+
+    world.catalogue.request_check_all()
+    world.work()
+
+    assert world.waited == [2.0]
+    assert world.fixture.listings_started[SMALL_ID] == started[SMALL_ID] + 1
+    assert world.fixture.listings_started[BIG_ID] == started[BIG_ID]
+    assert not world.views.is_checking(BIG_ID)
+
+
+def test_the_wait_between_two_channels_ends_when_the_app_stops(tmp_path: Path) -> None:
+    """R-PL-13, R-CH-24: stopping the app does not wait for the delay between two channels."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list("@small")
+    world.add_and_list("@big")
+    started = dict(world.fixture.listings_started)
+    threads: list[threading.Thread] = []
+
+    def in_a_thread(work: object) -> None:
+        thread = threading.Thread(target=work)  # pyright: ignore[reportArgumentType]
+        threads.append(thread)
+        thread.start()
+
+    first_checked = threading.Event()
+    catalogue = CatalogueService(
+        world.repository,
+        world.youtube,
+        world.views,
+        world.clock,
+        in_a_thread,
+        after_check=lambda _channel_id, _kind: first_checked.set(),
+        choose_delay=lambda _least, _most: 600.0,
+    )
+    catalogue.start()
+
+    catalogue.request_check_all()
+    assert first_checked.wait(10)
+    catalogue.stop()
+    threads[0].join(10)
+
+    assert not threads[0].is_alive()
+    assert world.fixture.listings_started[BIG_ID] == started[BIG_ID]
+
+
+SHARED = {"id": "sm000000005", "title": "Made together", "point": "2026-11-05"}
+"""A video that the small channel has and that another channel lists as well."""
+
+
+def test_a_video_that_another_channel_has_stays_there_and_is_logged(tmp_path: Path) -> None:
+    """R-CH-17: a video belongs to the first channel that listed it. The other check logs it."""
+    other = channel_file(
+        "UCotherotherotherother03", title="Other", handle="@other", prefix="ot", videos=3
+    )
+    world = World(tmp_path, channel_file(), {**other, "videos": [SHARED]})
+    world.add_and_list("@small")
+
+    with capture_logs() as logs:
+        world.add_and_list("@other")
+
+    lines = log_lines(logs, "check.video_of_other_channel")
+    finished = log_lines(logs, "check.finished")[-1]
+    assert "sm000000005" in world.ids(SMALL_ID)
+    assert "sm000000005" not in world.ids(other["id"])
+    assert len(world.ids(other["id"])) == 3
+    assert [(line["video_id"], line["owner_channel_id"]) for line in lines] == [
+        ("sm000000005", SMALL_ID)
+    ]
+    assert finished["inserted"] == 3
+
+
+def test_a_video_of_another_channel_is_never_counted_as_new(tmp_path: Path) -> None:
+    """R-CH-17, R-CH-15: every later check leaves the video where it is, and finds nothing new."""
+    other = channel_file(
+        "UCotherotherotherother03", title="Other", handle="@other", prefix="ot", videos=3
+    )
+    world = World(tmp_path, channel_file(), {**other, "videos": [SHARED]})
+    world.add_and_list("@small")
+    world.add_and_list("@other")
+
+    with capture_logs() as logs:
+        world.check(other["id"], CheckKind.QUICK)
+        world.check(other["id"], CheckKind.FULL)
+
+    view = world.views.of(other["id"])
+    assert view is not None
+    assert [line["new"] for line in log_lines(logs, "check.finished")] == [0, 0]
+    assert view.totals.new == 0
+    assert view.totals.videos == 3
+
+
+def test_when_the_first_channel_is_removed_the_other_takes_the_video(tmp_path: Path) -> None:
+    """R-CH-17: once the channel that had the video is gone, the other one takes it."""
+    other = channel_file(
+        "UCotherotherotherother03", title="Other", handle="@other", prefix="ot", videos=3
+    )
+    world = World(tmp_path, channel_file(), {**other, "videos": [SHARED]})
+    world.add_and_list("@small")
+    world.add_and_list("@other")
+
+    world.channels.remove(SMALL_ID)
+    world.check(other["id"], CheckKind.QUICK)
+
+    assert "sm000000005" in world.ids(other["id"])
+    assert len(world.ids(other["id"])) == 4

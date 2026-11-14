@@ -122,6 +122,25 @@ class SqlCatalogueRepository:
             row = session.get(VideoRow, video_id)
             return None if row is None else _video_of(row)
 
+    def owners_of(self, video_ids: Sequence[str], *, other_than: str) -> Mapping[str, str]:
+        """Return which of the videos belong to another channel, with that channel (R-CH-17).
+
+        Args:
+            video_ids: The video IDs to look up.
+            other_than: The channel that asks. Its own videos are left out.
+        """
+        owners: dict[str, str] = {}
+        with Session(self._engine) as session:
+            for start in range(0, len(video_ids), _CHUNK):
+                rows = session.execute(
+                    select(VideoRow.id, VideoRow.channel_id).where(
+                        VideoRow.id.in_(video_ids[start : start + _CHUNK]),
+                        VideoRow.channel_id != other_than,
+                    )
+                )
+                owners.update((video_id, channel_id) for video_id, channel_id in rows)
+        return owners
+
     def apply_check(self, channel: Channel, changes: CheckChanges) -> bool:
         """Store the result of a successful check in one transaction.
 
@@ -244,6 +263,7 @@ def _channel_of(row: ChannelRow) -> Channel:
         last_check_at=row.last_check_at,
         last_full_check_at=row.last_full_check_at,
         last_check_error=None if row.last_check_error is None else ErrorCode(row.last_check_error),
+        last_check_error_at=row.last_check_error_at,
         position=row.position,
     )
 

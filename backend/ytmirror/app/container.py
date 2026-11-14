@@ -169,7 +169,13 @@ def build_container(
     used_files = files if files is not None else MacFileSystem()
     used_picker = picker if picker is not None else WebviewFolderPicker()
     youtube = YouTubeAccess(_gateway(paths, used_clock, gateway), used_clock, events, _later)
-    views = ChannelViews(repository, settings, used_clock, events)
+    views = ChannelViews(
+        repository,
+        settings,
+        used_clock,
+        events,
+        youtube_paused=lambda: youtube.pause() is not None,
+    )
     thumbnails = ThumbnailService(
         repository, youtube, FileImageCache(paths.cache_dir), views, _in_a_thread
     )

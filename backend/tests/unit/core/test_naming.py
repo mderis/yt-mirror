@@ -34,7 +34,7 @@ def test_a_leading_dot_gets_an_underscore_so_the_folder_is_not_hidden() -> None:
 
 
 def test_the_name_is_stored_in_nfc() -> None:
-    """R-FI-01: names are in Unicode NFC (R-FN-03)."""
+    """R-FN-03: names are in Unicode NFC (R-FN-03)."""
     decomposed = unicodedata.normalize("NFD", "Café Zoë")
 
     name = channel_folder_name(decomposed, CHANNEL_ID, taken=())
