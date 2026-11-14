@@ -154,8 +154,10 @@ yt-mirror/
   frontend/
     src/
       api/                   Generated types and a thin typed client
-      stores/                Pinia stores (app, channels, videos, queue, settings, ui)
-      features/              One folder per feature: channel, queue, adopt, settings, ...
+      router.ts              The pages and their addresses (Vue Router, hash addresses, D-063)
+      stores/                Pinia stores (app, tools, channels, videos, ui, later queue and settings)
+      features/              One folder per feature: shell, welcome, channel, setup, tools, later queue, adopt, settings, ...
+      format/                How dates, durations, counts and sizes are written, and the clock of the interface
       components/            Shared presentational components
       design/                The theme center: tokens, Tailwind preset, fonts, brand icon, preview page
       i18n/                  All user-visible strings
@@ -387,6 +389,9 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 - Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`.
 - `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced. When the app stops, the bus is closed first: every stream ends, so an open window never holds up the shutdown.
 - On connect and after a reconnect the frontend refetches snapshots (`/api/state`, the open channel's videos), so a missed event can never leave the UI stale.
+- One store of the interface owns the stream (`stores/app.ts`) and passes every event on to the store it belongs to. What the events tell is newer than the answer of a call: the answer to "Check now" is not taken over, and the answer to adding a channel only when no event told about the channel yet (D-073).
+- A channel carries three numbers that only grow, so that the interface knows what to load again without comparing times, which are whole seconds (D-073): `catalogue_version` grows with every stored check, and the list of the open channel is loaded again when it changes. `avatar_version` grows when the avatar was cached anew, and is part of the avatar's address. `pictures` grows with every batch of cached pictures. Only a thumbnail that was asked for and was missing is asked for again, once per batch: the pictures of a channel with thousands of videos arrive in hundreds of batches, and a batch must not draw the whole list again.
+- `channel.updated` says "checking" before the worker can take the check, so a check that ends at once is never told as checking after it has ended.
 
 ### 7.7 Concurrency
 - One asyncio event loop for HTTP and SSE.

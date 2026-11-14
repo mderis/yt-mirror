@@ -82,6 +82,7 @@ Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11 to R-DT-13, R-FN-06, R-CH-20 
 - Date repair at check and on demand. Rename on title change.
 - One scheduler (`services/scheduler.py`) for all background work that runs by itself while the app is open: the exact date fetch, the quick checks when the app opens (R-CH-20), when a channel is selected (R-CH-21) and on the interval (R-CH-22), the automatic retry of a failed check with backoff (R-CH-25), and the automatic full check (R-CH-26) with its setting "Full check at least every" (default 7 days). The setting gets its control on the settings screen in M7.
 - Postponed from M2 (D-066), in the sidebar (`Main.html`, `States.html`): the global indicator "Checking channels: 3 of 5", and the channel status "Could not check · retrying in 5 min".
+- Postponed from M2, in the banner of the "not a bot" check: the sentence that the optional API key gets exact dates without this check (R-ER-05). It needs the key, which this milestone builds (R-DT-12).
 
 Acceptance: the mandatory date tests in [TESTING.md](TESTING.md) section 5 pass under two time zones. With a fake clock, channels are checked when the app opens, when one is selected after more than 5 minutes, and on the interval. A failed check is retried after 5, 15 and 60 minutes. A full check starts by itself after the set time, one channel at a time. The app works with no API key (R-PL-07). The requirement coverage and the end-to-end tests include the elements postponed from M2.
 

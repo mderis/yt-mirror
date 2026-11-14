@@ -341,3 +341,19 @@ An element whose target a later milestone builds is not shown before that milest
 | Dialogs without a shadow | `shadow-overlay` | Section 2.7 |
 | A channel entry of 54 px, a "check all" button of 32 px | 56 px and 36 px | The scale, and the minimum size of section 2.7 |
 | Coloured circles for avatars | The real avatar, on the `track` colour while it loads | The mockups have no pictures |
+| The folder in step 2 of the add channel dialog is a text field | The folder is shown as text, next to "Choose..." | A folder is never typed: the app takes a path only from the folder dialog of macOS ([ARCHITECTURE.md](ARCHITECTURE.md) section 9) |
+| "Choose..." is always there | Not shown with `--browser` | The folder dialog exists only in the app window |
+| The header of a first listing has no buttons (`StateLoading.html`) | It has "More actions" | Pausing and removing a channel must be reachable by keyboard while it is being listed |
+| "Last check failed 2 min ago" in the header | "Last check failed" | The time of a failed check is not stored. The banner tells the time of the last successful check, as a date and a time |
+| "Up to date · checked 2 min ago" in full | Cut off with "..." when the sidebar is too narrow for it, with the full text as tooltip | The sidebar is 256 px wide, as in the mockup, where the text does not fit either |
+| The welcome title is 32 px | 28 px (`heading-lg`) | Section 2.5 |
+
+### 8.8 States that have no mockup
+
+| State | What the app shows |
+|---|---|
+| An action of the user failed (for example "Open folder" for a folder that is gone) | An error banner above the page with the texts of the error code, until it is dismissed. Toasts and "Show details" arrive with milestone M7 |
+| A channel was opened because it existed already (R-CH-04) | An info banner on its page: "<channel> was added before. Here it is.", until it is dismissed. `States.html` has no toast for this |
+| The list of a channel could not be loaded | An error banner in the list area with "Try again" |
+| YouTube's "not a bot" check (R-ER-05) | One banner above the page with "Try now", in the place of the "Cannot reach YouTube" banner of `States.html` |
+| The window is not connected to its server | The brand icon, "Connecting to yt-mirror", or the error with "Try again" (R-ER-04) |

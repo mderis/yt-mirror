@@ -97,6 +97,10 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 13. Light and dark theme, list and grid, keyboard-only use of the main flow.
 14. Accessibility scan (axe) on every screen: no serious violations.
 
+What exists so far: flow 1 (milestone M1), and of flows 2, 9, 13 and 14 what milestone M2 builds (`e2e/tests/channels.spec.ts`): adding a channel from the welcome screen, the `changing` channel across quick and full checks, a failed check and "Try again", pausing, resuming and removing a channel, the menu and the dialogs by keyboard, and a channel of 5,000 videos. That a cancelled full check changes nothing is tested in the services and in the component tests, not end to end: the fake YouTube answers at once, so there is no moment to cancel in.
+
+Every app these tests start runs against the fake YouTube (`YTM_FAKE_YOUTUBE`) with a library folder of its own (`YTM_LIBRARY_DIR`), and the browsers run in a fixed time zone, because dates are shown in the time zone of the machine (R-DT-02). A test that adds or changes channels starts an app of its own.
+
 Visual regression: Playwright screenshots of every screen and of the theme preview page, in both themes, are compared with stored baselines (R-TH-09). The baselines are in `e2e/tests/__screenshots__/`, one per browser. After an intended visual change, update them with `npm --prefix e2e run test:update-screenshots`, look at the new images, and commit them.
 
 The end-to-end tests start the real app themselves with `./start`, without a window, using the test variables of [ARCHITECTURE.md](ARCHITECTURE.md) section 10.
@@ -130,6 +134,9 @@ Manual:
 - [ ] Fresh install with the one-line installer on a Mac that never had yt-mirror. No security warning blocks the launcher (Q-03).
 - [ ] First run installs the tools and reaches the welcome screen.
 - [ ] Add a real channel. The catalogue matches the channel's Videos tab.
+- [ ] In the add channel dialog, "Choose..." opens the folder dialog of macOS, and the folder that was chosen is the one the channel is saved in (Q-09).
+- [ ] Add a real channel with several thousand videos. The window stays usable while it is listed and while its pictures arrive.
+- [ ] Quit during the first listing of a channel and start again. The listing starts again by itself.
 - [ ] Mirror three videos at different qualities. They play in a media player with chapters, subtitles and cover.
 - [ ] In Finder, sort the channel folder by Date Created and by Date Modified. The order matches YouTube.
 - [ ] Get Info on a file shows the published time as created and modified.

@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Channels (milestone M2): paste a channel link, a handle or a channel ID, see the channel before you add it, and choose its folder, its quality and what to mirror. A link to a video or a playlist is refused with a sentence that says what is accepted. The quality and "what to mirror" are stored now and take effect with the downloads of the next milestones.
+- The catalogue of a channel: every regular video with its thumbnail, title, duration, views and date, read from YouTube in the background. A large channel shows how many videos were found so far, and the app can be used meanwhile.
+- Checks: "Check now" reads only the top of a channel and takes a few seconds. "Full check" in the channel menu reads the whole channel, shows its progress and can be cancelled. New videos are marked as new. A video counts as removed from YouTube only after two full checks in a row without it, and it stays in the list.
+- Approximate dates: the list of a channel gives dates only roughly ("2 years ago"). They are shown as far as they are known ("around 2024", "around Mar 2026") and look like placeholders until the exact date is known.
+- The sidebar with every channel, its status and its count of new videos, "Check all channels now" and the free space of the disk the library is on. The app opens on the channel that was open last.
+- The channel menu, by a right-click and by "More actions": check now, full check, pause and resume, open the folder, open on YouTube, remove. Removing a channel asks first, and its folder stays.
+- Thumbnails and avatars are kept on your Mac, so the list also works offline.
+- When YouTube asks to confirm that you are not a bot, the app pauses what it asks of YouTube by itself, shows one banner that says what you can try, and goes on by itself later or with "Try now".
+- A failed check shows a banner with "Try again" and keeps the list of the last successful check.
 - A native Mac app (milestone M1): `./start` builds a real app bundle on your Mac and starts the app through it. The running app is "yt-mirror" with its own icon in the Dock, the app switcher, the menu bar and Activity Monitor, and no longer "Python". A clone is "yt-mirror (dev)", so it can run next to an installed copy.
 - The app's own menu bar, so far with the app menu and Edit: Undo, Redo, Cut, Copy, Paste and Select All work in text fields.
 - Only one yt-mirror runs per data folder. Starting it again brings the open window to the front.
