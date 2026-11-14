@@ -9,7 +9,7 @@ from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.schema import AlembicSchema
 from ytmirror.ports.database_schema import DatabaseSchema
 
-LATEST = "0003"
+LATEST = "0004"
 
 
 @pytest.fixture(params=["fake", "alembic"])

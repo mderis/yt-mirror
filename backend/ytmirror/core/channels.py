@@ -271,3 +271,22 @@ class Video:
     last_error_code: ErrorCode | None = None
     last_error_at: int | None = None
     attempts: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelTotals:
+    """The numbers of a channel's catalogue (R-CH-35, R-CH-34).
+
+    Attributes:
+        videos: How many videos the catalogue has.
+        synced: How many of them are synced.
+        excluded: How many of them are excluded.
+        size_bytes: The size of the files of the synced videos together.
+        new: How many of them are new (R-CH-15).
+    """
+
+    videos: int = 0
+    synced: int = 0
+    excluded: int = 0
+    size_bytes: int = 0
+    new: int = 0
