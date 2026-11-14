@@ -26,7 +26,7 @@ Status values: `Not started`, `In progress`, `In review` (pull request open), `D
 
 Short facts the next session needs and cannot get from the code or the other docs: an open question that was answered, something that was deliberately postponed, a known problem. Newest first. Remove a note when it no longer matters.
 
-- **M1 starts with Q-24.** The native Mac app requirements (R-NA-01 to R-NA-09, D-044) were added to the docs during the M0 review and are not built. M1 gets the app bundle and the app identity, but only after the Q-24 experiment has shown that pywebview can do it. If it cannot, stop and ask the maintainer. The bundle identifier is fixed (D-047).
+- **Q-24 is answered (M1).** pywebview with AppKit can do the native Mac app from an unsigned bundle. How: ARCHITECTURE section 7.10 and decisions D-048 to D-051. The menu bar of M5 must be built through the same adapter, with public calls only, and the pywebview version stays pinned exactly.
 - **Do not start M7 without the About window mockup.** The maintainer supplies it before M7 (R-NA-05, DESIGN section 7.2). If `docs/design/v1/` has no About mockup when an M7 session starts, stop and ask for it.
 - **Labelling tests (TESTING rule 1, D-046).** A test whose behaviour no requirement states is a spec gap: propose the requirement to the maintainer, do not mark the test `infra` and do not borrow an ID.
 - **`httpx2` is the app's HTTP client (D-041).** It is still a development package. The milestone that makes the first HTTP call (M1) moves it to the app's own packages.

@@ -50,18 +50,18 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 
 ### 2.1 Native Mac app
 
-yt-mirror must feel like a native Mac app. Details: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10 and [DESIGN.md](DESIGN.md) section 7. Whether the window library can do all of this is open question Q-24, which is resolved before any of it is built.
+yt-mirror must feel like a native Mac app. Details: [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10 and [DESIGN.md](DESIGN.md) section 7. That the window library can do all of this from a locally built, unsigned app bundle was shown by experiment in milestone M1 (DECISIONS D-048 to D-051).
 
 | ID | Requirement |
 |---|---|
-| R-NA-01 | **App identity.** The running app appears as "yt-mirror" with the yt-mirror icon in the Dock, the app switcher (Cmd+Tab), the menu bar and Activity Monitor. It must never appear as "Python". |
-| R-NA-02 | **App bundle.** Both the installer and `./start` on a clone create a real macOS app bundle locally, with an `Info.plist`, a bundle identifier, and an icon generated from the single icon source file ([DESIGN.md](DESIGN.md) section 5). The bundle is built on the user's Mac, so it needs no Apple signing. |
+| R-NA-01 | **App identity.** The running app appears as "yt-mirror" with the yt-mirror icon in the Dock, the app switcher (Cmd+Tab), the menu bar and Activity Monitor. It must never appear as "Python". A clone started with `./start` appears as "yt-mirror (dev)" instead, so that it can be told apart from an installed copy. |
+| R-NA-02 | **App bundle.** Both the installer and `./start` on a clone create a real macOS app bundle locally, with an `Info.plist`, a bundle identifier, and an icon generated from the single icon source file ([DESIGN.md](DESIGN.md) section 5). The bundle is built on the user's Mac, so it needs no Apple signing. An installed copy and a clone have different bundle identifiers, so both can run on one Mac. |
 | R-NA-03 | **Menu bar** with the standard macOS items and shortcuts. **yt-mirror:** About yt-mirror, Check for Updates..., Settings... (Cmd+,), Hide, Hide Others, Quit yt-mirror (Cmd+Q). **File:** Add Channel... (Cmd+N), Close Window (Cmd+W). **Edit:** Undo, Redo, Cut, Copy, Paste, Select All, so that text fields behave normally. **View:** List, Grid, Show Downloads, Show Activity, Reload (debug only). **Channel:** Check Now (Cmd+R), Check All Channels, Mirror Everything Missing, Pause Channel, Open Folder, Channel Settings.... **Window:** Minimize, Zoom, and the standard window list. **Help:** yt-mirror Help, Keyboard Shortcuts, Report a Problem.... |
 | R-NA-04 | A menu item is enabled only when it applies. For example the Channel menu needs an open channel, and "Pause Channel" reads "Resume Channel" for a paused one. |
 | R-NA-05 | **About window:** app name, version, license, and links to the website and the repository. |
 | R-NA-06 | Cmd+Q and closing the window both go through the same quit path, including the "quit while downloading" confirmation (R-QU-12). |
 | R-NA-07 | Clicking the Dock icon brings the window to the front. |
-| R-NA-08 | Only one instance can run. Starting the app again focuses the existing window. |
+| R-NA-08 | Only one instance can run per data folder, in every mode. Starting the app again focuses the existing window. A second start with `--browser` ends with a plain message that yt-mirror is already running. |
 | R-NA-09 | The menu bar shortcuts and the in-app shortcuts of `Shortcuts.html` must not conflict. Where they overlap, the menu bar is the source of truth and the in-app list is updated. |
 
 ---

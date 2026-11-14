@@ -47,7 +47,7 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
 | HTTP client | httpx2 | YouTube API, channel feed, GitHub releases, tool downloads. The successor of httpx, also used by the test client (D-041) |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
-| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10 and depend on Q-24 |
+| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10. The version is pinned exactly, because the menu bar relies on how this version behaves (D-049) |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |
 | Frontend | Vue 3, TypeScript (strict), Vite | Single-page app, no server-side rendering |
 | Styling | Tailwind CSS with design tokens from [DESIGN.md](DESIGN.md) | Light and dark themes through CSS variables |
@@ -361,28 +361,34 @@ Flags: `--debug` (verbose logs, developer tools in the window), `--browser` (def
 
 `--dev` runs the Vite development server next to the backend. The window shows the development server, which reloads the interface on every change and passes `/api` calls on to the backend. Its origin is accepted only in this mode. Backend code is not reloaded: restart after changing Python. The theme preview page is at `/theme-preview.html` on the development server.
 
-### 7.10 Native Mac app (planned, not built yet)
+### 7.10 Native Mac app
 
-Requirements R-NA-01 to R-NA-09. Decision D-044. **Everything here is `VERIFY` (Q-24)** until the experiment of that question has shown that pywebview can do it from a locally built, unsigned bundle. Nothing of this section exists in the code of milestone M0, where the app still appears as "Python".
+Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-051. The experiment of open question Q-24 showed in milestone M1 that all of this works from a locally built, unsigned bundle: on macOS 15 (Apple Silicon and Intel) and on macOS 27. The parts are built in M1 (bundle, identity, one instance), M5 (menu bar, quit path), M7 (About window) and M9 (installer).
 
 **App bundle (R-NA-01, R-NA-02).**
-- A small program builds `yt-mirror.app` on the user's Mac: a folder with `Contents/Info.plist` (name `yt-mirror`, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/yt-mirror.icns` generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/yt-mirror`, the program macOS starts.
+- A small program builds the app bundle on the user's Mac: a folder with `Contents/Info.plist` (the name, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/` with the icon (`.icns`) generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/` with the program macOS starts.
 - The same program is used by the installer (bundle in `~/Applications`, milestone M9) and by `./start` on a clone (bundle inside the clone, in the ignored `tools/` folder, milestone M1). `./start` then starts the app through the bundle, so a clone and an installed copy behave alike.
+- **How the process gets the identity of the bundle (D-048).** macOS decides which app a process belongs to from the place of its program file. So the program macOS starts is a small shell script, and it starts the app's Python through a symbolic link that lies inside `Contents/MacOS` and is named after the app. The process then runs inside the bundle, and the Dock, the app switcher, the menu bar and Activity Monitor show the app's name and icon, whether the app was started from Finder or from a terminal. A launcher that starts Python at its own place outside the bundle does not work: started from a terminal, the app shows up as "python".
+- The Python must be the one uv manages. A framework build of Python (Homebrew, python.org) restarts itself as its own `Python.app` and appears as "Python". `./start` allows only the managed Python (`UV_PYTHON_PREFERENCE=only-managed`).
 - The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version or the icon source changed.
-- The bundle identifier is `io.github.mderis.yt-mirror` (D-047). It must never change: macOS ties an app's identity, its saved state and its permissions to it.
-- How the Python process takes over the identity of the bundle (so that the Dock, Cmd+Tab and Activity Monitor show "yt-mirror" and not "Python") is the first thing the Q-24 experiment has to show.
+- The bundle identifier of an installed copy is `io.github.mderis.yt-mirror` (D-047). It must never change: macOS ties an app's identity, its saved state and its permissions to it. A clone started with `./start` is a different app to macOS: its identifier is `io.github.mderis.yt-mirror.dev` and its name is "yt-mirror (dev)", so a clone and an installed copy can run on one Mac and be told apart (D-051).
 
 **Menu bar (R-NA-03, R-NA-04, R-NA-09).**
 - The menus are defined in one module, `app/menus.py`, as data: title, shortcut, the command it sends, and the condition under which it is enabled. This is the source of truth for shortcuts.
+- The menu bar is built with AppKit, not with pywebview's menu API (D-049). pywebview's API knows neither shortcuts nor enabling and disabling, and it always adds menus of its own (About, Services, a View menu). One adapter builds the whole menu bar from the data and puts it in place of pywebview's menus when the window is shown. It uses only public calls of pywebview and AppKit.
+- This relies on one behaviour of pywebview: it sets its own menus once, when the first window is shown, and not again. So the pywebview version is pinned exactly, and a test asserts the structure of the menu bar, so that an update which breaks it fails CI.
+- An item is enabled or disabled while the app runs through the standard AppKit validation: macOS asks before it shows or triggers an item.
+- macOS adds items of its own to menus called File, Edit and Window, as it does in every Mac app: Close All, AutoFill, Start Dictation, Emoji & Symbols, Writing Tools and the window arrangement items, depending on the macOS version. They are not ours and are left alone.
 - A menu item and the matching control in the interface trigger the same command. The menu never contains logic of its own: it tells the frontend to run a command (for example "add channel"), and the frontend does what its own button would do.
 - The frontend tells the backend what is currently possible (is a channel open, is it paused, which view is shown), and the menus are enabled and titled from that.
-- The standard items (Hide, Hide Others, Minimize, Zoom, the window list, and the Edit menu for text fields) are the ones macOS provides. They are not reimplemented.
-- "Reload" exists only with `--debug`. It must not take Cmd+R, which belongs to "Check Now".
+- The standard items (Hide, Hide Others, Minimize, Zoom, the window list, and the Edit menu for text fields) send the standard AppKit actions. They are not reimplemented. Undo, Redo, Cut, Copy, Paste and Select All work in the text fields of the web view this way.
+- "Reload" exists only with `--debug`. It must not take Cmd+R, which belongs to "Check Now". The web view does not reload on Cmd+R by itself.
 
 **Quit, Dock and single instance (R-NA-06 to R-NA-08).**
 - There is one quit path in `app/main.py`. Cmd+Q, "Quit yt-mirror", Cmd+W, "Close Window" and the red window button all end in it. It is the place of the "quit while downloading" confirmation (R-QU-12, section 7.8: the window's close handler can refuse).
-- A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020).
-- A second start finds the running instance, asks it to bring its window to the front, and ends. How the instances find each other (a lock in `data/`, or what macOS offers for bundles) is decided by the Q-24 experiment.
+- Quit ends the process inside AppKit: the code after the window loop does not run. Closing the window does return to that code. The clean stop of the app (stopping the server, the last log line) is therefore tied to AppKit's "will terminate" notification as well, not only to the end of the window loop.
+- A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020). This is what AppKit does by itself, also for a minimized window and for a hidden app.
+- One instance per data folder, in every mode (D-050). A running app holds a lock on a file in `data/`. A second start that finds the lock held never loads the window library, so no second Dock icon appears. Started for a window, it asks macOS to open the app bundle again and ends: macOS then brings the running app's window to the front, exactly as a click on the Dock icon does. Started with `--browser` or without a window, it ends with a plain message. When the bundle is opened from Finder or the Dock while the app runs, macOS itself starts no second copy and brings the running app to the front.
 
 **`--browser` and tests.** With `--browser` and in automated tests there is no app window and no menu bar. Everything a menu item does must therefore also be reachable inside the interface (R-UI-13), which the menu design above guarantees.
 
