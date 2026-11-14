@@ -38,6 +38,16 @@ _STATUS: dict[ErrorCode, int] = {
     ErrorCode.CHECKSUM_MISMATCH: 502,
     ErrorCode.DISK_FULL: 507,
     ErrorCode.TOOL_MISSING: 503,
+    ErrorCode.VIDEO_PRIVATE: 502,
+    ErrorCode.VIDEO_REMOVED: 502,
+    ErrorCode.MEMBERS_ONLY: 502,
+    ErrorCode.AGE_RESTRICTED: 502,
+    ErrorCode.GEO_BLOCKED: 502,
+    ErrorCode.NOT_YET_AVAILABLE: 503,
+    ErrorCode.NO_FORMATS: 502,
+    ErrorCode.FFMPEG_FAILED: 500,
+    ErrorCode.VERIFY_FAILED: 500,
+    ErrorCode.DATES_NOT_APPLIED: 500,
     ErrorCode.INTERNAL: 500,
 }
 
@@ -58,6 +68,16 @@ _MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.CHECKSUM_MISMATCH: "A downloaded file does not match its checksum.",
     ErrorCode.DISK_FULL: "There is no room left on the disk.",
     ErrorCode.TOOL_MISSING: "A tool the app needs is missing or does not work.",
+    ErrorCode.VIDEO_PRIVATE: "The video is private.",
+    ErrorCode.VIDEO_REMOVED: "The video is no longer on YouTube.",
+    ErrorCode.MEMBERS_ONLY: "The video is only for members of the channel.",
+    ErrorCode.AGE_RESTRICTED: "The video needs a signed-in account because of its age restriction.",
+    ErrorCode.GEO_BLOCKED: "The video is not available in this country.",
+    ErrorCode.NOT_YET_AVAILABLE: "The premiere or scheduled video is not public yet.",
+    ErrorCode.NO_FORMATS: "YouTube offered nothing that can be downloaded.",
+    ErrorCode.FFMPEG_FAILED: "Merging the streams or embedding the metadata failed.",
+    ErrorCode.VERIFY_FAILED: "The finished file did not pass its verification.",
+    ErrorCode.DATES_NOT_APPLIED: "The file dates could not be set or did not read back.",
     ErrorCode.INTERNAL: "yt-mirror hit an unexpected problem.",
 }
 

@@ -692,6 +692,16 @@ export interface components {
       | 'CHECKSUM_MISMATCH'
       | 'DISK_FULL'
       | 'TOOL_MISSING'
+      | 'VIDEO_PRIVATE'
+      | 'VIDEO_REMOVED'
+      | 'MEMBERS_ONLY'
+      | 'AGE_RESTRICTED'
+      | 'GEO_BLOCKED'
+      | 'NOT_YET_AVAILABLE'
+      | 'NO_FORMATS'
+      | 'FFMPEG_FAILED'
+      | 'VERIFY_FAILED'
+      | 'DATES_NOT_APPLIED'
       | 'INTERNAL'
     /**
      * ErrorResponse
@@ -817,7 +827,7 @@ export interface components {
     }
     /**
      * Quality
-     * @description The quality a channel asks for (R-QL-01). The rules that use it arrive in milestone M3.
+     * @description The quality a channel asks for (R-QL-01). Its rules are in ``core/quality.py``.
      * @enum {string}
      */
     Quality: 'best' | '2160' | '1440' | '1080' | '720' | '480'
