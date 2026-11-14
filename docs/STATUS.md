@@ -9,7 +9,7 @@ This file is the single source of truth for where the project stands. Read it at
 |---|---|---|---|---|---|
 | M0 | Project skeleton and tooling | Done | `m0-project-skeleton` | [#1](https://github.com/mderis/yt-mirror/pull/1) | 2026-11-13 |
 | M1 | Toolchain and app identity | Done | `m1-toolchain-and-app-identity` | [#2](https://github.com/mderis/yt-mirror/pull/2) | 2026-11-14 |
-| M2 | Channels and catalogue | In review | `m2-channels-and-catalogue` | | |
+| M2 | Channels and catalogue | In review | `m2-channels-and-catalogue` | [#3](https://github.com/mderis/yt-mirror/pull/3) | |
 | M3 | Downloading one video correctly | Not started | | | |
 | M4 | Exact dates and automatic checks | Not started | | | |
 | M5 | Queue | Not started | | | |
