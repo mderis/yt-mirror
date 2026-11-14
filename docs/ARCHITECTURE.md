@@ -75,6 +75,7 @@ yt-mirror/
       core/                  Pure domain code. No I/O, no framework imports.
         models.py            Dataclasses: Channel, Video, Job, Settings, ...
         identity.py          Name and bundle identifier of an installed copy and of a clone (R-NA-01)
+        icon.py              The app icon as data: colours from the tokens, the macOS icon file format
         status.py            Video and channel status machines
         naming.py            Title to file name rules (R-FN-*)
         dates.py             Date handling rules (R-DT-*)
@@ -91,6 +92,7 @@ yt-mirror/
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
         native_app_mac.py    The menu bar, the app's name and the end of the app, through AppKit (section 7.10)
+        image_renderer_mac.py  Draws the icon source file into pixels, through AppKit
         github_releases.py   Release lookup and download
         system_clock.py      The real clock behind the Clock port
         system_probe.py      Read-only facts about the Mac, for the environment report
@@ -356,9 +358,10 @@ Checked with a probe against pywebview 6.2 on macOS in milestone M0 (open questi
 
 ### 7.9 Starting the app (`start`, `app/main.py`)
 
-1. `./start` checks macOS and the processor, puts a pinned uv into `tools/` after verifying its SHA-256, and lets uv install the pinned Python and the locked packages into `tools/`.
+1. `./start` checks macOS and the processor, puts a pinned uv into `tools/` after verifying its SHA-256, and lets uv install the pinned Python and the locked packages into `tools/`. The Python environment holds absolute paths: when it belongs to another place, because the folder was moved or copied, it is removed first and built again (R-IN-05).
 2. In a clone it builds the interface with Node.js when `frontend/dist` is missing or older than the sources (D-037). An installed copy ships the built interface.
-3. `python -m ytmirror.app.main` builds the container, brings the database up to date, starts the HTTP server in a thread on a free port of 127.0.0.1, and opens the window on the main thread with the first URL (section 9). When the window closes, the server stops and the process ends.
+3. For a run with a window, `python -m ytmirror.app.bundle` makes sure the app bundle in `tools/` is current (section 7.10) and prints the path of the script in it that starts the app. `./start` runs that script. With `--browser`, with `--doctor` and without a window there is nothing for the Dock, and `./start` runs Python directly.
+4. `python -m ytmirror.app.main` builds the container, brings the database up to date, starts the HTTP server in a thread on a free port of 127.0.0.1, and opens the window on the main thread with the first URL (section 9). When the window closes, the server stops and the process ends.
 
 Flags: `--debug` (verbose logs, developer tools in the window), `--browser` (default browser instead of the window, quit with Ctrl+C), `--doctor` (print the environment report and exit), `--update` (the updater arrives in milestone M9. Until then it says so and exits with code 2).
 
@@ -371,9 +374,10 @@ Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-051. The experim
 **App bundle (R-NA-01, R-NA-02).**
 - A small program builds the app bundle on the user's Mac: a folder with `Contents/Info.plist` (the name, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/` with the icon (`.icns`) generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/` with the program macOS starts.
 - The same program is used by the installer (bundle in `~/Applications`, milestone M9) and by `./start` on a clone (bundle inside the clone, in the ignored `tools/` folder, milestone M1). `./start` then starts the app through the bundle, so a clone and an installed copy behave alike.
-- **How the process gets the identity of the bundle (D-048).** macOS decides which app a process belongs to from the place of its program file. So the program macOS starts is a small shell script, and it starts the app's Python through a symbolic link that lies inside `Contents/MacOS` and is named after the app. The process then runs inside the bundle, and the Dock, the app switcher, the menu bar and Activity Monitor show the app's name and icon, whether the app was started from Finder or from a terminal. A launcher that starts Python at its own place outside the bundle does not work: started from a terminal, the app shows up as "python".
+- **How the process gets the identity of the bundle (D-048).** macOS decides which app a process belongs to from the place of its program file. So the program macOS starts is a small shell script (`Contents/MacOS/launch`), and it starts the app's Python through a symbolic link that lies inside `Contents/MacOS` and is named after the app. A copy of the environment's `pyvenv.cfg` in `Contents/` and a link `Contents/lib` to the environment's `lib` folder make that link a full stand-in for the environment's own Python: it finds the same packages. The process then runs inside the bundle, and the Dock, the app switcher, the menu bar and Activity Monitor show the app's name and icon, whether the app was started from Finder or from a terminal. A launcher that starts Python at its own place outside the bundle does not work: started from a terminal, the app shows up as "python".
 - The Python must be the one uv manages. A framework build of Python (Homebrew, python.org) restarts itself as its own `Python.app` and appears as "Python". `./start` allows only the managed Python (`UV_PYTHON_PREFERENCE=only-managed`).
-- The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version or the icon source changed.
+- The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version, the icon source, the token file or the Python environment changed. A file inside the bundle records what it was built from. The bundle is built next to its place and swapped in, so an interrupted start leaves no half-built bundle.
+- The icon (`.icns`) is drawn on the user's Mac by AppKit, which reads SVG by itself, so no Node.js is needed. Tests draw the real source file and compare the result with it: the colours of the tokens, the area the source gives the rounded square, transparency outside of it.
 - The bundle identifier of an installed copy is `io.github.mderis.yt-mirror` (D-047). It must never change: macOS ties an app's identity, its saved state and its permissions to it. A clone started with `./start` is a different app to macOS: its identifier is `io.github.mderis.yt-mirror.dev` and its name is "yt-mirror (dev)", so a clone and an installed copy can run on one Mac and be told apart (D-051).
 
 **Menu bar (R-NA-03, R-NA-04, R-NA-09).**

@@ -13,12 +13,14 @@ from ytmirror import __version__
 from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.schema import AlembicSchema
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
+from ytmirror.adapters.image_renderer_mac import MacImageRenderer
 from ytmirror.adapters.native_app_mac import MacNativeApp
 from ytmirror.adapters.system_clock import SystemClock
 from ytmirror.adapters.system_probe import MacSystemProbe
 from ytmirror.app.config import AppPaths, detect_install_kind
 from ytmirror.core.models import AppInfo
 from ytmirror.ports.clock import Clock
+from ytmirror.ports.image_renderer import ImageRenderer
 from ytmirror.ports.native_app import NativeApp
 from ytmirror.ports.system_probe import SystemProbe
 from ytmirror.services.diagnostics import DiagnosticsService
@@ -35,6 +37,7 @@ class Container:
         clock: The source of time.
         probe: Read-only access to facts about the Mac.
         native: The running app as macOS sees it: menu bar, name, quitting.
+        images: Draws the app icon from its source file.
         schema: Brings the database up to date.
         settings: Reads the general settings.
         diagnostics: Health and the environment report.
@@ -44,6 +47,7 @@ class Container:
     clock: Clock
     probe: SystemProbe
     native: NativeApp
+    images: ImageRenderer
     schema: SchemaService
     settings: SettingsService
     diagnostics: DiagnosticsService
@@ -55,6 +59,7 @@ def build_container(
     clock: Clock | None = None,
     probe: SystemProbe | None = None,
     native: NativeApp | None = None,
+    images: ImageRenderer | None = None,
 ) -> Container:
     """Build the adapters and services for one run.
 
@@ -66,6 +71,7 @@ def build_container(
         clock: A clock to use instead of the system clock. For tests.
         probe: A system probe to use instead of the real one. For tests.
         native: A stand-in for the app as macOS sees it. For tests.
+        images: A stand-in for the image renderer. For tests.
 
     Returns:
         The wired container.
@@ -88,6 +94,7 @@ def build_container(
         clock=used_clock,
         probe=used_probe,
         native=native if native is not None else MacNativeApp(),
+        images=images if images is not None else MacImageRenderer(),
         schema=SchemaService(schema, used_clock),
         settings=SettingsService(SqlSettingsRepository(engine, used_clock)),
         diagnostics=DiagnosticsService(info, schema, used_probe),

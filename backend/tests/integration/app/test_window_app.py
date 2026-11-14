@@ -9,20 +9,23 @@ An update of the window library that breaks either one fails here.
 The app writes what macOS shows of it to a file (``YTM_WINDOW_REPORT``).
 """
 
+import contextlib
 import importlib
+import io
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from ytmirror.app.bundle import main as build_the_bundle
 from ytmirror.app.menus import menu_bar
 
 pytestmark = pytest.mark.window
@@ -49,8 +52,8 @@ class RunningApp:
         return [json.loads(line)["event"] for line in lines]
 
 
-@pytest.fixture
-def app(tmp_path: Path) -> Iterator[RunningApp]:
+@contextlib.contextmanager
+def started(command: list[str], tmp_path: Path) -> Generator[RunningApp]:
     """Start the app with a window and wait until the window is up."""
     report = tmp_path / "window.json"
     env = {
@@ -62,7 +65,7 @@ def app(tmp_path: Path) -> Iterator[RunningApp]:
     for name in ("YTM_NO_WINDOW", "YTM_PORT", "YTM_DATA_DIR"):
         env.pop(name, None)
     process = subprocess.Popen(
-        [sys.executable, "-m", "ytmirror.app.main"],
+        command,
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -78,6 +81,22 @@ def app(tmp_path: Path) -> Iterator[RunningApp]:
     finally:
         process.kill()
         process.wait()
+
+
+@pytest.fixture
+def app(tmp_path: Path) -> Iterator[RunningApp]:
+    """The app started with its Python directly, as the tests of M0 did."""
+    with started([sys.executable, "-m", "ytmirror.app.main"], tmp_path) as running:
+        yield running
+
+
+@pytest.fixture
+def bundled_app(tmp_path: Path) -> Iterator[RunningApp]:
+    """The app started through its app bundle, as ``./start`` and Finder start it."""
+    launcher = io.StringIO()
+    assert build_the_bundle([], {"YTM_HOME": str(tmp_path)}, launcher) == 0
+    with started([launcher.getvalue().strip()], tmp_path) as running:
+        yield running
 
 
 def _press_ctrl_c(running: RunningApp) -> None:
@@ -161,3 +180,48 @@ def test_the_real_app_shuts_down_cleanly_however_it_is_asked_to_quit(
     assert exit_code == 0
     assert app.events()[-1] == "app.stopping"
     assert app.events().count("app.stopping") == 1
+
+
+def test_started_through_its_bundle_the_app_is_yt_mirror_to_macos(bundled_app: RunningApp) -> None:
+    """R-NA-01: the running app appears under its own name, never as "Python".
+
+    Checked where macOS keeps the name: what the app itself is told, the
+    process list that Activity Monitor shows, and the record of Launch
+    Services that the Dock and the app switcher use.
+    """
+    pid = str(bundled_app.process.pid)
+    in_process_list = subprocess.run(
+        ["/bin/ps", "-c", "-o", "comm=", "-p", pid], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    record_id = subprocess.run(
+        ["/usr/bin/lsappinfo", "find", f"pid={pid}"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    record = subprocess.run(
+        ["/usr/bin/lsappinfo", "info", "-only", "name,bundleid", record_id],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    assert bundled_app.shown["identity"] == {
+        "name": CLONE_NAME,
+        "bundle_identifier": "io.github.mderis.yt-mirror.dev",
+    }
+    assert in_process_list == CLONE_NAME
+    assert f'"{CLONE_NAME}"' in record
+    assert '"io.github.mderis.yt-mirror.dev"' in record
+    assert "python" not in (in_process_list + record).lower()
+
+
+def test_started_through_its_bundle_the_app_has_its_menu_bar_and_stops_cleanly(
+    bundled_app: RunningApp,
+) -> None:
+    """R-NA-03, R-PL-13: what holds for the plain start holds inside the bundle too."""
+    titles = [menu["title"] for menu in bundled_app.shown["menu_bar"]]
+
+    _quit_like_the_dock_does(bundled_app)
+    exit_code = bundled_app.process.wait(timeout=QUIT_TIMEOUT_S)
+
+    assert titles == [CLONE_NAME, "Edit"]
+    assert exit_code == 0
+    assert bundled_app.events()[-1] == "app.stopping"
