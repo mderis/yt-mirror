@@ -356,4 +356,6 @@ An element whose target a later milestone builds is not shown before that milest
 | A channel was opened because it existed already (R-CH-04) | An info banner on its page: "<channel> was added before. Here it is.", until it is dismissed. `States.html` has no toast for this |
 | The list of a channel could not be loaded | An error banner in the list area with "Try again" |
 | YouTube's "not a bot" check (R-ER-05) | One banner above the page with "Try now", in the place of the "Cannot reach YouTube" banner of `States.html` |
+| A channel waits for YouTube (R-FB-01) | Sidebar: "Waiting for YouTube" with a clock icon, and the time of the next attempt as tooltip. Header of a first listing: "Waiting for YouTube. The next attempt is at 06:57." |
+| A failed check is tried again (R-CH-25, D-076) | The status says "Checking for new videos...". The banner of the failed check stays, says "Trying again now." and its "Try again" is busy. A failed first listing that is tried again shows the progress page of a first listing |
 | The window is not connected to its server | The brand icon, "Connecting to yt-mirror", or the error with "Try again" (R-ER-04) |

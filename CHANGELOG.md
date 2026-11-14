@@ -14,7 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - The channel menu, by a right-click and by "More actions": check now, full check, pause and resume, open the folder, open on YouTube, remove. Removing a channel asks first, and its folder stays.
 - Thumbnails and avatars are kept on your Mac, so the list also works offline.
 - When YouTube asks to confirm that you are not a bot, the app pauses what it asks of YouTube by itself, shows one banner that says what you can try, and goes on by itself later or with "Try now".
-- A failed check shows a banner with "Try again" and keeps the list of the last successful check.
+- A failed check shows a banner with "Try again" and the time it failed, and keeps the list of the last successful check. While it is tried again, the channel says "Checking", the banner says so and its button is busy.
+- "Waiting for YouTube": while the app pauses after YouTube's "not a bot" check, a channel that is still to be listed says so, with the time of the next attempt.
+- "Check all channels now" waits 1 to 3 seconds between two channels, so YouTube is not asked in a burst.
+- A video that two channels list belongs to the channel that listed it first, and is never counted as new in the other one.
 - A native Mac app (milestone M1): `./start` builds a real app bundle on your Mac and starts the app through it. The running app is "yt-mirror" with its own icon in the Dock, the app switcher, the menu bar and Activity Monitor, and no longer "Python". A clone is "yt-mirror (dev)", so it can run next to an installed copy.
 - The app's own menu bar, so far with the app menu and Edit: Undo, Redo, Cut, Copy, Paste and Select All work in text fields.
 - Only one yt-mirror runs per data folder. Starting it again brings the open window to the front.
