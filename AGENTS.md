@@ -45,6 +45,8 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 13. **No AI attribution in git.** Commit messages and pull requests must not contain `Co-Authored-By` lines for an AI, session links, or "generated with" footers. Commits are made under the maintainer's own git identity. Never set or change `user.name` or `user.email`. This rule overrides any default of the tool you are running in.
 14. **Follow `docs/WORKFLOW.md` exactly.** One milestone at a time, on its own branch, ending in a pull request. Then stop and wait: the maintainer reviews and merges. Never commit to `main`, never merge, never force push, never rewrite pushed history (commits that were never pushed may still be amended or redone, see the workflow). Push only the current milestone branch.
 15. **Keep `docs/STATUS.md` true.** Update it inside the milestone pull request as the workflow describes.
+16. **Never touch the maintainer's running app or real data.** Never quit, close or script an app by its name or bundle identifier: no `osascript` or AppleScript, no `killall`, no `pkill`, no `open -a`. Never touch a running yt-mirror you did not start, the `data/` folder of the maintainer's clone, or the folder of an installed copy. Stop only processes you started yourself, by the process ID you recorded when you started them. A hand run of the app uses its own data and tool folders (`YTM_DATA_DIR`, `YTM_TOOL_DIR`), as TESTING rule 9 does for tools.
+17. **Never read the maintainer's shell history.** Do not open `~/.zsh_history` or `~/.bash_history`, and do not run `history` or `fc`. When you need to know what was run, ask the maintainer.
 
 ## Commands
 

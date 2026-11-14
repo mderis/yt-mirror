@@ -1,13 +1,16 @@
 """Tests of the channel endpoints."""
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from structlog.testing import capture_logs
 
 from tests.api.conftest import Api
-from tests.fixtures.world import SMALL_ID, World
+from tests.fixtures.world import SMALL_ID, World, log_lines
 from ytmirror.core.channels import CheckKind
 from ytmirror.core.errors import ErrorCode
 
@@ -324,28 +327,52 @@ def test_the_avatar_of_a_channel_is_served_from_the_cache(client: TestClient, wo
 # --- checks
 
 
-def test_check_now_starts_a_quick_check(client: TestClient, world: World) -> None:
-    """R-CH-23: "Check now" answers at once with the channel being checked."""
+def checks_started(logs: Sequence[Mapping[str, Any]]) -> list[tuple[Any, Any, Any]]:
+    """Return the channel, the kind and the first-listing flag of every check that started."""
+    return [
+        (line["channel_id"], line["kind"], line["first_listing"])
+        for line in log_lines(logs, "check.started")
+    ]
+
+
+@pytest.mark.parametrize("body", [None, {"kind": "quick"}], ids=["no kind", "quick"])
+def test_check_now_runs_a_quick_check_and_leaves_the_full_check_time(
+    client: TestClient, world: World, body: dict[str, str] | None
+) -> None:
+    """R-CH-23, R-CH-12: "Check now" answers at once and runs a quick check, never a full one."""
     added(client, world)
+    full_check_before = world.repository.channel(SMALL_ID).last_full_check_at  # pyright: ignore[reportOptionalMemberAccess]
+    world.clock.advance(60)
 
-    answer = client.post(f"/api/channels/{SMALL_ID}/check")
-    world.work()
+    with capture_logs() as logs:
+        answer = client.post(f"/api/channels/{SMALL_ID}/check", json=body)
+        world.work()
 
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
     assert answer.status_code == 202
     assert answer.json()["status"] == "checking"
-    assert world.fixture.listings_started[SMALL_ID] == 2
-    assert world.repository.channel(SMALL_ID).last_full_check_at == world.now()  # pyright: ignore[reportOptionalMemberAccess]
+    assert checks_started(logs) == [(SMALL_ID, "quick", False)]
+    assert channel.last_check_at == world.now()
+    assert channel.last_full_check_at == full_check_before
+    assert full_check_before != world.now()
 
 
-def test_a_full_check_is_asked_for_by_its_kind(client: TestClient, world: World) -> None:
-    """R-CH-23: "Full check" starts a full check of the channel."""
+def test_full_check_runs_a_full_check_and_moves_the_full_check_time(
+    client: TestClient, world: World
+) -> None:
+    """R-CH-23, R-CH-12: "Full check" runs a full check of the channel."""
     added(client, world)
     world.clock.advance(60)
 
-    client.post(f"/api/channels/{SMALL_ID}/check", json={"kind": CheckKind.FULL.value})
-    world.work()
+    with capture_logs() as logs:
+        client.post(f"/api/channels/{SMALL_ID}/check", json={"kind": CheckKind.FULL.value})
+        world.work()
 
-    assert world.repository.channel(SMALL_ID).last_full_check_at == world.now()  # pyright: ignore[reportOptionalMemberAccess]
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    assert checks_started(logs) == [(SMALL_ID, "full", False)]
+    assert channel.last_check_at == channel.last_full_check_at == world.now()
 
 
 def test_a_full_check_that_waits_can_be_cancelled(client: TestClient, world: World) -> None:
@@ -383,6 +410,23 @@ def test_check_all_channels(client: TestClient, world: World) -> None:
     assert answer.status_code == 202
     assert answer.json() == {"channels": 1}
     assert world.fixture.listings_started[SMALL_ID] == 2
+
+
+def test_check_all_channels_runs_quick_checks_only(client: TestClient, world: World) -> None:
+    """R-CH-23, R-CH-12: "Check all channels now" runs a quick check, never a full one."""
+    added(client, world)
+    full_check_before = world.repository.channel(SMALL_ID).last_full_check_at  # pyright: ignore[reportOptionalMemberAccess]
+    world.clock.advance(60)
+
+    with capture_logs() as logs:
+        client.post("/api/channels/check-all")
+        world.work()
+
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    assert checks_started(logs) == [(SMALL_ID, "quick", False)]
+    assert channel.last_check_at == world.now()
+    assert channel.last_full_check_at == full_check_before != world.now()
 
 
 @pytest.mark.parametrize(

@@ -541,6 +541,33 @@ def test_check_all_checks_every_channel_that_is_not_paused_one_after_another(
     assert world.fixture.listings_started[BIG_ID] == started[BIG_ID]
 
 
+def test_check_all_runs_a_quick_check_of_every_channel_and_no_full_one(tmp_path: Path) -> None:
+    """R-CH-23, R-CH-12: "Check all channels now" runs quick checks, never a full check."""
+    world = World(tmp_path, channel_file(), BIG)
+    for handle in ("@small", "@big"):
+        world.add_and_list(handle)
+    full_checks_before = {
+        channel_id: world.repository.channel(channel_id).last_full_check_at  # pyright: ignore[reportOptionalMemberAccess]
+        for channel_id in (SMALL_ID, BIG_ID)
+    }
+    world.clock.advance(60)
+
+    with capture_logs() as logs:
+        world.catalogue.request_check_all()
+        world.work()
+
+    started = [
+        (line["channel_id"], line["kind"], line["first_listing"])
+        for line in log_lines(logs, "check.started")
+    ]
+    assert sorted(started) == sorted([(SMALL_ID, "quick", False), (BIG_ID, "quick", False)])
+    for channel_id, full_check_before in full_checks_before.items():
+        channel = world.repository.channel(channel_id)
+        assert channel is not None
+        assert channel.last_check_at == world.now()
+        assert channel.last_full_check_at == full_check_before != world.now()
+
+
 def test_a_check_that_already_waits_is_not_put_in_line_twice(tmp_path: Path) -> None:
     """R-CH-24: asking twice for the same channel runs one check."""
     world = World(tmp_path, BIG)

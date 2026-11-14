@@ -72,6 +72,8 @@ Recommended GitHub settings for `main` (the maintainer sets these once, in the r
 - Never commit to `main` directly. Never merge. Never force push. Never rewrite pushed history.
 - "History" here means commits that have been pushed. Commits that were never pushed are still yours: amending them, or resetting and redoing them, is allowed, for example to put a forgotten file into the commit it belongs to. Once a commit is pushed, it is fixed with a new commit.
 - Pushing is allowed only for the current milestone branch.
+- Agents never quit, close or script an app by its name or bundle identifier, never touch the maintainer's running app or real data folder, and stop only processes they started, by process ID (`AGENTS.md` rule 16).
+- Agents never read the maintainer's shell history. They ask (`AGENTS.md` rule 17).
 - No AI attribution in commits or pull requests (`AGENTS.md`).
 - If the spec is wrong or unclear, stop and ask. Do not guess and do not change the spec without the maintainer.
 - Small fixes outside a milestone follow the same path on a branch named `fix-<short-name>`, without changing the milestone table.

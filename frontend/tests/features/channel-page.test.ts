@@ -527,3 +527,63 @@ describe('the channel page', () => {
     expect(document.querySelector('[data-banner="list-failed"]')).toBeNull()
   })
 })
+
+describe('the kind of check each control asks for', () => {
+  /** The bodies of every check request of the sample channel, in order. */
+  function checkBodies(app: Awaited<ReturnType<typeof openApp>>): unknown[] {
+    return app.fetchMock.mock.calls
+      .filter(
+        ([path, init]) => path === `/api/channels/${CHANNEL_ID}/check` && init?.method === 'POST',
+      )
+      .map(([, init]) => JSON.parse(String(init?.body ?? 'null')))
+  }
+
+  /** Open the app on the sample channel, with every check answered. */
+  async function openWithChecks() {
+    const app = await openApp({
+      channels: [channel()],
+      videos: [video(1)],
+      answers: {
+        [CHECK]: jsonResponse(channel({ status: 'checking' })),
+        'POST /api/channels/check-all': jsonResponse({ channels: 1 }),
+      },
+    })
+    await page()
+    return app
+  }
+
+  it('R-CH-23: the "Check now" button of the header asks for a quick check', async () => {
+    const app = await openWithChecks()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Check now' }))
+
+    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'quick' }]))
+  })
+
+  it('R-CH-23: "Check now" in the channel menu asks for a quick check', async () => {
+    const app = await openWithChecks()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Check now' }))
+
+    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'quick' }]))
+  })
+
+  it('R-CH-23: only "Full check" in the channel menu asks for a full check', async () => {
+    const app = await openWithChecks()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Full check' }))
+
+    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'full' }]))
+  })
+
+  it('R-CH-23: "Check all channels now" asks for the check of all channels and no check of one', async () => {
+    const app = await openWithChecks()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Check all channels now' }))
+
+    await waitFor(() => expect(app.requests()).toContain('POST /api/channels/check-all'))
+    expect(checkBodies(app)).toEqual([])
+  })
+})
