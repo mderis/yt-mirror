@@ -382,7 +382,7 @@ Design: `States.html` (the complete catalogue).
 | R-FB-01 | Channel statuses: Checking, Up to date, N new videos, Mirroring X of Y, Paused, Could not check, Matching files X of Y, Exact dates X of Y. One status line is shown at a time, by priority: error, mirroring, checking, matching, exact dates, new, paused, up to date. |
 | R-FB-02 | Video statuses: Not downloaded, Queued, Downloading (percent in the status chip. Quality, speed and time left next to it), Processing, Synced (with height), File missing, Failed (with reason), Excluded. Markers that combine with a status: New, Removed from YouTube, Approximate date, Lower than target quality. |
 | R-FB-03 | Status changes appear in the UI within one second without a manual refresh. |
-| R-FB-04 | Banners for app-wide conditions: tool missing, yt-dlp update available, app update available, queue paused by the disk guard, cannot reach YouTube, library folder not found, and success confirmations. Each banner has the action that fixes it. |
+| R-FB-04 | Banners for app-wide conditions: tool missing, yt-dlp update available, app update available, queue paused by the disk guard, cannot reach YouTube, YouTube asks to confirm that you are not a bot (R-ER-05), library folder not found, and success confirmations. Each banner has the action that fixes it. |
 | R-FB-05 | Toasts confirm user actions and offer Undo where possible. |
 | R-FB-06 | macOS notifications (each can be turned off): new videos found, a batch of downloads finished (one per batch), a failure or queue pause. |
 
@@ -394,6 +394,7 @@ Design: `States.html` (the complete catalogue).
 | R-ER-02 | Every error has a stable code (see [LOGGING.md](LOGGING.md)). User text is written per code, never taken from a raw exception. Every error response of the local API carries its code and its technical details. |
 | R-ER-03 | No error may leave a video, channel or the queue in a state the user cannot get out of from the UI. |
 | R-ER-04 | When the window cannot reach its own server it says so and offers a retry, under an error code of its own. |
+| R-ER-05 | YouTube sometimes refuses requests with a check of its own: "Sign in to confirm you're not a bot". The check depends on the network address the requests come from, not on the channel or the video. The app treats it as one condition of the whole app, under an error code of its own. It stops everything it would ask of YouTube by itself and tries again later, with a pause that grows (15 minutes, doubling up to 6 hours). It shows one banner, never one error per video. The banner says in plain words what the check is, that it depends on the network address in use, and what the user can try: another network or another VPN location, waiting, and the optional API key for exact dates (R-DT-12). An action the user starts by hand is still tried, and as soon as YouTube answers again the pause ends and the banner goes. |
 
 ### 12.3 Activity log
 Design: `Activity.html`.

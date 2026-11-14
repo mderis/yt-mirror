@@ -76,6 +76,7 @@ Defined once in `backend/ytmirror/core/errors.py`. Each code has: a name, whethe
 |---|---|---|
 | `NETWORK_UNREACHABLE` | transient | No connection to YouTube |
 | `RATE_LIMITED` | transient | YouTube asked us to slow down |
+| `BOT_CHECK` | transient | YouTube refused the request with its check "Sign in to confirm you're not a bot". It depends on the network address the request comes from. The whole app pauses what it asks of YouTube by itself (R-ER-05). Never shown once per video |
 | `YOUTUBE_CHANGED` | transient | Extraction failed in a way that suggests yt-dlp is outdated. Triggers the yt-dlp update offer (R-UP-06) |
 | `VIDEO_PRIVATE` | permanent | |
 | `VIDEO_REMOVED` | permanent | |

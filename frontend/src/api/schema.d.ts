@@ -120,6 +120,7 @@ export interface components {
       | 'LOCAL_SERVER_UNREACHABLE'
       | 'NETWORK_UNREACHABLE'
       | 'RATE_LIMITED'
+      | 'BOT_CHECK'
       | 'YOUTUBE_CHANGED'
       | 'CHANNEL_NOT_FOUND'
       | 'INVALID_CHANNEL_INPUT'

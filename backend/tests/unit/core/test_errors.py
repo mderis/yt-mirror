@@ -25,6 +25,7 @@ def test_the_kinds_of_the_codes_match_the_logging_document() -> None:
         ErrorCode.LOCAL_SERVER_UNREACHABLE,
         ErrorCode.NETWORK_UNREACHABLE,
         ErrorCode.RATE_LIMITED,
+        ErrorCode.BOT_CHECK,
         ErrorCode.YOUTUBE_CHANGED,
         ErrorCode.FOLDER_UNAVAILABLE,
         ErrorCode.CHECKSUM_MISMATCH,

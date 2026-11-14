@@ -47,12 +47,13 @@ Requirements: R-IN-03, R-IN-04, R-IN-05, R-NA-01, R-NA-02, R-NA-07, R-NA-08. Res
 Acceptance: deleting any tool and restarting leads to a guided repair, never a crash. Moving the folder and starting works. The running app is called "yt-mirror" everywhere macOS names it, with its icon, and a second `./start` focuses the first window.
 
 ## M2. Channels and catalogue
-Requirements: R-CH-01 to R-CH-16, R-CH-23, R-CH-24, R-CH-27, R-CH-30 to R-CH-35 (without folder move), R-UI-01, R-UI-02, R-PL-08, R-QA-08. Partly: R-CH-25 (the banner, "Try again", and that the catalogue is kept), R-CH-28 (the rule: no such work exists yet), R-DT-01 ("last seen"), R-DT-02 and R-DT-04 (how a date is stored and shown), R-DT-13 (the waiting state), R-FB-01 and R-FB-03 (the channel statuses that can occur: checking, up to date, new videos, paused, could not check), R-FI-01 (the library default and the channel folder), R-QA-02 (the first live test), R-UI-14 (the screens of this milestone). Resolve: Q-12, Q-09.
+Requirements: R-CH-01 to R-CH-16, R-CH-23, R-CH-24, R-CH-27, R-CH-30 to R-CH-35 (without folder move), R-UI-01, R-UI-02, R-PL-08, R-QA-08. Partly: R-CH-25 (the banner, "Try again", and that the catalogue is kept), R-CH-28 (the rule: no such work exists yet), R-DT-01 ("last seen"), R-DT-02 and R-DT-04 (how a date is stored and shown), R-DT-13 (the waiting state), R-FB-01 and R-FB-03 (the channel statuses that can occur: checking, up to date, new videos, paused, could not check), R-FI-01 (the library default and the channel folder), R-QA-02 (the first live test), R-UI-14 (the screens of this milestone), R-ER-05 and R-FB-04 (the "not a bot" check for what this milestone asks of YouTube: lookups, listings and pictures, with its banner). Resolve: Q-12, Q-09.
 
 - Core models and the status machine. Repositories. The YouTube gateway port, its fake, and the real listing through yt-dlp.
 - Channel lookup with the optional video count (D-061), add, remove (the folder stays: no file can exist yet), pause.
 - First listing in the background with progress. Quick check and full check as manual actions, with new, updated and removed detection (D-059). A full check shows progress and can be cancelled.
 - Thumbnail cache.
+- The pause of the whole app and the one banner when YouTube answers with its "not a bot" check (R-ER-05, D-071). Later milestones put their own work under the same pause: downloads (M3, M5), the exact date fetch and the scheduler (M4).
 - Frontend: shell, sidebar, welcome, add channel dialogs, list view with read-only rows, the channel menu, loading, error and empty states. The events of this milestone on the event stream of M1, with snapshot refetch.
 - Approximate dates with their precision, and the waiting state of a date (D-060).
 - Brand icon: the favicon, made from the icon source by the backend (D-064). The logo in the sidebar is drawn from the same source file.
