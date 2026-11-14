@@ -25,10 +25,10 @@ def test_the_wired_services_work_together_on_a_real_database(paths: AppPaths) ->
 
     version = container.schema.bring_up_to_date()
 
-    assert version == "0002"
+    assert version == "0003"
     assert paths.database_file.is_file()
     assert container.settings.current() == Settings()
-    assert container.diagnostics.health().schema_version == "0002"
+    assert container.diagnostics.health().schema_version == "0003"
     assert container.diagnostics.health().version == __version__
 
 

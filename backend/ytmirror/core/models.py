@@ -6,9 +6,12 @@ milestones that implement them. This module must not read or write anything.
 Tests: backend/tests/unit/core/test_models.py
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+
+from ytmirror.core.errors import ErrorCode
 
 APP_NAME = "yt-mirror"
 """The name of the app everywhere a user reads it (R-NA-01)."""
@@ -201,3 +204,130 @@ class ShownMenu:
 
     title: str
     items: tuple[ShownMenuItem, ...]
+
+
+class ToolName(StrEnum):
+    """The tools the app needs, in the order the first-run screen shows them (R-IN-03)."""
+
+    PYTHON = "python"
+    YTDLP = "ytdlp"
+    FFMPEG = "ffmpeg"
+    DENO = "deno"
+
+
+class ToolStatus(StrEnum):
+    """What is known about a tool right now (R-IN-03, R-IN-04)."""
+
+    OK = "ok"
+    MISSING = "missing"
+    BROKEN = "broken"
+    INSTALLING = "installing"
+    FAILED = "failed"
+
+
+class ArchiveKind(StrEnum):
+    """The archive formats a tool download can have."""
+
+    ZIP = "zip"
+    TAR_XZ = "tar.xz"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolFile:
+    """One file to download for a tool.
+
+    Attributes:
+        url: The pinned address.
+        sha256: The checksum the file must have, in lower-case hexadecimal.
+        kind: The archive format.
+        programs: The programs to take from the top level of the archive.
+    """
+
+    url: str
+    sha256: str
+    kind: ArchiveKind
+    programs: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSource:
+    """One place a tool can be downloaded from (R-IN-03, docs/DECISIONS.md D-053).
+
+    Attributes:
+        name: The name of the source, shown by ``--doctor`` and in the logs.
+        version: The pinned version of the tool at this source.
+        files: The files to download, per processor architecture.
+    """
+
+    name: str
+    version: str
+    files: Mapping[str, tuple[ToolFile, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSpec:
+    """What the tool manifest says about one downloadable tool.
+
+    Attributes:
+        name: The tool.
+        programs: Every program the tool consists of.
+        check: The arguments with which each program proves that it works.
+        sources: The sources in the order they are tried.
+    """
+
+    name: ToolName
+    programs: tuple[str, ...]
+    check: tuple[str, ...]
+    sources: tuple[ToolSource, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class InstalledTool:
+    """What was written down when a tool was installed.
+
+    Attributes:
+        source: The name of the source it came from.
+        version: The version that source pins.
+    """
+
+    source: str
+    version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolReport:
+    """The state of one tool, as the first-run screen and ``--doctor`` show it.
+
+    Attributes:
+        name: The tool.
+        status: What is known about it right now.
+        version: Its version, when it is installed.
+        source: The source it was installed from, for a downloaded tool.
+        progress: How much of its download is done, from 0 to 1, while it installs.
+        error_code: Why the last installation failed, when it did.
+        installable: Whether the app can install it by itself. Python and yt-dlp
+            come with ``./start`` and cannot be installed from inside the app.
+    """
+
+    name: ToolName
+    status: ToolStatus
+    version: str | None = None
+    source: str | None = None
+    progress: float | None = None
+    error_code: ErrorCode | None = None
+    installable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolUpdated:
+    """Event: the state of a tool changed, or its download made progress (R-FB-03).
+
+    Attributes:
+        report: The new state of the tool.
+    """
+
+    report: ToolReport
+
+
+type AppEvent = ToolUpdated
+"""Every event the services publish for the interface. Each milestone adds its own."""

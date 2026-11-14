@@ -25,6 +25,7 @@ def probe(request: pytest.FixtureRequest, existing_file: Path) -> SystemProbe:
         return FakeSystemProbe(
             commands={sys.executable: "Python 3.14.10"},
             modules={"json"},
+            packages={"yt-dlp": "2026.10.26"},
             files={existing_file},
         )
     return MacSystemProbe()
@@ -54,6 +55,15 @@ def test_modules_are_found_or_not(probe: SystemProbe) -> None:
     """R-LG-05: the report can tell whether a Python package is installed."""
     assert probe.module_available("json")
     assert not probe.module_available("no_such_module_for_yt_mirror")
+
+
+def test_an_installed_package_reports_its_version(probe: SystemProbe) -> None:
+    """R-IN-04: the app can tell whether yt-dlp is installed, and in which version."""
+    version = probe.package_version("yt-dlp")
+
+    assert version is not None
+    assert version.split(".")[0].isdigit()
+    assert probe.package_version("no-such-package-for-yt-mirror") is None
 
 
 def test_files_are_found_or_not(probe: SystemProbe, existing_file: Path) -> None:
