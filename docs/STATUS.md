@@ -7,8 +7,8 @@ This file is the single source of truth for where the project stands. Read it at
 
 | Milestone | Title | Status | Branch | Pull request | Merged |
 |---|---|---|---|---|---|
-| M0 | Project skeleton and tooling | In review | `m0-project-skeleton` | [#1](https://github.com/mderis/yt-mirror/pull/1) | |
-| M1 | Toolchain and app identity | Not started | | | |
+| M0 | Project skeleton and tooling | Done | `m0-project-skeleton` | [#1](https://github.com/mderis/yt-mirror/pull/1) | 2026-11-13 |
+| M1 | Toolchain and app identity | In progress | `m1-toolchain-and-app-identity` | | |
 | M2 | Channels and catalogue | Not started | | | |
 | M3 | Downloading one video correctly | Not started | | | |
 | M4 | Dates everywhere | Not started | | | |
