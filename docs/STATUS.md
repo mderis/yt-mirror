@@ -36,7 +36,6 @@ Short facts the next session needs and cannot get from the code or the other doc
 - **The first ffmpeg source builds no new Intel releases from January 2027 (D-053).** Intel stays at the pinned version.
 - **Do not start M7 without the About window mockup.** The maintainer supplies it before M7 (R-NA-05, DESIGN section 7.2). If `docs/design/v1/` has no About mockup when an M7 session starts, stop and ask for it.
 - **Labelling tests (TESTING rule 1, D-046).** A test whose behaviour no requirement states is a spec gap: propose the requirement to the maintainer, do not mark the test `infra` and do not borrow an ID.
-- **Minimum macOS (D-035) is provisional.** M1 must confirm that the ffmpeg build it chooses (Q-05) and Deno run on macOS 15, then remove this note.
 - **Q-09 is narrowed, not closed.** The folder picker opens, but nobody has checked by hand that it returns the chosen folder. Needed by M2.
 - **Stubs that later milestones replace:** `./start --update` only says it is not available (M9). `./start --doctor` checks what exists so far, the tools included, not the network (M7). `YTM_FAKE_YOUTUBE` is not read yet (M2).
 - **The requirements coverage script only reports.** CI switches to `--strict` in M11.

@@ -249,3 +249,8 @@ Format: **Decision**, **Why**, **Consequences**.
 **Why:** The first-run screen must show the progress of a download (R-IN-03), and the architecture sends progress over the event stream. Asking the server again and again was not an option the architecture describes. The first-run screen lists yt-dlp and checks it at every start (R-IN-04), so the package has to be there.
 **Consequences:** Milestone M2 adds its events to an existing stream instead of building it. Updating yt-dlp on its own stays in M9 (D-017). The activity log does not exist before M7: until then the source of a downloaded tool is in the debug log (`tool.install.finished`), in `./start --doctor` and in the answer of `/api/tools`. M7 adds the activity entry that R-IN-03 names.
 
+### D-058 macOS 15 is confirmed as the minimum
+**Decision:** The minimum of macOS 15 (D-035) is no longer provisional.
+**Why:** D-035 left one thing open: whether the chosen ffmpeg build and Deno run on macOS 15. The smoke test of a fresh clone now downloads the pinned ffmpeg and ffprobe from both sources and the pinned Deno, and the app runs the self-check of each. It passed on macOS 15 on Apple Silicon and on Intel, on macOS 26, and on the maintainer's Mac with macOS 27.
+**Consequences:** This check runs in CI on every pull request, so a newly pinned tool that does not run on the oldest supported macOS is found before it is merged. It downloads about 170 MB per runner.
+
