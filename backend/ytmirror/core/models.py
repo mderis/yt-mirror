@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from ytmirror.core.channels import ChannelUpdated, TaskProgressed, YouTubePauseChanged
 from ytmirror.core.errors import ErrorCode
 
 APP_NAME = "yt-mirror"
@@ -336,5 +337,5 @@ class ToolUpdated:
     report: ToolReport
 
 
-type AppEvent = ToolUpdated
+type AppEvent = ToolUpdated | ChannelUpdated | TaskProgressed | YouTubePauseChanged
 """Every event the services publish for the interface. Each milestone adds its own."""

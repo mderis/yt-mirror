@@ -258,6 +258,9 @@ def run_app(
         remove_old_logs(paths.logs_dir, container.clock.now().date())
         container.schema.bring_up_to_date()
         container.toolchain.verify()
+        # The checks and the pictures are background work: it starts with the app.
+        container.catalogue.start()
+        container.thumbnails.start()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
             set_verbose(True)
         server = _start_server(options, paths, container, token)
@@ -288,6 +291,8 @@ def run_app(
 def _stop(server: BackgroundServer, container: Container) -> None:
     """The shutdown work of the app. Later milestones add their workers here."""
     _log.info("app.stopping", msg="yt-mirror is stopping")
+    # A check that is running ends at the next video and stores nothing (R-PL-13).
+    container.catalogue.stop()
     # Ends the event streams of open windows first, or the server would wait for them.
     container.events.close()
     server.stop()

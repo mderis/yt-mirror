@@ -96,6 +96,7 @@ yt-mirror/
         notifier_mac.py      macOS notifications
         folder_picker_webview.py  The folder dialog of the app window (section 7.8)
         tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
+        image_cache.py       The pictures of the catalogue as files in data/cache/
         native_app_mac.py    The menu bar, the app's name and the end of the app, through AppKit (section 7.10)
         image_renderer_mac.py  Draws the icon source file into pixels, through AppKit
         github_releases.py   Release lookup and download
@@ -105,6 +106,10 @@ yt-mirror/
       services/
         channels.py          Add, remove, pause, settings, folder moves
         catalogue.py         Checks, new and removed detection, renames
+        channel_views.py     Channels as the interface shows them, and what runs on them
+        youtube_access.py    Every question to YouTube, and the pause of the whole app (R-ER-05)
+        thumbnails.py        The cache of thumbnails and avatars (R-CH-16)
+        state.py             The snapshot of the app for the window (section 7.6)
         dates.py             Exact date fetching and date repair
         queue.py             Queue state, ordering, parallelism, pause, limits
         downloader.py        One job from start to synced

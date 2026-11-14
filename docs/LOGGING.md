@@ -55,8 +55,10 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 |---|---|
 | app | `app.started`, `app.stopping`, `app.crashed`, `app.config` (paths, versions, install kind), `app.external_log` (a line written by a library such as uvicorn or Alembic. Its text is in `msg`, its logger name in `component`) |
 | toolchain | `tool.check`, `tool.install.started`, `tool.install.finished`, `tool.install.failed`, `ytdlp.update.finished` |
-| channel | `channel.added`, `channel.removed`, `channel.paused`, `channel.resumed`, `channel.folder_moved` |
-| check | `check.started`, `check.finished` (counts: new, updated, gone, renamed, missing), `check.failed`, `check.retry_scheduled` |
+| channel | `channel.added`, `channel.removed`, `channel.paused`, `channel.resumed`, `channel.folder_moved`, `channel.count_unavailable` (the preview of a channel has no video count, with the reason, R-CH-03), `channel.count_differs` (the first listing found another number of videos than the preview showed) |
+| check | `check.started`, `check.finished` (counts: new, updated, gone, returned, read, renamed, missing), `check.failed`, `check.cancelled`, `check.retry_scheduled`. Each carries `kind`: `quick` or `full` (R-CH-12) |
+| youtube | `youtube.paused` (YouTube answered with its "not a bot" check, with `request`: the kind of request that was refused, and the length of the pause, R-ER-05), `youtube.resumed` |
+| image | `image.cache.finished` (pictures of a channel were cached: stored, failed, left, R-CH-16) |
 | dates | `dates.fetch.batch`, `dates.fetch.backoff`, `dates.applied`, `dates.repaired`, `dates.verify_failed` |
 | queue | `queue.enqueued`, `queue.paused`, `queue.resumed`, `queue.reordered`, `queue.disk_guard` |
 | download | `download.started`, `download.stage`, `download.retry`, `download.finished`, `download.failed`, `download.cancelled` |

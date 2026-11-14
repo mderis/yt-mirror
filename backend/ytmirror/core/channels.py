@@ -290,3 +290,95 @@ class ChannelTotals:
     excluded: int = 0
     size_bytes: int = 0
     new: int = 0
+
+
+class TaskKind(StrEnum):
+    """Long work on a channel whose progress is shown (R-CH-11, R-CH-27)."""
+
+    FIRST_LISTING = "first_listing"
+    FULL_CHECK = "full_check"
+
+
+@dataclass(frozen=True, slots=True)
+class TaskProgress:
+    """How far a first listing or a full check has come.
+
+    Attributes:
+        channel_id: The channel.
+        kind: What is running.
+        done: How many videos were read so far.
+        total: About how many there are: the number the catalogue had, or None when
+            it had none.
+    """
+
+    channel_id: str
+    kind: TaskKind
+    done: int
+    total: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelView:
+    """A channel as the interface shows it: with its status and its numbers.
+
+    Attributes:
+        channel: The stored channel.
+        status: Its one status line (R-FB-01).
+        totals: The numbers of its catalogue (R-CH-35).
+        progress: The first listing or full check that is running, or None.
+        folder: The channel folder as an absolute path.
+        pictures: A number that grows whenever more pictures of this channel are cached.
+    """
+
+    channel: Channel
+    status: ChannelStatus
+    totals: ChannelTotals
+    progress: TaskProgress | None
+    folder: str
+    pictures: int
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelUpdated:
+    """Event: something about a channel changed, or one of its checks ended (R-FB-03).
+
+    Attributes:
+        view: The channel as it is now.
+    """
+
+    view: ChannelView
+
+
+@dataclass(frozen=True, slots=True)
+class TaskProgressed:
+    """Event: a first listing or a full check read more videos (R-CH-11, R-CH-27).
+
+    Attributes:
+        progress: How far it has come.
+    """
+
+    progress: TaskProgress
+
+
+@dataclass(frozen=True, slots=True)
+class YouTubePause:
+    """The pause of everything the app asks of YouTube by itself (R-ER-05).
+
+    Attributes:
+        code: Why the app pauses.
+        until: When it tries again, as seconds since the epoch.
+    """
+
+    code: ErrorCode
+    until: int
+
+
+@dataclass(frozen=True, slots=True)
+class YouTubePauseChanged:
+    """Event: the pause began, got longer or ended (R-ER-05, R-FB-04).
+
+    Attributes:
+        pause: The pause, or None when there is none any more.
+    """
+
+    pause: YouTubePause | None
