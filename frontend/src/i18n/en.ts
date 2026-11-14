@@ -19,6 +19,68 @@ export const en = {
       doing: 'yt-mirror does not try again by itself here.',
       action: 'Try again. If that does not help, quit yt-mirror and start it again.',
     },
+    network_unreachable: {
+      happened: 'A download could not be reached.',
+      doing: 'yt-mirror tried every source it knows and installed nothing.',
+      action: 'Check your internet connection, then try again.',
+    },
+    checksum_mismatch: {
+      happened: 'A downloaded file was not the file yt-mirror expected.',
+      doing: 'yt-mirror threw the file away and did not use it.',
+      action: 'Try again. If it happens again, report a problem.',
+    },
+    disk_full: {
+      happened: 'There is no room left on the disk.',
+      doing: 'yt-mirror installed nothing.',
+      action: 'Free some space, then try again.',
+    },
+    tool_missing: {
+      happened: 'A tool that yt-mirror needs is missing or does not work.',
+      doing: 'yt-mirror can download it again.',
+      action: 'Choose "Install now".',
+    },
+  },
+  /** The first-run screen (R-IN-03, design: Setup.html). */
+  setup: {
+    title: 'Getting yt-mirror ready',
+    intro:
+      'yt-mirror needs a few tools. They are downloaded into the app folder, so nothing is installed or changed anywhere else on your Mac.',
+    tools: {
+      python: { name: 'Python environment', about: 'Installed in the app folder' },
+      ytdlp: { name: 'yt-dlp', about: 'The YouTube download engine' },
+      ffmpeg: {
+        name: 'ffmpeg',
+        about: 'Merges video and audio, embeds metadata and subtitles',
+      },
+      deno: { name: 'Deno', about: 'Needed by yt-dlp to read YouTube pages' },
+    },
+    installed: 'Installed',
+    waiting: 'Waiting',
+    downloading: 'Downloading {percent}%',
+    downloadingUnknown: 'Downloading',
+    progressLabel: 'Progress of {tool}',
+    failed: 'Download failed: {reason}',
+    /** The short reason of a failed installation, by the text key of its error code. */
+    failure: {
+      network_unreachable: 'no internet connection',
+      checksum_mismatch: 'the downloaded file was damaged',
+      disk_full: 'the disk is full',
+      tool_missing: 'the tool does not work on this Mac',
+      internal: 'an unexpected problem',
+    },
+    cannotInstall: 'Missing. Quit yt-mirror and open it again to repair it.',
+    retry: 'Try again',
+    size: 'About 120 MB in total. This only happens once.',
+    continue: 'Continue',
+  },
+  /** The banner of a tool that is missing or broken after the first run (R-IN-04). */
+  toolBanner: {
+    missing: '{tool} is missing. yt-mirror cannot mirror videos without it.',
+    broken: '{tool} no longer works. yt-mirror cannot mirror videos without it.',
+    cannotInstall: '{tool} is missing. Quit yt-mirror and open it again to repair it.',
+    installing: 'Installing {tool}',
+    failed: '{tool} could not be installed: {reason}.',
+    install: 'Install now',
   },
   placeholder: {
     running: 'yt-mirror is running.',
@@ -46,8 +108,13 @@ export const en = {
     },
     brand: 'Brand icon',
     components: 'Shared components',
-    noComponents:
-      'No shared components exist yet. Each one is added here in the commit that creates it.',
+    sampleButton: 'Mirror',
+    sampleSecondaryButton: 'Try again',
+    sampleDisabledButton: 'Continue',
+    sampleProgress: 'Sample progress',
+    sampleBanner: 'ffmpeg is missing. yt-mirror cannot mirror videos without it.',
+    sampleErrorBanner: 'Deno could not be installed: no internet connection.',
+    sampleBannerAction: 'Install now',
     reducedMotion: 'With reduced motion: {value}',
     hoverMe: 'Hover to see the duration',
     spaceSteps: 'Multiples: 1, 2, 4, 8',

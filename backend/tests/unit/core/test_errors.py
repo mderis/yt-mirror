@@ -20,7 +20,14 @@ def test_the_kinds_of_the_codes_match_the_logging_document() -> None:
     """R-ER-02: the kinds match the table in docs/LOGGING.md section 4."""
     transient = {code for code in ErrorCode if code.kind is ErrorKind.TRANSIENT}
 
-    assert transient == {ErrorCode.INTERNAL, ErrorCode.LOCAL_SERVER_UNREACHABLE}
+    assert transient == {
+        ErrorCode.INTERNAL,
+        ErrorCode.LOCAL_SERVER_UNREACHABLE,
+        ErrorCode.NETWORK_UNREACHABLE,
+        ErrorCode.CHECKSUM_MISMATCH,
+        ErrorCode.DISK_FULL,
+        ErrorCode.TOOL_MISSING,
+    }
 
 
 def test_app_error_carries_its_code_and_a_copy_of_the_details() -> None:

@@ -15,7 +15,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from ytmirror.api.app import ApiConfig, create_app
+from ytmirror.api.app import ApiConfig, ApiServices, create_app
 from ytmirror.api.security import SecurityPolicy
 from ytmirror.app.config import resolve_paths
 from ytmirror.app.container import build_container
@@ -32,7 +32,10 @@ def openapi_json() -> str:
         security=SecurityPolicy.for_local_server(_SCHEMA_ONLY_TOKEN, _SCHEMA_ONLY_PORT),
         frontend_dir=paths.frontend_dir,
     )
-    app = create_app(config, container.diagnostics, container.clock)
+    services = ApiServices(
+        diagnostics=container.diagnostics, toolchain=container.toolchain, events=container.events
+    )
+    app = create_app(config, services, container.clock)
     return json.dumps(app.openapi(), indent=2, sort_keys=True) + "\n"
 
 

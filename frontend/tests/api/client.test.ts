@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import { api, ApiError } from '@/api/client'
 
-import { errorBody, HEALTH, jsonResponse, mockFetch } from '../helpers/fetch'
+import { fakeEventStream } from '../helpers/events'
+import {
+  allToolsReady,
+  errorBody,
+  HEALTH,
+  jsonResponse,
+  mockApi,
+  mockFetch,
+  tool,
+} from '../helpers/fetch'
 
 describe('the API client', () => {
   it('R-PL-10: calls the API on the same origin and sends the session cookie', async () => {
@@ -42,5 +51,52 @@ describe('the API client', () => {
 
     expect(error).toBeInstanceOf(ApiError)
     expect(error).toMatchObject({ status: 0, code: 'LOCAL_SERVER_UNREACHABLE', details: {} })
+  })
+
+  it('R-IN-03: asks for the tools and for the installation of one', async () => {
+    const fetchMock = mockApi({
+      'GET /api/tools': jsonResponse(allToolsReady()),
+      'POST /api/tools/deno/install': jsonResponse(tool('deno', 'installing', { progress: 0 })),
+    })
+
+    const tools = await api.getTools()
+    const started = await api.installTool('deno')
+
+    expect(tools.tools).toHaveLength(4)
+    expect(started.status).toBe('installing')
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/tools/deno/install', {
+      credentials: 'same-origin',
+      method: 'POST',
+    })
+  })
+
+  it('R-FB-03: the event stream hands over the data of a tool event', () => {
+    const newestStream = fakeEventStream()
+    const seen: unknown[] = []
+
+    api.openEvents({ toolUpdated: (event) => seen.push(event), reconnected: () => undefined })
+    newestStream().toolUpdated(tool('deno', 'ok'), false)
+
+    expect(newestStream().url).toBe('/api/events')
+    expect(seen).toEqual([{ tool: tool('deno', 'ok'), setup_required: false }])
+  })
+
+  it('R-FB-03: the stream says when it is connected again after a break, not at first', () => {
+    const newestStream = fakeEventStream()
+    let reconnects = 0
+    const close = api.openEvents({
+      toolUpdated: () => undefined,
+      reconnected: () => (reconnects += 1),
+    })
+
+    newestStream().emit('open')
+    newestStream().emit('error')
+    newestStream().emit('error')
+    newestStream().emit('open')
+    newestStream().emit('open')
+    close()
+
+    expect(reconnects).toBe(1)
+    expect(newestStream().closed).toBe(true)
   })
 })

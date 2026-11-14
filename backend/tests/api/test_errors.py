@@ -19,6 +19,10 @@ EXPECTED_STATUS = {
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.INVALID_REQUEST: 422,
     ErrorCode.LOCAL_SERVER_UNREACHABLE: 503,
+    ErrorCode.NETWORK_UNREACHABLE: 502,
+    ErrorCode.CHECKSUM_MISMATCH: 502,
+    ErrorCode.DISK_FULL: 507,
+    ErrorCode.TOOL_MISSING: 503,
     ErrorCode.INTERNAL: 500,
 }
 

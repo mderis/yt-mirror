@@ -3,12 +3,19 @@ import { describe, expect, it } from 'vitest'
 
 import App from '@/App.vue'
 
-import { errorBody, HEALTH, jsonResponse, mockFetch } from '../helpers/fetch'
+import {
+  allToolsReady,
+  errorBody,
+  HEALTH,
+  healthyApi,
+  jsonResponse,
+  mockFetch,
+} from '../helpers/fetch'
 import { renderWithApp } from '../helpers/render'
 
 describe('the placeholder page', () => {
   it('infra: shows the app name, that it is running, and the version from the backend', async () => {
-    mockFetch(() => jsonResponse(HEALTH))
+    healthyApi()
 
     renderWithApp(App)
 
@@ -20,7 +27,9 @@ describe('the placeholder page', () => {
 
   it('infra: shows a status while the answer of the backend is pending', async () => {
     let answer: (response: Response) => void = () => {}
-    mockFetch(() => new Promise<Response>((resolve) => (answer = resolve)))
+    healthyApi({
+      'GET /api/health': () => new Promise<Response>((resolve) => (answer = resolve)),
+    })
 
     renderWithApp(App)
 
@@ -56,13 +65,18 @@ describe('the placeholder page', () => {
 
   it('infra: offers a real button that tries again and recovers', async () => {
     const answers = [jsonResponse(errorBody('INTERNAL'), 500), jsonResponse(HEALTH)]
-    const fetchMock = mockFetch(() => answers.shift() as Response)
+    const fetchMock = healthyApi({ 'GET /api/health': () => answers.shift() as Response })
     renderWithApp(App)
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
 
     await waitFor(() => expect(screen.getByText('Version 1.2.3')).toBeTruthy())
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/health',
+      '/api/health',
+      '/api/tools',
+    ])
     expect(screen.queryByRole('alert')).toBeNull()
+    expect(allToolsReady().setup_required).toBe(false)
   })
 })

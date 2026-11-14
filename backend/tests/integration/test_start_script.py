@@ -66,6 +66,39 @@ def install_fake_uv(clone: Path) -> Path:
     return uv
 
 
+def install_fake_app(clone: Path) -> Path:
+    """Make the clone startable without real tools, and record what the launcher starts.
+
+    A stand-in for uv, a built interface that is newer than its sources, and
+    a stand-in for Python that writes every call to ``python-calls.txt``.
+    Asked for the app bundle, it answers with the path of a stand-in launcher
+    that writes its own calls to ``bundle-calls.txt``.
+    """
+    install_fake_uv(clone)
+    (clone / "frontend" / "dist").mkdir()
+    (clone / "frontend" / "dist" / "index.html").write_text("built", encoding="utf-8")
+    launcher = clone / "tools" / "fake.app" / "launch"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text(f'#!/bin/sh\necho "$@" >> "{clone}/bundle-calls.txt"\n', encoding="utf-8")
+    launcher.chmod(0o755)
+    python = clone / "tools" / "venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text(
+        "#!/bin/sh\n"
+        f'echo "$@" >> "{clone}/python-calls.txt"\n'
+        f'if [ "$2" = "ytmirror.app.bundle" ]; then echo "{launcher}"; fi\n',
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    return python
+
+
+def calls(clone: Path, name: str) -> list[str]:
+    """Return the recorded calls of a stand-in, or nothing when it was never run."""
+    record = clone / f"{name}-calls.txt"
+    return record.read_text(encoding="utf-8").splitlines() if record.exists() else []
+
+
 def test_help_explains_every_flag_and_needs_nothing_installed(clone: Path) -> None:
     """R-IN-06: ``./start --help`` lists the flags of the implementation plan."""
     result = run_start(clone, "--help")
@@ -211,6 +244,78 @@ def test_doctor_does_not_build_the_interface(clone: Path) -> None:
 
     assert "Node.js is needed" not in result.stderr
     assert "Building the interface" not in result.stderr
+
+
+def test_the_app_is_started_through_its_app_bundle(clone: Path) -> None:
+    """R-NA-02: ``./start`` on a clone builds the app bundle and starts the app through it."""
+    install_fake_app(clone)
+
+    result = run_start(clone, "--debug")
+
+    assert result.returncode == 0, result.stderr
+    assert calls(clone, "python") == ["-m ytmirror.app.bundle"]
+    assert calls(clone, "bundle") == ["--debug"]
+
+
+def test_a_bundle_that_cannot_be_built_is_reported(clone: Path) -> None:
+    """R-NA-02: a failed bundle build ends with a plain message, not with a Python window."""
+    python = install_fake_app(clone)
+    python.write_text("#!/bin/sh\nexit 3\n", encoding="utf-8")
+
+    result = run_start(clone)
+
+    assert result.returncode == 1
+    assert "the app bundle could not be built" in result.stderr
+    assert calls(clone, "bundle") == []
+
+
+@pytest.mark.parametrize(
+    ("flags", "env"),
+    [(["--browser"], {}), ([], {"YTM_NO_WINDOW": "1"})],
+    ids=["browser", "no window"],
+)
+def test_without_a_window_the_app_is_started_without_the_bundle(
+    clone: Path, flags: list[str], env: dict[str, str]
+) -> None:
+    """R-PL-02: with ``--browser`` there is no app window, so nothing is built for the Dock."""
+    install_fake_app(clone)
+
+    result = run_start(clone, *flags, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert calls(clone, "python") == [" ".join(["-m", "ytmirror.app.main", *flags])]
+    assert calls(clone, "bundle") == []
+
+
+def test_a_python_environment_from_another_place_is_built_again(clone: Path) -> None:
+    """R-IN-05: after the folder was moved or copied, the environment is rebuilt."""
+    install_fake_app(clone)
+    environment = clone / "tools" / "venv"
+    (environment / "pyvenv.cfg").write_text(
+        "home = /somewhere/else/tools/python/cpython-3.14/bin\nversion_info = 3.14\n",
+        encoding="utf-8",
+    )
+
+    result = run_start(clone)
+
+    assert "This folder was moved or copied." in result.stderr
+    assert not environment.exists()
+    assert calls(clone, "python") == []
+    assert (clone / "uv-calls.txt").read_text(encoding="utf-8").startswith("sync --project ")
+
+
+def test_a_python_environment_of_this_folder_is_kept(clone: Path) -> None:
+    """R-IN-05: an environment that belongs to this folder is not rebuilt at every start."""
+    install_fake_app(clone)
+    tools = os.path.realpath(clone / "tools")
+    config = clone / "tools" / "venv" / "pyvenv.cfg"
+    config.write_text(f"home = {tools}/python/cpython-3.14/bin\n", encoding="utf-8")
+
+    result = run_start(clone)
+
+    assert "This folder was moved or copied." not in result.stderr
+    assert config.exists()
+    assert calls(clone, "bundle") == [""]
 
 
 def test_ci_uses_the_same_uv_version_as_the_launcher() -> None:

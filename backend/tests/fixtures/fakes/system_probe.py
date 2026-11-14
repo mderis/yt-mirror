@@ -13,6 +13,7 @@ class FakeSystemProbe:
     python: str = "3.14.10"
     commands: dict[str, str] = field(default_factory=dict[str, str])
     modules: set[str] = field(default_factory=set[str])
+    packages: dict[str, str] = field(default_factory=dict[str, str])
     files: set[Path] = field(default_factory=set[Path])
     writable: bool = True
     free: int = 50 * 1024**3
@@ -36,6 +37,10 @@ class FakeSystemProbe:
     def module_available(self, name: str) -> bool:
         """Return whether the module was configured as present."""
         return name in self.modules
+
+    def package_version(self, name: str) -> str | None:
+        """Return the version of a configured package, or None."""
+        return self.packages.get(name)
 
     def file_exists(self, path: Path) -> bool:
         """Return whether the file was configured as present."""

@@ -23,6 +23,8 @@ _log: FilteringBoundLogger = structlog.get_logger(__name__)
 LOCAL_ADDRESS = "127.0.0.1"
 _START_TIMEOUT_S = 15.0
 _STOP_TIMEOUT_S = 10.0
+_GRACE_S = 3
+"""How long a stopping server waits for requests that are still being answered."""
 _POLL_S = 0.01
 
 
@@ -56,7 +58,13 @@ class BackgroundServer:
         """
         self._sock = sock
         self._port: int = sock.getsockname()[1]
-        config = uvicorn.Config(app, log_config=None, access_log=False, lifespan="off")
+        config = uvicorn.Config(
+            app,
+            log_config=None,
+            access_log=False,
+            lifespan="off",
+            timeout_graceful_shutdown=_GRACE_S,
+        )
         self._server = uvicorn.Server(config)
         self._thread = threading.Thread(target=self._run, name="http-server", daemon=True)
         self._error: BaseException | None = None

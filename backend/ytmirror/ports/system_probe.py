@@ -43,6 +43,17 @@ class SystemProbe(Protocol):
         """
         ...
 
+    def package_version(self, name: str) -> str | None:
+        """Return the version of an installed Python package.
+
+        Args:
+            name: The name of the package as it is installed, for example ``yt-dlp``.
+
+        Returns:
+            The version, or None when the package is not installed.
+        """
+        ...
+
     def file_exists(self, path: Path) -> bool:
         """Return whether a regular file exists at the path.
 

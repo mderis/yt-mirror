@@ -47,7 +47,7 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
 | HTTP client | httpx2 | YouTube API, channel feed, GitHub releases, tool downloads. The successor of httpx, also used by the test client (D-041) |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
-| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10 and depend on Q-24 |
+| Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10. The version is pinned exactly, because the menu bar relies on how this version behaves (D-049) |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |
 | Frontend | Vue 3, TypeScript (strict), Vite | Single-page app, no server-side rendering |
 | Styling | Tailwind CSS with design tokens from [DESIGN.md](DESIGN.md) | Light and dark themes through CSS variables |
@@ -74,6 +74,8 @@ yt-mirror/
     ytmirror/
       core/                  Pure domain code. No I/O, no framework imports.
         models.py            Dataclasses: Channel, Video, Job, Settings, ...
+        identity.py          Name and bundle identifier of an installed copy and of a clone (R-NA-01)
+        icon.py              The app icon as data: colours from the tokens, the macOS icon file format
         status.py            Video and channel status machines
         naming.py            Title to file name rules (R-FN-*)
         dates.py             Date handling rules (R-DT-*)
@@ -89,6 +91,9 @@ yt-mirror/
         media_tools.py       ffmpeg and ffprobe operations
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
+        tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
+        native_app_mac.py    The menu bar, the app's name and the end of the app, through AppKit (section 7.10)
+        image_renderer_mac.py  Draws the icon source file into pixels, through AppKit
         github_releases.py   Release lookup and download
         system_clock.py      The real clock behind the Clock port
         system_probe.py      Read-only facts about the Mac, for the environment report
@@ -125,9 +130,11 @@ yt-mirror/
         logging_setup.py     The debug log pipeline
         server.py            The HTTP server thread
         window.py            The app window
+        signals.py           Turns Ctrl+C and a termination signal into a request to quit
+        single_instance.py   The lock of the data folder, and what a second start does (section 7.10)
         doctor.py            Text of the environment report
         bundle.py            Builds the macOS app bundle (section 7.10, from milestone M1)
-        menus.py             The menu bar, defined as data (section 7.10, from milestone M5)
+        menus.py             The menu bar, defined as data (section 7.10). The app menu and Edit from M1, the rest from M5
       tools/                 Developer programs: python -m ytmirror.tools.<name>
       migrations/            Alembic environment and versions
     tests/
@@ -249,7 +256,7 @@ User-facing log (R-AC-*): `id`, `at`, `kind`, `channel_id`, `video_id`, `job_id`
 `key`, `value` (JSON). Keys are defined in one typed model in `core/models.py`.
 
 ### app_meta
-`key`, `value`. Holds `schema_version` (also tracked by Alembic), `app_version`, `install_kind` (`clone`, `archive`), `last_update_check_at`.
+`key`, `value`. Holds facts the app keeps about itself. From milestone M1: `setup_completed_at`, the moment every tool was in order for the first time (R-IN-03). Later milestones add `app_version`, `install_kind` (`clone`, `archive`) and `last_update_check_at`. The schema version is tracked by Alembic.
 
 ### date_fetch_queue
 `video_id`, `attempts`, `next_try_at`. Work list for R-DT-05 and R-DT-06 so it survives restarts.
@@ -331,8 +338,8 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 - Other operations in this adapter: move to Trash (so deletes are recoverable), reveal in Finder, open with the default app, free space of a volume, atomic rename, cross-volume move with copy, verify and delete.
 
 ### 7.6 Events and live updates
-- Services publish typed events to an in-process bus (`services/events.py`): `channel.updated`, `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, `task.progress`.
-- `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced.
+- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated`, `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, `task.progress`.
+- `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced. When the app stops, the bus is closed first: every stream ends, so an open window never holds up the shutdown.
 - On connect and after a reconnect the frontend refetches snapshots (`/api/state`, the open channel's videos), so a missed event can never leave the UI stale.
 
 ### 7.7 Concurrency
@@ -353,36 +360,67 @@ Checked with a probe against pywebview 6.2 on macOS in milestone M0 (open questi
 
 ### 7.9 Starting the app (`start`, `app/main.py`)
 
-1. `./start` checks macOS and the processor, puts a pinned uv into `tools/` after verifying its SHA-256, and lets uv install the pinned Python and the locked packages into `tools/`.
+1. `./start` checks macOS and the processor, puts a pinned uv into `tools/` after verifying its SHA-256, and lets uv install the pinned Python and the locked packages into `tools/`. The Python environment holds absolute paths: when it belongs to another place, because the folder was moved or copied, it is removed first and built again (R-IN-05).
 2. In a clone it builds the interface with Node.js when `frontend/dist` is missing or older than the sources (D-037). An installed copy ships the built interface.
-3. `python -m ytmirror.app.main` builds the container, brings the database up to date, starts the HTTP server in a thread on a free port of 127.0.0.1, and opens the window on the main thread with the first URL (section 9). When the window closes, the server stops and the process ends.
+3. For a run with a window, `python -m ytmirror.app.bundle` makes sure the app bundle in `tools/` is current (section 7.10) and prints the path of the script in it that starts the app. `./start` runs that script. With `--browser`, with `--doctor` and without a window there is nothing for the Dock, and `./start` runs Python directly.
+4. `python -m ytmirror.app.main` builds the container, brings the database up to date, starts the HTTP server in a thread on a free port of 127.0.0.1, and opens the window on the main thread with the first URL (section 9). When the window closes, the server stops and the process ends.
 
 Flags: `--debug` (verbose logs, developer tools in the window), `--browser` (default browser instead of the window, quit with Ctrl+C), `--doctor` (print the environment report and exit), `--update` (the updater arrives in milestone M9. Until then it says so and exits with code 2).
 
 `--dev` runs the Vite development server next to the backend. The window shows the development server, which reloads the interface on every change and passes `/api` calls on to the backend. Its origin is accepted only in this mode. Backend code is not reloaded: restart after changing Python. The theme preview page is at `/theme-preview.html` on the development server.
 
-### 7.10 Native Mac app (planned, not built yet)
+### 7.10 Native Mac app
 
-Requirements R-NA-01 to R-NA-09. Decision D-044. **Everything here is `VERIFY` (Q-24)** until the experiment of that question has shown that pywebview can do it from a locally built, unsigned bundle. Nothing of this section exists in the code of milestone M0, where the app still appears as "Python".
+Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-052. The experiment of open question Q-24 showed in milestone M1 that all of this works from a locally built, unsigned bundle: on macOS 15 (Apple Silicon and Intel) and on macOS 27. The parts are built in M1 (bundle, identity, one instance, the app menu and the Edit menu, the shutdown work of the quit path), M5 (the full menu bar, the decision part of the quit path with the quit confirmation), M7 (About window) and M9 (installer).
 
 **App bundle (R-NA-01, R-NA-02).**
-- A small program builds `yt-mirror.app` on the user's Mac: a folder with `Contents/Info.plist` (name `yt-mirror`, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/yt-mirror.icns` generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/yt-mirror`, the program macOS starts.
+- A small program builds the app bundle on the user's Mac: a folder with `Contents/Info.plist` (the name, the bundle identifier, the version from `pyproject.toml`), `Contents/Resources/` with the icon (`.icns`) generated from `frontend/src/design/brand/icon.svg` by the icon build script, and `Contents/MacOS/` with the program macOS starts.
 - The same program is used by the installer (bundle in `~/Applications`, milestone M9) and by `./start` on a clone (bundle inside the clone, in the ignored `tools/` folder, milestone M1). `./start` then starts the app through the bundle, so a clone and an installed copy behave alike.
-- The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version or the icon source changed.
-- The bundle identifier is `io.github.mderis.yt-mirror` (D-047). It must never change: macOS ties an app's identity, its saved state and its permissions to it.
-- How the Python process takes over the identity of the bundle (so that the Dock, Cmd+Tab and Activity Monitor show "yt-mirror" and not "Python") is the first thing the Q-24 experiment has to show.
+- **How the process gets the identity of the bundle (D-048).** macOS decides which app a process belongs to from the place of its program file. So the program macOS starts is a small shell script (`Contents/MacOS/launch`), and it starts the app's Python through a symbolic link that lies inside `Contents/MacOS` and is named after the app. A copy of the environment's `pyvenv.cfg` in `Contents/` and a link `Contents/lib` to the environment's `lib` folder make that link a full stand-in for the environment's own Python: it finds the same packages. The process then runs inside the bundle, and the Dock, the app switcher, the menu bar and Activity Monitor show the app's name and icon, whether the app was started from Finder or from a terminal. A launcher that starts Python at its own place outside the bundle does not work: started from a terminal, the app shows up as "python".
+- The Python must be the one uv manages. A framework build of Python (Homebrew, python.org) restarts itself as its own `Python.app` and appears as "Python". `./start` allows only the managed Python (`UV_PYTHON_PREFERENCE=only-managed`).
+- The bundle contains absolute paths, so it is rebuilt when the app folder moved (R-IN-05) and when the app version, the icon source, the token file or the Python environment changed. A file inside the bundle records what it was built from. The bundle is built next to its place and swapped in, so an interrupted start leaves no half-built bundle.
+- The icon (`.icns`) is drawn on the user's Mac by AppKit, which reads SVG by itself, so no Node.js is needed. Tests draw the real source file and compare the result with it: the colours of the tokens, the area the source gives the rounded square, transparency outside of it.
+- The bundle identifier of an installed copy is `io.github.mderis.yt-mirror` (D-047). It must never change: macOS ties an app's identity, its saved state and its permissions to it. A clone started with `./start` is a different app to macOS: its identifier is `io.github.mderis.yt-mirror.dev` and its name is "yt-mirror (dev)", so a clone and an installed copy can run on one Mac and be told apart (D-051).
 
 **Menu bar (R-NA-03, R-NA-04, R-NA-09).**
 - The menus are defined in one module, `app/menus.py`, as data: title, shortcut, the command it sends, and the condition under which it is enabled. This is the source of truth for shortcuts.
+- The menu bar is built with AppKit, not with pywebview's menu API (D-049). pywebview's API knows neither shortcuts nor enabling and disabling, and it always adds menus of its own (About, Services, a View menu). One adapter builds the whole menu bar from the data and puts it in place of pywebview's menus when the window is shown. It uses only public calls of pywebview and AppKit.
+- This relies on one behaviour of pywebview: it sets its own menus once, when the first window is shown, and not again. So the pywebview version is pinned exactly, and a test asserts the structure of the menu bar, so that an update which breaks it fails CI.
+- An item is enabled or disabled while the app runs through the standard AppKit validation: macOS asks before it shows or triggers an item.
+- macOS adds items of its own to menus called File, Edit and Window, as it does in every Mac app: Close All, AutoFill, Start Dictation, Emoji & Symbols, Writing Tools and the window arrangement items, depending on the macOS version. They are not ours and are left alone.
 - A menu item and the matching control in the interface trigger the same command. The menu never contains logic of its own: it tells the frontend to run a command (for example "add channel"), and the frontend does what its own button would do.
 - The frontend tells the backend what is currently possible (is a channel open, is it paused, which view is shown), and the menus are enabled and titled from that.
-- The standard items (Hide, Hide Others, Minimize, Zoom, the window list, and the Edit menu for text fields) are the ones macOS provides. They are not reimplemented.
-- "Reload" exists only with `--debug`. It must not take Cmd+R, which belongs to "Check Now".
+- The standard items (Hide, Hide Others, Minimize, Zoom, the window list, and the Edit menu for text fields) send the standard AppKit actions. They are not reimplemented. Undo, Redo, Cut, Copy, Paste and Select All work in the text fields of the web view this way.
+- "Reload" exists only with `--debug`. It must not take Cmd+R, which belongs to "Check Now". The web view does not reload on Cmd+R by itself.
 
 **Quit, Dock and single instance (R-NA-06 to R-NA-08).**
-- There is one quit path in `app/main.py`. Cmd+Q, "Quit yt-mirror", Cmd+W, "Close Window" and the red window button all end in it. It is the place of the "quit while downloading" confirmation (R-QU-12, section 7.8: the window's close handler can refuse).
-- A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020).
-- A second start finds the running instance, asks it to bring its window to the front, and ends. How the instances find each other (a lock in `data/`, or what macOS offers for bundles) is decided by the Q-24 experiment.
+- There is one quit path (D-052). It has two parts: a decision (may the app quit now?) and the shutdown work (stop the workers and the server, close the database, write the last log line), which runs exactly once, whoever asks.
+- **What exists when.** The two parts are built in different milestones:
+
+  | Part | Built in | State after M1 |
+  |---|---|---|
+  | The shutdown work, for every way of quitting (R-PL-13) | M1 | Exists, with tests that use a real window |
+  | Ctrl+C and a termination signal become a quit request | M1 | Exists |
+  | The decision: a handler of the `closing` event that can hold a quit | M5 | Does not exist. Nothing in the app listens to the `closing` event |
+  | The "quit while downloading" confirmation (R-NA-06, R-QU-12) | M5 | Does not exist. No quit is ever held, and the app never asks |
+  | Reading the reason of a quit request, so that a logout, a restart and a shutdown are never held for a question | M5 | Does not exist, and is not needed before a quit can be held: every quit gets the same shutdown work |
+
+  The M5 rows were shown to work in the experiment of Q-24 with throwaway code that is not in the repository. They are a design, not code.
+
+*The shutdown work (built in M1):*
+- It is reached from two ends. Closing the window (the red window button, Cmd+W) ends the window loop, and the code after it runs. Quit ends the process inside AppKit, and the code after the window loop never runs: there the work hangs on AppKit's "will terminate" notification. This covers Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown.
+- Ctrl+C and a termination signal are turned into the same AppKit quit request: Python's `signal` module with a wake-up pipe, because a Python signal handler does not run while AppKit's loop waits.
+- At a logout, a restart or a shutdown the app does its shutdown work at once, which holds macOS for that moment, and then lets it go on. This work must stay short: macOS does not wait for an app without limit.
+- A handler of an AppKit notification must return nothing. A returned value makes pyobjc raise inside AppKit, and AppKit then drops the event it was handling. In the experiment a logout hung on exactly this.
+
+*The decision (built in M5, not in the code yet):*
+- Every way of quitting will reach the decision through one public hook, the `closing` event of the pywebview window. The red window button, Cmd+W and "Close Window" reach it directly. Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown reach it because pywebview asks the same event when AppKit asks whether the app may terminate. Ctrl+C and a termination signal reach it as the quit request they were turned into.
+- The decision can hold the quit: the event answers no, the app and its workers keep running, and the interface asks. This is the place of the "quit while downloading" confirmation (R-NA-06, R-QU-12). When the user confirms, the app closes its window itself.
+- Logout, restart and shutdown must never be held for a question. The quit request of macOS carries its reason, and the decision lets these through to the shutdown work.
+
+*Dock and single instance:*
+- A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020). This is what AppKit does by itself, also for a minimized window and for a hidden app.
+- One instance per data folder, in every mode (D-050). A running app holds a lock on the file `data/instance.lock` and writes its process ID and its bundle into `data/instance.json`. A second start that finds the lock held never loads the window library, so no second Dock icon appears. Started for a window, it asks macOS to open the app bundle again and ends: macOS then brings the running app's window to the front, exactly as a click on the Dock icon does. Started with `--browser` or without a window, it ends with a plain message. When the bundle is opened from Finder or the Dock while the app runs, macOS itself starts no second copy and brings the running app to the front.
 
 **`--browser` and tests.** With `--browser` and in automated tests there is no app window and no menu bar. Everything a menu item does must therefore also be reachable inside the interface (R-UI-13), which the menu design above guarantees.
 
@@ -462,5 +500,9 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_SESSION_TOKEN` | app | A fixed session token instead of a random one. For tests only |
 | `YTM_NO_WINDOW` | app | Serve without opening a window or a browser, until a stop signal. For tests |
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
+| `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
+| `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |
+| `YTM_TOOL_SOURCE` | app | Use only the tool source of this name. The automated checks install from each source on its own (D-053) |
+| `YTM_WINDOW_REPORT` | app | A file to which the app writes what macOS shows of it, once the window is up: its name, its bundle identifier and its menu bar. For tests |
 | `YTM_UV_BASE_URL` | `start` | Where uv is downloaded from. For tests. The checksum is checked in every case |
 | `YTM_E2E_CHROME_CHANNEL` | Playwright | Use an installed Chrome where Playwright's Chromium cannot be downloaded |

@@ -206,8 +206,8 @@ The icon in `AppIcon.html` is a draft and is expected to change. To make changin
 
 - There is exactly one source file: `frontend/src/design/brand/icon.svg` (square, single colour on a rounded square). It is part of the theme center (section 2).
 - Everything else is generated from it by a build script and never edited by hand: the macOS launcher icon (`.icns`), the window icon, the favicon, the logo in the sidebar and on the website, and the social preview image.
-- Colours in the SVG come from the `accent` and `on-accent` tokens.
-- Replacing the icon means replacing that file and running the build. A test checks that every generated asset is newer than the source.
+- Colours in the SVG come from the `accent` and `on-accent` tokens. The macOS icon is one image and cannot follow the theme: it uses the values of the light theme, `#1F5FD1` with a white mark (D-054).
+- Replacing the icon means replacing that file. Generated assets are not committed: they are built where they are needed, and rebuilt whenever the source file or the token file changed, which a test checks. Other tests draw the source and compare the picture with it, without knowing what the icon shows, so they keep passing for a new icon that follows the rule of this section.
 - The generated assets arrive with the milestones that need them ([IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md), D-045): the build script, its test and the macOS icon for the app bundle in M1, the favicon in M2, the social preview image in M10. Until then the app draws its logo directly from the source file.
 
 ## 6. Versioning of designs

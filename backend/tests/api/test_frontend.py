@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from tests.api.conftest import INDEX_HTML, PORT, TOKEN, Api, make_diagnostics
+from tests.api.conftest import INDEX_HTML, PORT, TOKEN, Api, make_services
 from tests.fixtures.fakes.clock import FakeClock
 from ytmirror.api.app import ApiConfig, create_app
 from ytmirror.api.security import SecurityPolicy
@@ -42,7 +42,7 @@ def test_a_missing_build_is_reported_as_not_found(tmp_path: Path, clock: FakeClo
     """R-ER-02: without a built interface the server says so instead of crashing."""
     empty = tmp_path / "not-built"
     config = ApiConfig(security=SecurityPolicy.for_local_server(TOKEN, PORT), frontend_dir=empty)
-    api = Api(create_app(config, make_diagnostics(tmp_path), clock), empty)
+    api = Api(create_app(config, make_services(tmp_path), clock), empty)
 
     response = api.client().get("/")
 

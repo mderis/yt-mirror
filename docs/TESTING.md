@@ -8,7 +8,8 @@ Rule: a feature is not done until its tests exist, pass, and have been reviewed.
 |---|---|---|---|
 | Unit | pytest | `core/` rules: naming, dates, status machine, quality, exclusion, matching, error classification | Milliseconds, no I/O |
 | Service | pytest with fakes | Each use case in `services/` against fake ports and an in-memory or temp SQLite | Fast |
-| Integration | pytest on macOS | Real adapters: SQLite repositories, real file dates and Trash on a temp folder, real ffmpeg on tiny generated media, yt-dlp gateway against recorded responses | Seconds |
+| Integration | pytest on macOS | Real adapters: SQLite repositories, real file dates and Trash on a temp folder, real ffmpeg on tiny generated media, yt-dlp gateway against recorded responses, AppKit for the menu bar | Seconds |
+| Window | pytest on macOS, marker `window` | The real app in a child process with its real window: the menu bar, the app's name, every way of quitting. These tests guard what relies on the pinned window library (D-049, D-052). A window appears for a few seconds. Leave them out with `uv run pytest -m "not window"` | Seconds |
 | API | pytest + FastAPI test client | Every endpoint: success, validation errors, error code mapping, auth token, origin check | Fast |
 | Migration | pytest | Upgrade from every released schema version with data, then verify | Fast |
 | Component | Vitest + Vue Testing Library | Every shared component and every feature view with mocked API | Fast |
@@ -99,6 +100,8 @@ Visual regression: Playwright screenshots of every screen and of the theme previ
 
 The end-to-end tests start the real app themselves with `./start`, without a window, using the test variables of [ARCHITECTURE.md](ARCHITECTURE.md) section 10.
 
+The tools the app downloads are stand-ins in these tests: tiny shell scripts, packed like the real downloads and served from the same Mac (`e2e/fixtures/tools/`), installed into a folder of the tests. The tests of the first run (flow 1) each start an app of their own on empty folders, and can make a download fail to see the retry and the second source. That the real tools download and run is checked by the smoke test of a fresh clone, on every supported macOS, from both sources (D-053).
+
 Where the browsers come from:
 
 | Browser | In CI | On a developer's Mac |
@@ -135,3 +138,7 @@ Manual:
 - [ ] Update from the previous release. Data is intact.
 - [ ] Uninstall. Videos remain.
 - [ ] macOS notifications appear.
+- [ ] The app is "yt-mirror" with its icon in the Dock, in the app switcher (Cmd+Tab), in the menu bar and in Activity Monitor. Nothing is called "Python".
+- [ ] With another app in front, a click on the Dock icon brings the yt-mirror window forward. The same with the window minimized.
+- [ ] Undo, Redo, Cut, Copy, Paste and Select All work with their shortcuts in a text field of the app.
+- [ ] Log out of macOS, restart and shut down while the app runs. Each one goes through without the app holding it up, and the last line of the debug log is `app.stopping`.

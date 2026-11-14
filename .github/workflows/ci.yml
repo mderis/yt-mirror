@@ -22,6 +22,10 @@ permissions:
 env:
   # Keep equal to UV_VERSION in ./start. A backend test compares the two.
   UV_VERSION: "0.13.8"
+  # The same Python as ./start uses: the one uv manages, never one found on the runner.
+  # A framework build of Python (Homebrew, python.org) restarts itself as "Python.app",
+  # and the app would then appear as Python (docs/DECISIONS.md D-048).
+  UV_PYTHON_PREFERENCE: only-managed
 
 jobs:
   checks:
@@ -150,5 +154,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      - name: Start with ./start, check the server, run ./start --doctor
+      - name: Start with ./start, install the real tools, check the window, move the folder
+        env:
+          # Download the real ffmpeg (from both sources) and Deno and let the app check them.
+          YTM_SMOKE_TOOLS: "1"
+          # Copy the whole folder elsewhere and start the copy (R-IN-05).
+          YTM_SMOKE_MOVE: "1"
         run: scripts/smoke_test.sh

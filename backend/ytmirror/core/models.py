@@ -6,9 +6,18 @@ milestones that implement them. This module must not read or write anything.
 Tests: backend/tests/unit/core/test_models.py
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+
+from ytmirror.core.errors import ErrorCode
+
+APP_NAME = "yt-mirror"
+"""The name of the app everywhere a user reads it (R-NA-01)."""
+
+BUNDLE_IDENTIFIER = "io.github.mderis.yt-mirror"
+"""The bundle identifier of an installed copy. It never changes (docs/DECISIONS.md D-047)."""
 
 MINIMUM_MACOS_MAJOR = 15
 """The oldest supported macOS major version (R-PL-01, docs/DECISIONS.md D-035)."""
@@ -93,3 +102,232 @@ class CheckResult:
     ok: bool
     detail: str
     fix: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AppIdentity:
+    """The name and the bundle identifier under which macOS knows the app (R-NA-01, R-NA-02).
+
+    Attributes:
+        name: The name in the Dock, the app switcher, the menu bar and Activity Monitor.
+        bundle_identifier: The identifier macOS ties the app's identity to.
+    """
+
+    name: str
+    bundle_identifier: str
+
+
+class MenuAction(StrEnum):
+    """What a menu item does. In milestone M1 only the standard macOS actions (R-NA-03)."""
+
+    HIDE = "hide"
+    HIDE_OTHERS = "hide_others"
+    SHOW_ALL = "show_all"
+    QUIT = "quit"
+    UNDO = "undo"
+    REDO = "redo"
+    CUT = "cut"
+    COPY = "copy"
+    PASTE = "paste"
+    SELECT_ALL = "select_all"
+
+
+@dataclass(frozen=True, slots=True)
+class Shortcut:
+    """A menu shortcut. Command is always part of it.
+
+    Attributes:
+        key: The key, one lower-case character.
+        shift: Shift is held as well.
+        option: Option is held as well.
+    """
+
+    key: str
+    shift: bool = False
+    option: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MenuItem:
+    """One item of a menu.
+
+    Attributes:
+        title: The text of the item, written as macOS writes it.
+        action: What the item does.
+        shortcut: Its shortcut, or None.
+    """
+
+    title: str
+    action: MenuAction
+    shortcut: Shortcut | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Menu:
+    """One menu of the menu bar.
+
+    Attributes:
+        title: The title in the menu bar. macOS shows the app name for the first menu.
+        groups: The items in groups. A separator line is drawn between two groups.
+    """
+
+    title: str
+    groups: tuple[tuple[MenuItem, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ShownMenuItem:
+    """An item as it really is in the menu bar right now.
+
+    Attributes:
+        title: The text of the item.
+        action: Our action, or None for an item that is not ours. macOS adds items
+            of its own to some menus, for example "Start Dictation" to Edit.
+        shortcut: Its shortcut, or None.
+        enabled: Whether the item can be chosen right now.
+    """
+
+    title: str
+    action: MenuAction | None
+    shortcut: Shortcut | None
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ShownMenu:
+    """A menu as it really is in the menu bar right now.
+
+    Attributes:
+        title: The title of the menu.
+        items: Its items without the separator lines.
+    """
+
+    title: str
+    items: tuple[ShownMenuItem, ...]
+
+
+class ToolName(StrEnum):
+    """The tools the app needs, in the order the first-run screen shows them (R-IN-03)."""
+
+    PYTHON = "python"
+    YTDLP = "ytdlp"
+    FFMPEG = "ffmpeg"
+    DENO = "deno"
+
+
+class ToolStatus(StrEnum):
+    """What is known about a tool right now (R-IN-03, R-IN-04)."""
+
+    OK = "ok"
+    MISSING = "missing"
+    BROKEN = "broken"
+    INSTALLING = "installing"
+    FAILED = "failed"
+
+
+class ArchiveKind(StrEnum):
+    """The archive formats a tool download can have."""
+
+    ZIP = "zip"
+    TAR_XZ = "tar.xz"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolFile:
+    """One file to download for a tool.
+
+    Attributes:
+        url: The pinned address.
+        sha256: The checksum the file must have, in lower-case hexadecimal.
+        kind: The archive format.
+        programs: The programs to take from the top level of the archive.
+    """
+
+    url: str
+    sha256: str
+    kind: ArchiveKind
+    programs: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSource:
+    """One place a tool can be downloaded from (R-IN-03, docs/DECISIONS.md D-053).
+
+    Attributes:
+        name: The name of the source, shown by ``--doctor`` and in the logs.
+        version: The pinned version of the tool at this source.
+        files: The files to download, per processor architecture.
+    """
+
+    name: str
+    version: str
+    files: Mapping[str, tuple[ToolFile, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSpec:
+    """What the tool manifest says about one downloadable tool.
+
+    Attributes:
+        name: The tool.
+        programs: Every program the tool consists of.
+        check: The arguments with which each program proves that it works.
+        sources: The sources in the order they are tried.
+    """
+
+    name: ToolName
+    programs: tuple[str, ...]
+    check: tuple[str, ...]
+    sources: tuple[ToolSource, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class InstalledTool:
+    """What was written down when a tool was installed.
+
+    Attributes:
+        source: The name of the source it came from.
+        version: The version that source pins.
+    """
+
+    source: str
+    version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolReport:
+    """The state of one tool, as the first-run screen and ``--doctor`` show it.
+
+    Attributes:
+        name: The tool.
+        status: What is known about it right now.
+        version: Its version, when it is installed.
+        source: The source it was installed from, for a downloaded tool.
+        progress: How much of its download is done, from 0 to 1, while it installs.
+        error_code: Why the last installation failed, when it did.
+        installable: Whether the app can install it by itself. Python and yt-dlp
+            come with ``./start`` and cannot be installed from inside the app.
+    """
+
+    name: ToolName
+    status: ToolStatus
+    version: str | None = None
+    source: str | None = None
+    progress: float | None = None
+    error_code: ErrorCode | None = None
+    installable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolUpdated:
+    """Event: the state of a tool changed, or its download made progress (R-FB-03).
+
+    Attributes:
+        report: The new state of the tool.
+    """
+
+    report: ToolReport
+
+
+type AppEvent = ToolUpdated
+"""Every event the services publish for the interface. Each milestone adds its own."""

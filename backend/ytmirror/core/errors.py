@@ -29,6 +29,10 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "NOT_FOUND"
     INVALID_REQUEST = "INVALID_REQUEST"
     LOCAL_SERVER_UNREACHABLE = "LOCAL_SERVER_UNREACHABLE"
+    NETWORK_UNREACHABLE = "NETWORK_UNREACHABLE"
+    CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH"
+    DISK_FULL = "DISK_FULL"
+    TOOL_MISSING = "TOOL_MISSING"
     INTERNAL = "INTERNAL"
 
     @property
@@ -49,6 +53,10 @@ _KINDS: dict[ErrorCode, ErrorKind] = {
     ErrorCode.INVALID_REQUEST: ErrorKind.PERMANENT,
     # Raised by the window when it cannot reach this server (R-ER-04). The server never sends it.
     ErrorCode.LOCAL_SERVER_UNREACHABLE: ErrorKind.TRANSIENT,
+    ErrorCode.NETWORK_UNREACHABLE: ErrorKind.TRANSIENT,
+    ErrorCode.CHECKSUM_MISMATCH: ErrorKind.TRANSIENT,
+    ErrorCode.DISK_FULL: ErrorKind.TRANSIENT,
+    ErrorCode.TOOL_MISSING: ErrorKind.TRANSIENT,
     ErrorCode.INTERNAL: ErrorKind.TRANSIENT,
 }
 

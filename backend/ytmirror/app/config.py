@@ -19,8 +19,13 @@ ENV_PORT = "YTM_PORT"
 ENV_SESSION_TOKEN = "YTM_SESSION_TOKEN"
 ENV_NO_WINDOW = "YTM_NO_WINDOW"
 ENV_FRONTEND_URL = "YTM_FRONTEND_URL"
+ENV_WINDOW_REPORT = "YTM_WINDOW_REPORT"
+ENV_TOOL_DIR = "YTM_TOOL_DIR"
+ENV_TOOL_MANIFEST = "YTM_TOOL_MANIFEST"
+ENV_TOOL_SOURCE = "YTM_TOOL_SOURCE"
 
 DEFAULT_DEV_FRONTEND_URL = "http://127.0.0.1:5173/"
+DEFAULT_TOOL_MANIFEST = Path(__file__).resolve().parents[1] / "services" / "toolchain_manifest.json"
 _MAX_PORT = 65535
 
 
@@ -36,6 +41,9 @@ class AppPaths:
         database_file: The SQLite database.
         frontend_dir: The built interface.
         uv_executable: The bundled uv program.
+        tool_dir: The folder the downloaded tools are kept in.
+        tool_manifest: The file that pins the downloadable tools.
+        only_tool_source: The one tool source to use, or None for all. For automated tests.
     """
 
     code_root: Path
@@ -45,6 +53,9 @@ class AppPaths:
     database_file: Path
     frontend_dir: Path
     uv_executable: Path
+    tool_dir: Path
+    tool_manifest: Path = DEFAULT_TOOL_MANIFEST
+    only_tool_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +72,7 @@ class RunOptions:
         port: A fixed port, or None for any free port.
         session_token: A fixed session token, or None for a random one. For automated tests.
         frontend_url: The address of the development server, or None.
+        window_report: A file to write what the window shows to, or None. For automated tests.
     """
 
     dev: bool
@@ -72,13 +84,16 @@ class RunOptions:
     port: int | None
     session_token: str | None
     frontend_url: str | None
+    window_report: Path | None = None
 
 
 def resolve_paths(env: Mapping[str, str]) -> AppPaths:
     """Return the paths of this installation.
 
     Args:
-        env: The environment variables. ``YTM_HOME`` and ``YTM_DATA_DIR`` override the defaults.
+        env: The environment variables. ``YTM_HOME`` and ``YTM_DATA_DIR`` override the
+            defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST`` and ``YTM_TOOL_SOURCE`` are
+            for tests.
 
     Returns:
         The paths. Nothing is created.
@@ -94,6 +109,11 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
         database_file=data_dir / "yt-mirror.db",
         frontend_dir=code_root / "frontend" / "dist",
         uv_executable=home_dir / "tools" / "uv" / "uv",
+        tool_dir=Path(env[ENV_TOOL_DIR]) if env.get(ENV_TOOL_DIR) else home_dir / "tools",
+        tool_manifest=Path(env[ENV_TOOL_MANIFEST])
+        if env.get(ENV_TOOL_MANIFEST)
+        else DEFAULT_TOOL_MANIFEST,
+        only_tool_source=env.get(ENV_TOOL_SOURCE) or None,
     )
 
 
@@ -148,4 +168,5 @@ def parse_options(argv: Sequence[str], env: Mapping[str, str]) -> RunOptions:
         port=port,
         session_token=env.get(ENV_SESSION_TOKEN) or None,
         frontend_url=frontend_url,
+        window_report=Path(env[ENV_WINDOW_REPORT]) if env.get(ENV_WINDOW_REPORT) else None,
     )

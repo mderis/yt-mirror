@@ -11,6 +11,11 @@
 import type { components } from './schema'
 
 export type Health = components['schemas']['HealthResponse']
+/** The state of one tool the app needs (R-IN-03). */
+export type Tool = components['schemas']['Tool']
+export type ToolName = components['schemas']['ToolName']
+export type ToolsAnswer = components['schemas']['ToolsResponse']
+export type ToolUpdated = components['schemas']['ToolUpdatedEvent']
 /** Every error code the app knows, from backend/ytmirror/core/errors.py through the API schema. */
 export type ErrorCode = components['schemas']['ErrorCode']
 type ErrorResponse = components['schemas']['ErrorResponse']
@@ -60,7 +65,44 @@ async function toApiError(response: Response): Promise<ApiError> {
   }
 }
 
+/** What a listener of the event stream wants to hear about. */
+export interface EventHandlers {
+  /** The state of a tool changed, or its download made progress. */
+  toolUpdated: (event: ToolUpdated) => void
+  /** The stream is connected again after a break: events may have been missed. */
+  reconnected: () => void
+}
+
+/**
+ * Open the event stream of this window (docs/ARCHITECTURE.md section 7.6).
+ *
+ * The browser reconnects by itself after a break. Returns a function that closes the stream.
+ */
+function openEvents(handlers: EventHandlers): () => void {
+  const source = new EventSource(`${API_PREFIX}/events`)
+  let broken = false
+  source.addEventListener('tool.updated', (message) => {
+    handlers.toolUpdated(JSON.parse((message as MessageEvent<string>).data) as ToolUpdated)
+  })
+  source.addEventListener('error', () => {
+    broken = true
+  })
+  source.addEventListener('open', () => {
+    if (broken) {
+      broken = false
+      handlers.reconnected()
+    }
+  })
+  return () => source.close()
+}
+
 export const api = {
   /** Ask the server for its version and the database schema version. */
   getHealth: (): Promise<Health> => request<Health>('/health'),
+  /** Ask for the state of every tool, and whether the first-run screen is needed. */
+  getTools: (): Promise<ToolsAnswer> => request<ToolsAnswer>('/tools'),
+  /** Start installing a tool. The answer is its state right after the start. */
+  installTool: (name: ToolName): Promise<Tool> =>
+    request<Tool>(`/tools/${name}/install`, { method: 'POST' }),
+  openEvents,
 }

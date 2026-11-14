@@ -1,8 +1,10 @@
 """Tests of ``ytmirror.app.container``: the real wiring."""
 
 from tests.fixtures.fakes.clock import FakeClock
+from tests.fixtures.fakes.native_app import FakeNativeApp
 from tests.fixtures.fakes.system_probe import FakeSystemProbe
 from ytmirror import __version__
+from ytmirror.adapters.native_app_mac import MacNativeApp
 from ytmirror.adapters.system_clock import SystemClock
 from ytmirror.adapters.system_probe import MacSystemProbe
 from ytmirror.app.config import AppPaths
@@ -23,10 +25,10 @@ def test_the_wired_services_work_together_on_a_real_database(paths: AppPaths) ->
 
     version = container.schema.bring_up_to_date()
 
-    assert version == "0002"
+    assert version == "0003"
     assert paths.database_file.is_file()
     assert container.settings.current() == Settings()
-    assert container.diagnostics.health().schema_version == "0002"
+    assert container.diagnostics.health().schema_version == "0003"
     assert container.diagnostics.health().version == __version__
 
 
@@ -47,11 +49,14 @@ def test_real_adapters_are_used_unless_a_test_passes_fakes(paths: AppPaths) -> N
     """infra: tests build the same container with fakes (ARCHITECTURE section 4, rule 6)."""
     clock = FakeClock()
     probe = FakeSystemProbe()
+    native = FakeNativeApp()
 
     real = build_container(paths)
-    faked = build_container(paths, clock=clock, probe=probe)
+    faked = build_container(paths, clock=clock, probe=probe, native=native)
 
     assert isinstance(real.clock, SystemClock)
     assert isinstance(real.probe, MacSystemProbe)
+    assert isinstance(real.native, MacNativeApp)
     assert faked.clock is clock
     assert faked.probe is probe
+    assert faked.native is native

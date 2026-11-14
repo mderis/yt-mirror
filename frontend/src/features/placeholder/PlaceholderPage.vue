@@ -1,12 +1,15 @@
 <script setup lang="ts">
 /**
- * The placeholder page of milestone M0: shows that the window, the interface
- * and the backend work together. The first-run screen replaces it in M1.
+ * The placeholder page: shows that the window, the interface and the backend
+ * work together. The first-run screen comes before it (M1). The shell of
+ * milestone M2 replaces it. A missing or broken tool shows its banner here
+ * (R-IN-04).
  */
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { BrandIcon } from '@/design/brand'
+import ToolBanners from '@/features/tools/ToolBanners.vue'
 import { useAppStore } from '@/stores/app'
 
 const { t, te } = useI18n()
@@ -17,8 +20,6 @@ const errorText = computed(() => {
   const key = `errors.${(app.errorCode ?? '').toLowerCase()}`
   return te(`${key}.happened`) ? key : null
 })
-
-onMounted(() => app.connect())
 </script>
 
 <template>
@@ -28,7 +29,8 @@ onMounted(() => app.connect())
       {{ t('app.name') }}
     </h1>
 
-    <div v-if="app.status === 'ready' && app.health" class="flex flex-col gap-1">
+    <div v-if="app.status === 'ready' && app.health" class="flex flex-col items-center gap-1">
+      <ToolBanners class="mb-5 max-w-170 text-left" />
       <p class="text-body-lg text-text-dim">{{ t('placeholder.running') }}</p>
       <p class="text-meta text-text-muted">
         {{ t('placeholder.version', { version: app.health.version }) }}

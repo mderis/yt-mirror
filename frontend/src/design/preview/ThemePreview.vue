@@ -10,10 +10,17 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import AppBanner from '@/components/AppBanner.vue'
+import AppButton from '@/components/AppButton.vue'
+import AppIcon, { type IconName } from '@/components/AppIcon.vue'
+import ProgressBar from '@/components/ProgressBar.vue'
+
 import { BrandIcon } from '../brand'
 import { THEME_NAMES } from '../themes'
 import { groupOf, parseTokens, shortName, TOKEN_GROUPS, type TokenGroup } from '../tokens'
 import tokensCss from '../tokens.css?raw'
+
+const ICONS: IconName[] = ['check', 'download', 'clock', 'warning', 'retry']
 
 interface TokenRow {
   name: string
@@ -168,9 +175,32 @@ function ref(name: string): string {
           <h3 class="mb-2 text-label font-medium text-text-muted uppercase">
             {{ t('themePreview.components') }}
           </h3>
-          <p class="rounded-md border border-line bg-surface px-3 py-2 text-meta text-text-muted">
-            {{ t('themePreview.noComponents') }}
-          </p>
+          <div
+            class="flex flex-col gap-3 rounded-md border border-line bg-surface px-3 py-3"
+            data-component="button"
+          >
+            <div class="flex flex-wrap items-center gap-3">
+              <AppButton variant="primary">{{ t('themePreview.sampleButton') }}</AppButton>
+              <AppButton icon="retry">{{ t('themePreview.sampleSecondaryButton') }}</AppButton>
+              <AppButton variant="primary" disabled>
+                {{ t('themePreview.sampleDisabledButton') }}
+              </AppButton>
+            </div>
+            <div class="flex items-center gap-3 text-text-dim" data-component="icon">
+              <AppIcon v-for="icon in ICONS" :key="icon" :name="icon" />
+            </div>
+            <div class="flex flex-col gap-2" data-component="progress">
+              <ProgressBar :value="0.64" :label="t('themePreview.sampleProgress')" />
+              <ProgressBar :value="null" :label="t('themePreview.sampleProgress')" />
+            </div>
+            <AppBanner data-component="banner">
+              {{ t('themePreview.sampleBanner') }}
+              <template #action>
+                <AppButton icon="download">{{ t('themePreview.sampleBannerAction') }}</AppButton>
+              </template>
+            </AppBanner>
+            <AppBanner tone="error">{{ t('themePreview.sampleErrorBanner') }}</AppBanner>
+          </div>
         </section>
       </section>
     </div>

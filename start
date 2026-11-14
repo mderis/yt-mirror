@@ -5,8 +5,10 @@
 #   1. Checks that this is a Mac with a supported processor.
 #   2. Puts a pinned, checksum-verified copy of uv into tools/.
 #   3. Lets uv install the pinned Python and the locked packages into tools/.
+#      After the folder was moved or copied, the environment is rebuilt first.
 #   4. Builds the interface with Node.js when the built copy is missing or stale.
-#   5. Starts the app.
+#   5. Builds the app bundle in tools/ when it is missing or out of date.
+#   6. Starts the app through the bundle, so that macOS knows it as yt-mirror.
 #
 # Nothing is installed outside this folder (docs/DECISIONS.md, D-018).
 # Tests: backend/tests/integration/test_start_script.py
@@ -92,6 +94,20 @@ ensure_uv() {
     rm -rf "$work"
 }
 
+# The Python environment holds absolute paths. After the folder was moved or
+# copied, they point to the old place, so the environment is built again (R-IN-05).
+forget_moved_python_env() {
+    [ -f "$TOOLS_DIR/venv/pyvenv.cfg" ] || return 0
+    env_home=$(sed -n 's/^home = //p' "$TOOLS_DIR/venv/pyvenv.cfg")
+    case "$env_home" in
+        "$TOOLS_DIR"/*) ;;
+        *)
+            say "This folder was moved or copied. Preparing Python and its packages again ..."
+            rm -rf "$TOOLS_DIR/venv"
+            ;;
+    esac
+}
+
 ensure_python_env() {
     export UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/python"
     export UV_PROJECT_ENVIRONMENT="$TOOLS_DIR/venv"
@@ -159,13 +175,37 @@ start_dev_server() {
     export YTM_FRONTEND_URL="$dev_url"
 }
 
+# Starts the app. With a window it is started through the app bundle, which is
+# built when it is missing or out of date (R-NA-01, R-NA-02). Without a window
+# nothing of the app appears in the Dock, so plain Python is enough.
+run_app() {
+    how="$1"
+    shift
+    if [ "$WINDOW" = 1 ]; then
+        launcher=$("$PYTHON" -m ytmirror.app.bundle) || fail "the app bundle could not be built."
+        set -- "$launcher" "$@"
+    else
+        set -- "$PYTHON" -m ytmirror.app.main "$@"
+    fi
+    if [ "$how" = "replace" ]; then
+        exec "$@"
+    fi
+    "$@"
+}
+
 DEV=0
 DOCTOR=0
+WINDOW=1
+case "${YTM_NO_WINDOW:-}" in
+    "" | 0) ;;
+    *) WINDOW=0 ;;
+esac
 for arg in "$@"; do
     case "$arg" in
         --dev) DEV=1 ;;
         --doctor) DOCTOR=1 ;;
-        --debug | --browser | --update) ;;
+        --browser | --update) WINDOW=0 ;;
+        --debug) ;;
         --help | -h)
             usage
             exit 0
@@ -180,6 +220,7 @@ done
 
 check_platform
 ensure_uv
+forget_moved_python_env
 ensure_python_env
 export YTM_HOME="$HOME_DIR"
 
@@ -190,9 +231,9 @@ fi
 if [ "$DEV" = 1 ]; then
     start_dev_server
     status=0
-    "$PYTHON" -m ytmirror.app.main "$@" || status=$?
+    run_app wait "$@" || status=$?
     exit "$status"
 fi
 
 ensure_frontend
-exec "$PYTHON" -m ytmirror.app.main "$@"
+run_app replace "$@"

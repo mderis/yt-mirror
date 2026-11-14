@@ -1067,22 +1067,33 @@ wheels = [
 ]
 
 [[package]]
+name = "yt-dlp"
+version = "2026.10.26"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/31/4be3987022a6244550ab6a3afe45ad10ac10b5e5ab8874bd8eecc7f8b937/yt_dlp-2026.10.26.tar.gz", hash = "sha256:abe5c6b94c3b2f0560500add1c42e0a97641752743a5b65588ac2007a6e23eb6", size = 3048880, upload-time = "2026-10-26T22:25:26.931Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/3d/16ea7d5638cf585991f2c5705e8083688dde633d32d0871f2404e0f4d827/yt_dlp-2026.10.26-py3-none-any.whl", hash = "sha256:a05c5b5d8562f7e8a62f5334348b406af4930d56d3a65f8021d14af0e22339ae", size = 3186201, upload-time = "2026-10-26T22:25:24.877Z" },
+]
+
+[[package]]
 name = "yt-mirror"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "httpx2" },
+    { name = "pyobjc-framework-cocoa" },
     { name = "python-ulid" },
     { name = "pywebview" },
     { name = "sqlalchemy" },
     { name = "structlog" },
     { name = "uvicorn" },
+    { name = "yt-dlp" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "import-linter" },
     { name = "pre-commit" },
     { name = "pyright" },
@@ -1097,16 +1108,18 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.20" },
     { name = "fastapi", specifier = ">=0.162" },
+    { name = "httpx2", specifier = ">=2.16" },
+    { name = "pyobjc-framework-cocoa", specifier = ">=13.0" },
     { name = "python-ulid", specifier = ">=4.1" },
-    { name = "pywebview", specifier = ">=6.2" },
+    { name = "pywebview", specifier = "==6.2.1" },
     { name = "sqlalchemy", specifier = ">=2.1" },
     { name = "structlog", specifier = ">=26.1" },
     { name = "uvicorn", specifier = ">=0.40" },
+    { name = "yt-dlp", specifier = ">=2026.10.26" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2.16" },
     { name = "import-linter", specifier = ">=2.16" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pyright", specifier = ">=1.1.414" },

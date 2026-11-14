@@ -45,6 +45,35 @@ def test_the_data_folder_can_be_moved_for_tests(tmp_path: Path) -> None:
     assert paths.home_dir == paths.code_root
 
 
+def test_downloaded_tools_and_their_manifest_have_their_place_in_the_app_folder(
+    tmp_path: Path,
+) -> None:
+    """R-IN-03: tools are downloaded into the app folder, as the app's own manifest pins them."""
+    paths = resolve_paths({"YTM_HOME": str(tmp_path)})
+
+    assert paths.tool_dir == tmp_path / "tools"
+    assert paths.tool_manifest == (
+        paths.code_root / "backend" / "ytmirror" / "services" / "toolchain_manifest.json"
+    )
+    assert paths.tool_manifest.is_file()
+    assert paths.only_tool_source is None
+
+
+def test_tests_can_point_the_app_at_stand_in_tools(tmp_path: Path) -> None:
+    """infra: the end-to-end tests install small stand-ins into a folder of their own."""
+    paths = resolve_paths(
+        {
+            "YTM_TOOL_DIR": str(tmp_path / "tools"),
+            "YTM_TOOL_MANIFEST": str(tmp_path / "manifest.json"),
+            "YTM_TOOL_SOURCE": "jellyfin-ffmpeg",
+        }
+    )
+
+    assert paths.tool_dir == tmp_path / "tools"
+    assert paths.tool_manifest == tmp_path / "manifest.json"
+    assert paths.only_tool_source == "jellyfin-ffmpeg"
+
+
 def test_a_folder_with_git_is_a_clone_and_one_without_is_an_archive(tmp_path: Path) -> None:
     """R-UP-04: the install kind decides later how the app updates."""
     clone = tmp_path / "clone"

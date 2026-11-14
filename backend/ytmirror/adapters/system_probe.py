@@ -5,6 +5,7 @@ This module only reads. It must never change anything on the system.
 Tests: backend/tests/integration/test_system_probe_contract.py
 """
 
+import importlib.metadata
 import importlib.util
 import os
 import platform
@@ -64,6 +65,20 @@ class MacSystemProbe:
             name: The module name.
         """
         return importlib.util.find_spec(name) is not None
+
+    def package_version(self, name: str) -> str | None:
+        """Return the version of an installed Python package.
+
+        Args:
+            name: The name of the package as it is installed, for example ``yt-dlp``.
+
+        Returns:
+            The version, or None when the package is not installed.
+        """
+        try:
+            return importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            return None
 
     def file_exists(self, path: Path) -> bool:
         """Return whether a regular file exists at the path.

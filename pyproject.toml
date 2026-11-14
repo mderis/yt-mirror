@@ -8,16 +8,23 @@ requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.20",
     "fastapi>=0.162",
+    # The HTTP client of the app (docs/DECISIONS.md D-041). First used for the tool downloads.
+    "httpx2>=2.16",
+    # AppKit, for the menu bar and the quit path (docs/DECISIONS.md D-049, D-052).
+    "pyobjc-framework-cocoa>=13.0",
     "python-ulid>=4.1",
-    "pywebview>=6.2",
+    # Pinned exactly: the menu bar and the quit path rely on how this version
+    # behaves (docs/DECISIONS.md D-049, D-052). Tests guard an update.
+    "pywebview==6.2.1",
     "sqlalchemy>=2.1",
     "structlog>=26.1",
     "uvicorn>=0.40",
+    # The download engine (D-002). Locked here. Updating it on its own arrives in M9 (D-017).
+    "yt-dlp>=2026.10.26",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.16",
     "import-linter>=2.16",
     "pre-commit>=4.0",
     "pyright>=1.1.414",
@@ -44,6 +51,7 @@ addopts = ["--strict-markers", "--strict-config", "-m", "not live"]
 markers = [
     "live: needs the real YouTube. Opt-in, never run in CI (docs/TESTING.md section 8).",
     "infra: an infrastructure test that covers no requirement. Set from the docstring (docs/TESTING.md rule 1).",
+    "window: opens the real app window for a few seconds (docs/TESTING.md section 1). Leave them out with: -m 'not window'.",
 ]
 filterwarnings = ["error"]
 
