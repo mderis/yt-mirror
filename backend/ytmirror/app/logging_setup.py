@@ -25,6 +25,10 @@ from ulid import ULID
 
 from ytmirror.ports.clock import Clock
 
+ENV_YOUTUBE_API_KEY = "YTM_YOUTUBE_API_KEY"
+"""A YouTube API key in the environment, for the live tests and probes. The app does
+not use it before milestone M4, but its value never reaches a log (R-LG-07)."""
+
 REDACTED = "[redacted]"
 EXTERNAL_EVENT = "app.external_log"
 KEEP_DAYS = 14
@@ -159,6 +163,19 @@ def new_run_id(clock: Clock) -> str:
         clock: The source of the current time.
     """
     return str(ULID.from_datetime(clock.now()))
+
+
+def secret_redactor(session_token: str, env: Mapping[str, str]) -> SecretRedactor:
+    """Return a redactor that knows the secret values of this run (R-LG-07).
+
+    Args:
+        session_token: The session token of this run.
+        env: The environment of this run. A YouTube API key in it is a secret too.
+    """
+    redactor = SecretRedactor()
+    redactor.register(session_token)
+    redactor.register(env.get(ENV_YOUTUBE_API_KEY, ""))
+    return redactor
 
 
 def configure_logging(

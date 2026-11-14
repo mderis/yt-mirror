@@ -1,0 +1,12 @@
+{
+  "id": "UClargechannel0000000003",
+  "title": "Sample Channel Large",
+  "handle": "@samplechannellarge",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 5000,
+  "generate": {
+    "count": 5000,
+    "id_prefix": "large",
+    "title": "Generated video {number}"
+  }
+}

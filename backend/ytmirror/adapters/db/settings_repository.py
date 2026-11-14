@@ -57,13 +57,20 @@ class SqlSettingsRepository:
 
 def _values_of(settings: Settings) -> dict[str, str]:
     """Return each setting as JSON text, by key."""
-    return {"log_detail": json.dumps(settings.log_detail.value)}
+    return {
+        "log_detail": json.dumps(settings.log_detail.value),
+        "library_folder": json.dumps(settings.library_folder),
+    }
 
 
 def _settings_from(stored: Mapping[str, object]) -> Settings:
     """Build the settings from stored values, using defaults for missing keys."""
     defaults = Settings()
     log_detail = stored.get("log_detail")
+    library_folder = stored.get("library_folder")
     return Settings(
         log_detail=LogDetail(log_detail) if isinstance(log_detail, str) else defaults.log_detail,
+        library_folder=library_folder
+        if isinstance(library_folder, str) and library_folder
+        else defaults.library_folder,
     )

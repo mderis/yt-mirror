@@ -1,0 +1,92 @@
+{
+  "id": "UCsmallchannel0000000001",
+  "title": "Sample Channel One",
+  "handle": "@samplechannelone",
+  "custom_name": "samplechannelone",
+  "user_name": "samplechannelone",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 12,
+  "videos": [
+    {
+      "id": "small000012",
+      "title": "Building a cabin in the woods, part 12",
+      "duration_s": 1458,
+      "view_count": 48000,
+      "point": "2026-11-13T18:00:00Z"
+    },
+    {
+      "id": "small000011",
+      "title": "Q and A, your questions answered",
+      "duration_s": 2462,
+      "view_count": 31000,
+      "point": "2026-11-11"
+    },
+    {
+      "id": "small000010",
+      "title": "Restoring an old workbench",
+      "duration_s": 1127,
+      "view_count": 112000,
+      "point": "2026-11-05"
+    },
+    {
+      "id": "small000009",
+      "title": "Hand planes, a complete guide",
+      "duration_s": 3130,
+      "view_count": 203000,
+      "point": "2026-10-31"
+    },
+    {
+      "id": "small000008",
+      "title": "How I organize my workshop",
+      "duration_s": 725,
+      "view_count": 87000,
+      "point": "2026-10-24"
+    },
+    {
+      "id": "small000007",
+      "title": "Five joints every beginner should know",
+      "duration_s": 573,
+      "view_count": 240000,
+      "point": "2026-10-14"
+    },
+    {
+      "id": "small000006",
+      "title": "Sharpening chisels the easy way",
+      "duration_s": 920,
+      "view_count": 64000,
+      "point": "2026-08-14"
+    },
+    {
+      "id": "small000005",
+      "title": "Shop tour 2026",
+      "duration_s": 1964,
+      "view_count": 133000,
+      "point": "2026-01-14"
+    },
+    {
+      "id": "small000004",
+      "title": "A simple bookshelf from one board",
+      "duration_s": 842,
+      "view_count": 1200000,
+      "point": "2025-11-14"
+    },
+    {
+      "id": "small000003",
+      "title": "Why I stopped using pocket screws",
+      "duration_s": 655,
+      "view_count": 2400000,
+      "point": "2023-11-14"
+    },
+    {
+      "id": "small000002",
+      "title": "My first video",
+      "duration_s": 97,
+      "point": "2016-11-14"
+    },
+    {
+      "id": "small000001",
+      "title": "Workshop update",
+      "view_count": 950
+    }
+  ]
+}

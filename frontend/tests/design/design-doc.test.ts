@@ -74,7 +74,7 @@ describe('docs/DESIGN.md section 2 and tokens.css', () => {
   it('R-TH-02: document the same colours with the same values, in both themes', () => {
     const documented = themedRows().filter((row) => row.dark.startsWith('#'))
 
-    expect(documented.length).toBe(21)
+    expect(documented.length).toBe(24)
     expect(themed('dark', 'color')).toEqual(
       Object.fromEntries(documented.map((row) => [row.name, normalise(row.dark)])),
     )

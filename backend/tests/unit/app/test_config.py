@@ -155,3 +155,22 @@ def test_an_invalid_port_ends_with_the_usage_exit_code(value: str) -> None:
         parse_options([], {"YTM_PORT": value})
 
     assert exit_info.value.code == 2
+
+
+def test_the_cache_is_in_the_data_folder_and_the_library_in_the_movies_folder() -> None:
+    """R-FI-01, R-CH-16: pictures are cached in the data folder, videos go to ~/Movies/YouTube."""
+    paths = resolve_paths({})
+
+    assert paths.cache_dir == paths.data_dir / "cache"
+    assert paths.default_library == Path.home() / "Movies" / "YouTube"
+    assert paths.fake_youtube is None
+
+
+def test_tests_can_move_the_library_and_replace_youtube(tmp_path: Path) -> None:
+    """infra: tests never create a folder in the library of the user or ask the real YouTube."""
+    paths = resolve_paths(
+        {"YTM_LIBRARY_DIR": str(tmp_path / "library"), "YTM_FAKE_YOUTUBE": str(tmp_path / "world")}
+    )
+
+    assert paths.default_library == tmp_path / "library"
+    assert paths.fake_youtube == tmp_path / "world"

@@ -11,11 +11,13 @@ from tests.fixtures.builders import make_toolchain
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.database_schema import FakeDatabaseSchema
 from tests.fixtures.fakes.system_probe import FakeSystemProbe
+from tests.fixtures.world import World
 from ytmirror.api.app import ApiConfig, ApiServices, create_app
 from ytmirror.api.security import SecurityPolicy
 from ytmirror.core.models import AppInfo, InstallKind
 from ytmirror.services.diagnostics import DiagnosticsService
 from ytmirror.services.events import EventBus
+from ytmirror.services.toolchain import ToolchainService
 
 PORT = 8000
 TOKEN = "test-session-token"
@@ -29,6 +31,7 @@ class Api:
 
     app: FastAPI
     frontend_dir: Path
+    world: World | None = None
 
     def client(self) -> TestClient:
         """Return a client that looks like the app window before it has a session."""
@@ -59,12 +62,34 @@ def make_diagnostics(tmp_path: Path) -> DiagnosticsService:
     )
 
 
-def make_services(tmp_path: Path) -> ApiServices:
+def services_around(tmp_path: Path, toolchain: ToolchainService, world: World) -> ApiServices:
+    """Return the services of the app: a toolchain of the test, and the catalogue of a world."""
+    return ApiServices(
+        diagnostics=make_diagnostics(tmp_path),
+        toolchain=toolchain,
+        events=world.bus,
+        state=world.state,
+        youtube=world.youtube,
+        channels=world.channels,
+        catalogue=world.catalogue,
+        views=world.views,
+        thumbnails=world.thumbnails,
+    )
+
+
+def make_services(tmp_path: Path, world: World | None = None) -> ApiServices:
     """Return the services of the app over fakes, on a Mac where every tool is in place."""
-    events = EventBus()
-    toolchain = make_toolchain(events=events)
+    used_world = world if world is not None else new_world(tmp_path)
+    toolchain = make_toolchain(events=used_world.bus)
     toolchain.verify()
-    return ApiServices(diagnostics=make_diagnostics(tmp_path), toolchain=toolchain, events=events)
+    return services_around(tmp_path, toolchain, used_world)
+
+
+def new_world(tmp_path: Path, bus: EventBus | None = None) -> World:
+    """Return the catalogue services over fakes, in a folder of their own."""
+    folder = tmp_path / "world"
+    folder.mkdir(exist_ok=True)
+    return World(folder, bus=bus)
 
 
 @pytest.fixture
@@ -83,4 +108,5 @@ def api(tmp_path: Path, frontend_dir: Path, clock: FakeClock) -> Api:
     config = ApiConfig(
         security=SecurityPolicy.for_local_server(TOKEN, PORT), frontend_dir=frontend_dir
     )
-    return Api(create_app(config, make_services(tmp_path), clock), frontend_dir)
+    world = new_world(tmp_path)
+    return Api(create_app(config, make_services(tmp_path, world), clock), frontend_dir, world)

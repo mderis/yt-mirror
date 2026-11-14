@@ -18,6 +18,10 @@
 #   YTM_SMOKE_MOVE=1   Copy the whole folder to another place and start the
 #                      copy (R-IN-05).
 #
+# Nothing here touches the tools of the app folder: every start uses a tool
+# folder of its own inside the temporary data folder, and the script fails
+# when the tools of the app folder changed while it ran.
+#
 # Run from anywhere: scripts/smoke_test.sh
 
 set -eu
@@ -29,10 +33,22 @@ URL="http://127.0.0.1:$PORT"
 DATA_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ytm-smoke.XXXXXX")
 LOG="$DATA_DIR/start.log"
 APP_PID=""
+APP_ROOT="$ROOT"
+# Every start of this script installs and checks tools here, never in the app folder.
+SMOKE_TOOL_DIR="$DATA_DIR/tools"
+export YTM_TOOL_DIR="$SMOKE_TOOL_DIR"
 
 say() {
     printf '%s\n' "$*"
 }
+
+# What the tools of the app folder look like: names, sizes and times of their files.
+real_tools_state() {
+    for tool in ffmpeg deno; do
+        ls -lT "$APP_ROOT/tools/$tool" 2>/dev/null || echo "$tool: not installed"
+    done
+}
+REAL_TOOLS_BEFORE=$(real_tools_state)
 
 cleanup() {
     if [ -n "$APP_PID" ]; then
@@ -129,6 +145,20 @@ say "ok: the app stopped cleanly and logged it"
 
 if [ -n "${YTM_SMOKE_TOOLS:-}" ]; then
     say ""
+    say "Starting again: the installed tools must be found, not installed again ..."
+    installs=$(cat "$DATA_DIR"/data/logs/*.jsonl | grep -c '"event":"tool.install.started"')
+    start_without_window "$ROOT/start"
+    for tool in ffmpeg deno; do
+        [ "$(tool_field "$tool" status)" = "ok" ] || fail "$tool was $(tool_field "$tool" status) at the second start"
+    done
+    stop_app
+    [ "$(cat "$DATA_DIR"/data/logs/*.jsonl | grep -c '"event":"tool.install.started"')" = "$installs" ] ||
+        fail "a tool was installed again at the second start"
+    say "ok: the second start found both tools in order and installed nothing"
+fi
+
+if [ -n "${YTM_SMOKE_TOOLS:-}" ]; then
+    say ""
     say "Downloading ffmpeg from its second source, into a folder of its own ..."
     # Exported and taken back by hand: in sh, a variable set in front of a call of a
     # shell function would stay set for the rest of this script.
@@ -137,7 +167,8 @@ if [ -n "${YTM_SMOKE_TOOLS:-}" ]; then
     install_tool ffmpeg
     [ "$(tool_field ffmpeg source)" = "jellyfin-ffmpeg" ] || fail "ffmpeg did not come from the second source"
     stop_app
-    unset YTM_TOOL_SOURCE YTM_TOOL_DIR
+    unset YTM_TOOL_SOURCE
+    export YTM_TOOL_DIR="$SMOKE_TOOL_DIR"
 fi
 
 say ""
@@ -185,6 +216,12 @@ if [ -n "${YTM_SMOKE_MOVE:-}" ]; then
     mkdir -p "$(dirname "$COPY")"
     cp -R "$ROOT" "$COPY"
     rm -rf "$COPY/data"
+    # The tools this script installed travel with the copy, as they do in a moved folder.
+    if [ -d "$SMOKE_TOOL_DIR" ]; then
+        mkdir -p "$COPY/tools"
+        cp -R "$SMOKE_TOOL_DIR/." "$COPY/tools/"
+    fi
+    export YTM_TOOL_DIR="$COPY/tools"
     ROOT_BEFORE="$ROOT"
     ROOT="$COPY"
     PORT=$((PORT + 1))
@@ -205,6 +242,9 @@ if [ -n "${YTM_SMOKE_MOVE:-}" ]; then
     fi
     ROOT="$ROOT_BEFORE"
 fi
+
+[ "$(real_tools_state)" = "$REAL_TOOLS_BEFORE" ] || fail "the tools of the app folder changed while the smoke test ran"
+say "ok: the tools of the app folder were not touched"
 
 say ""
 say "Smoke test passed."

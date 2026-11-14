@@ -86,6 +86,9 @@
   --ytm-color-neutral-bg: #22262e;
   --ytm-color-neutral-text: #b4bbc7;
   --ytm-color-track: #2a303b;
+  --ytm-color-on-warn: #1a1206;
+  --ytm-color-scrim: #0b0d11;
+  --ytm-color-on-scrim: #e8ebf0;
 
   --ytm-shadow-raised: 0 4px 12px rgb(0 0 0 / 0.35);
   --ytm-shadow-overlay: 0 16px 48px rgb(0 0 0 / 0.5);
@@ -113,6 +116,9 @@
   --ytm-color-neutral-bg: #eceef2;
   --ytm-color-neutral-text: #454d5a;
   --ytm-color-track: #dde1e7;
+  --ytm-color-on-warn: #1a1206;
+  --ytm-color-scrim: #0b0d11;
+  --ytm-color-on-scrim: #e8ebf0;
 
   --ytm-shadow-raised: 0 4px 12px rgb(16 24 40 / 0.12);
   --ytm-shadow-overlay: 0 16px 48px rgb(16 24 40 / 0.2);

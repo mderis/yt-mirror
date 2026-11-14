@@ -23,6 +23,8 @@ ENV_WINDOW_REPORT = "YTM_WINDOW_REPORT"
 ENV_TOOL_DIR = "YTM_TOOL_DIR"
 ENV_TOOL_MANIFEST = "YTM_TOOL_MANIFEST"
 ENV_TOOL_SOURCE = "YTM_TOOL_SOURCE"
+ENV_FAKE_YOUTUBE = "YTM_FAKE_YOUTUBE"
+ENV_LIBRARY_DIR = "YTM_LIBRARY_DIR"
 
 DEFAULT_DEV_FRONTEND_URL = "http://127.0.0.1:5173/"
 DEFAULT_TOOL_MANIFEST = Path(__file__).resolve().parents[1] / "services" / "toolchain_manifest.json"
@@ -42,8 +44,11 @@ class AppPaths:
         frontend_dir: The built interface.
         uv_executable: The bundled uv program.
         tool_dir: The folder the downloaded tools are kept in.
+        cache_dir: Pictures of the catalogue and other things that can be fetched again.
+        default_library: What the default of the library setting means on this Mac.
         tool_manifest: The file that pins the downloadable tools.
         only_tool_source: The one tool source to use, or None for all. For automated tests.
+        fake_youtube: A folder with a recorded world of channels, or None for the real YouTube.
     """
 
     code_root: Path
@@ -54,8 +59,11 @@ class AppPaths:
     frontend_dir: Path
     uv_executable: Path
     tool_dir: Path
+    cache_dir: Path
+    default_library: Path
     tool_manifest: Path = DEFAULT_TOOL_MANIFEST
     only_tool_source: str | None = None
+    fake_youtube: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,8 +100,9 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
 
     Args:
         env: The environment variables. ``YTM_HOME`` and ``YTM_DATA_DIR`` override the
-            defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST`` and ``YTM_TOOL_SOURCE`` are
-            for tests.
+            defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST``, ``YTM_TOOL_SOURCE`` and
+            ``YTM_LIBRARY_DIR`` are for tests. ``YTM_FAKE_YOUTUBE`` names a folder with a
+            recorded world of channels to use in place of the real YouTube.
 
     Returns:
         The paths. Nothing is created.
@@ -114,6 +123,11 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
         if env.get(ENV_TOOL_MANIFEST)
         else DEFAULT_TOOL_MANIFEST,
         only_tool_source=env.get(ENV_TOOL_SOURCE) or None,
+        cache_dir=data_dir / "cache",
+        default_library=Path(env[ENV_LIBRARY_DIR])
+        if env.get(ENV_LIBRARY_DIR)
+        else Path.home() / "Movies" / "YouTube",
+        fake_youtube=Path(env[ENV_FAKE_YOUTUBE]) if env.get(ENV_FAKE_YOUTUBE) else None,
     )
 
 

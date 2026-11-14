@@ -1,0 +1,56 @@
+{
+  "id": "UCchangingchannel0000005",
+  "title": "Sample Channel Changing",
+  "handle": "@samplechannelchanging",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 57,
+  "generate": {
+    "count": 45,
+    "id_prefix": "chg",
+    "title": "Episode {number}"
+  },
+  "checks": [
+    {
+      "add": [
+        {
+          "id": "chgnew00001",
+          "title": "A brand new episode",
+          "duration_s": 611,
+          "view_count": 1200,
+          "point": "2026-11-13T18:00:00Z"
+        },
+        {
+          "id": "chgnew00002",
+          "title": "A late upload between older ones",
+          "duration_s": 733,
+          "view_count": 90,
+          "point": "2026-11-08",
+          "before": "chg00000041"
+        },
+        {
+          "id": "chgnew00003",
+          "title": "A late upload far down the channel",
+          "duration_s": 455,
+          "view_count": 40,
+          "point": "2026-10-07",
+          "before": "chg00000005"
+        }
+      ]
+    },
+    {
+      "retitle": {
+        "chg00000044": "Episode 44, now with a better title",
+        "chg00000003": "Episode 3, renamed far down the channel"
+      },
+      "remove": ["chg00000042"]
+    },
+    {},
+    {},
+    {
+      "fail": "NETWORK_UNREACHABLE"
+    },
+    {
+      "restore": ["chg00000042"]
+    }
+  ]
+}

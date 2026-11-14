@@ -50,8 +50,10 @@ const ARBITRARY_PROPERTY = /(?<![\w-])\[[a-z-]+:[^\]\s]+\]/g
 const ARBITRARY_VARIABLE = /(?<![\w-])(?:[a-z][a-z0-9:/-]*-)\(--[^)\s]*\)/g
 const SPACING_UTILITIES =
   'p[xytrblse]?|m[xytrblse]?|gap(?:-[xy])?|space-[xy]|w|h|size|min-w|min-h|max-w|max-h|inset(?:-[xy])?|top|right|bottom|left|start|end|basis|indent|translate(?:-[xy])?'
+// The scale is 2 px or a multiple of 4 px (docs/DESIGN.md section 2.4). Half a step, written
+// 0.5, is the 2 px step. Every other fraction is off the scale.
 const FRACTIONAL_SPACING = new RegExp(
-  `(?<![\\w-])-?(?:[a-z-]+:)*(?:${SPACING_UTILITIES})-\\d+\\.\\d+(?![\\w-])`,
+  `(?<![\\w-])-?(?:[a-z-]+:)*(?:${SPACING_UTILITIES})-(?!0\\.5(?![\\w.-]))\\d+\\.\\d+(?![\\w-])`,
   'g',
 )
 const NUMERIC_LINE_HEIGHT = /(?<![\w-])(?:[a-z-]+:)*leading-\d+(?:\.\d+)?(?![\w-])/g
@@ -130,7 +132,11 @@ export function checkText(
     }
   }
   for (const match of text.matchAll(FRACTIONAL_SPACING)) {
-    add(match.index, 'off-scale', `${match[0]} is not a whole multiple of the spacing step`)
+    add(
+      match.index,
+      'off-scale',
+      `${match[0]} is off the spacing scale. Use half a step (0.5, which is 2 px) or whole steps`,
+    )
   }
   for (const match of text.matchAll(NUMERIC_LINE_HEIGHT)) {
     add(match.index, 'off-scale', `${match[0]} is a one-off line height. Use a line height token`)

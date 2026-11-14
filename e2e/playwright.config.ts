@@ -1,12 +1,16 @@
+import { resolve } from 'node:path'
+
 import { defineConfig, devices } from '@playwright/test'
 
 import {
   APP_PORT,
   APP_URL,
   DATA_DIR,
+  FAKE_YOUTUBE_DIR,
   PREVIEW_PORT,
   PREVIEW_URL,
   SESSION_TOKEN,
+  SHARED_LIBRARY_DIR,
   SHARED_TOOL_DIR,
   TOOLS_FIXTURE_DIR,
   TOOLS_PORT,
@@ -41,6 +45,8 @@ export default defineConfig({
   use: {
     baseURL: APP_URL,
     trace: 'retain-on-failure',
+    // Dates are shown in the time zone of the machine (R-DT-02). The tests fix it.
+    timezoneId: 'UTC',
   },
   projects: [
     { name: 'webkit', use: { ...devices['Desktop Safari'], viewport } },
@@ -66,6 +72,9 @@ export default defineConfig({
         YTM_DATA_DIR: `${DATA_DIR}/shared-data`,
         YTM_TOOL_DIR: SHARED_TOOL_DIR,
         YTM_TOOL_MANIFEST: `${TOOLS_FIXTURE_DIR}/manifest.json`,
+        // No test asks the real YouTube or writes into the real library.
+        YTM_FAKE_YOUTUBE: resolve(FAKE_YOUTUBE_DIR),
+        YTM_LIBRARY_DIR: resolve(SHARED_LIBRARY_DIR),
       },
       reuseExistingServer: false,
       // The first start downloads uv, Python and packages, and builds the interface.

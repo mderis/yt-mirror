@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/vue'
 import { describe, expect, it } from 'vitest'
 
+import { ICON_NAMES } from '@/components/icons'
 import { BrandIcon } from '@/design/brand'
 import ThemePreview from '@/design/preview/ThemePreview.vue'
 import { THEME_NAMES } from '@/design/themes'
@@ -14,6 +15,23 @@ const tokens = parseTokens(read(DESIGN_DIR, 'tokens.css'))
 function renderPreview(): HTMLElement {
   return render(ThemePreview, { global: { plugins: [i18n] } }).container as HTMLElement
 }
+
+/** Every shared component has a place on the page, marked with its name. */
+const SHOWN = [
+  'button',
+  'icon',
+  'progress',
+  'banner',
+  'more-buttons',
+  'chip',
+  'field',
+  'menu',
+  'dialog',
+  'sidebar-item',
+  'video-row',
+  'skeleton',
+  'empty',
+]
 
 describe('the theme preview page', () => {
   it('R-TH-08: shows every theme side by side, each under its own data-theme attribute', () => {
@@ -88,20 +106,26 @@ describe('the theme preview page', () => {
       const components = container.querySelector(
         `[data-theme="${theme}"] [data-group="components"]`,
       )
-      expect(components?.querySelectorAll('button').length, theme).toBe(4)
+      for (const component of SHOWN) {
+        expect(
+          components?.querySelector(`[data-component="${component}"]`),
+          `${component} in ${theme}`,
+        ).not.toBeNull()
+      }
       expect(components?.querySelectorAll('[role="progressbar"]').length, theme).toBe(2)
-      expect(components?.querySelector('[role="status"]')?.textContent, theme).toContain(
-        'ffmpeg is missing',
-      )
       expect(components?.querySelector('[role="alert"]')?.textContent, theme).toContain(
         'Deno could not be installed',
+      )
+      expect(components?.querySelectorAll('[data-tone]').length, theme).toBeGreaterThanOrEqual(5)
+      expect(components?.querySelector('[data-date="waiting"]')?.textContent, theme).toContain(
+        'around 2005',
       )
       expect(
         [...(components?.querySelectorAll('[data-component="icon"] svg') ?? [])].map((icon) =>
           icon.getAttribute('data-icon'),
         ),
         theme,
-      ).toEqual(['check', 'download', 'clock', 'warning', 'retry'])
+      ).toEqual(ICON_NAMES)
     }
     expect(
       container.querySelector('[data-theme="dark"]')?.querySelectorAll('[data-group="brand"] svg')

@@ -3,6 +3,8 @@ import { vi, type Mock } from 'vitest'
 
 import type { Tool, ToolName, ToolsAnswer } from '@/api/client'
 
+import { appState } from './catalogue'
+
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -77,11 +79,12 @@ export function mockApi(answers: Record<string, Answer>): Mock<typeof fetch> {
   return mock
 }
 
-/** The answers of a healthy backend on a Mac where every tool is in place. */
+/** The answers of a healthy backend on a Mac where every tool is in place and no channel was added. */
 export function healthyApi(changes: Record<string, Answer> = {}): Mock<typeof fetch> {
   return mockApi({
     'GET /api/health': jsonResponse(HEALTH),
     'GET /api/tools': jsonResponse(allToolsReady()),
+    'GET /api/state': jsonResponse(appState()),
     ...changes,
   })
 }

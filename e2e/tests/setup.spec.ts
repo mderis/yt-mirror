@@ -24,7 +24,7 @@ async function openFirstRun(page: Page, app: FreshApp): Promise<void> {
 async function finishFirstRun(page: Page, app: FreshApp): Promise<void> {
   await openFirstRun(page, app)
   await page.getByRole('button', { name: 'Continue' }).click()
-  await expect(page.getByText('yt-mirror is running.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mirror your first channel' })).toBeVisible()
 }
 
 test('R-IN-03: the first run shows the tools, installs the missing ones, then the app opens', async ({
@@ -41,7 +41,7 @@ test('R-IN-03: the first run shows the tools, installs the missing ones, then th
   await expect(page.getByText('About 120 MB in total. This only happens once.')).toBeVisible()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  await expect(page.getByText('yt-mirror is running.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mirror your first channel' })).toBeVisible()
   await expect(page.locator('[data-banner]')).toHaveCount(0)
   const state = (await freshApp.api('/tools')) as {
     setup_required: boolean
@@ -57,7 +57,7 @@ test('R-IN-03: once the first run is done, it does not come back', async ({ page
   await freshApp.restart()
   await page.goto(freshApp.firstUrl)
 
-  await expect(page.getByText('yt-mirror is running.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mirror your first channel' })).toBeVisible()
   await expect(page.getByText('Getting yt-mirror ready')).toHaveCount(0)
 })
 
@@ -103,7 +103,7 @@ test('R-IN-04: a tool that stopped working gets a banner, and "Install now" repa
   await page.goto(freshApp.firstUrl)
 
   const banner = page.locator('[data-banner="deno"]')
-  await expect(page.getByText('yt-mirror is running.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mirror your first channel' })).toBeVisible()
   await expect(banner).toContainText('Deno no longer works.')
   await banner.getByRole('button', { name: 'Install now' }).click()
   await expect(page.locator('[data-banner]')).toHaveCount(0)

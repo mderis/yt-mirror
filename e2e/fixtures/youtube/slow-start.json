@@ -1,0 +1,14 @@
+{
+  "id": "UCslowfailing00000000007",
+  "title": "Sample Channel Slow Start",
+  "handle": "@samplechannelslowstart",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 300,
+  "generate": {
+    "count": 300,
+    "id_prefix": "ssf",
+    "title": "Slow start episode {number}"
+  },
+  "page_delay_ms": 400,
+  "listing_failures": { "0": "NETWORK_UNREACHABLE" }
+}

@@ -25,4 +25,6 @@ def paths(tmp_path: Path) -> AppPaths:
         frontend_dir=frontend_dir,
         uv_executable=tmp_path / "tools" / "uv" / "uv",
         tool_dir=tmp_path / "tools",
+        cache_dir=data_dir / "cache",
+        default_library=tmp_path / "library",
     )

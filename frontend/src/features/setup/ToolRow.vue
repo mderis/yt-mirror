@@ -10,7 +10,8 @@ import { useI18n } from 'vue-i18n'
 
 import type { Tool } from '@/api/client'
 import AppButton from '@/components/AppButton.vue'
-import AppIcon, { type IconName } from '@/components/AppIcon.vue'
+import AppIcon from '@/components/AppIcon.vue'
+import type { IconName } from '@/components/icons'
 import ProgressBar from '@/components/ProgressBar.vue'
 
 const props = defineProps<{
@@ -49,7 +50,7 @@ const reason = computed(() => {
 
 <template>
   <li
-    class="flex flex-wrap items-center gap-4 rounded-lg border border-line bg-surface px-4 py-3"
+    class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3"
     :data-tool="tool.name"
     :data-status="tool.status"
   >

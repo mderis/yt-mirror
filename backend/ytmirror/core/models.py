@@ -1,7 +1,7 @@
 """Domain data types of yt-mirror.
 
-Frozen dataclasses and enums only. Channel, Video and Job are added by the
-milestones that implement them. This module must not read or write anything.
+Frozen dataclasses and enums only. Channels and videos have a module of their
+own, ``channels.py``. This module must not read or write anything.
 
 Tests: backend/tests/unit/core/test_models.py
 """
@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from ytmirror.core.channels import ChannelUpdated, TaskProgressed, YouTubePauseChanged
 from ytmirror.core.errors import ErrorCode
 
 APP_NAME = "yt-mirror"
@@ -21,6 +22,10 @@ BUNDLE_IDENTIFIER = "io.github.mderis.yt-mirror"
 
 MINIMUM_MACOS_MAJOR = 15
 """The oldest supported macOS major version (R-PL-01, docs/DECISIONS.md D-035)."""
+
+
+DEFAULT_LIBRARY_FOLDER = "~/Movies/YouTube"
+"""The library folder of an app in which none was chosen (docs/SPEC.md section 10, R-FI-01)."""
 
 
 class LogDetail(StrEnum):
@@ -46,9 +51,12 @@ class Settings:
 
     Attributes:
         log_detail: How much the debug log records.
+        library_folder: The parent folder of the channel folders (R-FI-01). A leading
+            ``~`` stands for the home folder of the user.
     """
 
     log_detail: LogDetail = LogDetail.NORMAL
+    library_folder: str = DEFAULT_LIBRARY_FOLDER
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,5 +337,5 @@ class ToolUpdated:
     report: ToolReport
 
 
-type AppEvent = ToolUpdated
+type AppEvent = ToolUpdated | ChannelUpdated | TaskProgressed | YouTubePauseChanged
 """Every event the services publish for the interface. Each milestone adds its own."""

@@ -2,8 +2,9 @@
  * The tools store: the state of every tool the app needs (R-IN-03, R-IN-04).
  *
  * It is filled from `/api/tools` and kept current by the `tool.updated`
- * events of the event stream. After a break of the stream it loads the
- * snapshot again, so a missed event cannot leave the interface stale.
+ * events of the event stream, which the app store passes on (`apply`). After
+ * a break of the stream the app store loads the snapshot again, so a missed
+ * event cannot leave the interface stale.
  */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -21,7 +22,6 @@ export const useToolsStore = defineStore('tools', () => {
   const tools = ref<Tool[]>([])
   /** True from the moment the backend asks for the first-run screen until the user leaves it. */
   const inSetup = ref(false)
-  let closeStream: (() => void) | null = null
 
   const allReady = computed(
     () => tools.value.length > 0 && tools.value.every((tool) => tool.status === 'ok'),
@@ -30,6 +30,7 @@ export const useToolsStore = defineStore('tools', () => {
   /** The tools that are not usable and not being installed, in display order. */
   const troubled = computed(() => tools.value.filter(needsAttention))
 
+  /** Take over the new state of one tool, as an event of the stream tells it. */
   function apply(tool: Tool): void {
     const index = tools.value.findIndex((known) => known.name === tool.name)
     if (index === -1) {
@@ -46,20 +47,6 @@ export const useToolsStore = defineStore('tools', () => {
     if (answer.setup_required) {
       inSetup.value = true
     }
-  }
-
-  /** Keep the tools current from the event stream. Does nothing when it listens already. */
-  function listen(): void {
-    closeStream ??= api.openEvents({
-      toolUpdated: (event) => apply(event.tool),
-      reconnected: () => void load().catch(() => undefined),
-    })
-  }
-
-  /** Stop listening to the event stream. */
-  function stopListening(): void {
-    closeStream?.()
-    closeStream = null
   }
 
   /**
@@ -118,8 +105,7 @@ export const useToolsStore = defineStore('tools', () => {
     installing,
     troubled,
     load,
-    listen,
-    stopListening,
+    apply,
     install,
     installNextMissing,
     finishSetup,

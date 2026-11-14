@@ -1,0 +1,14 @@
+{
+  "id": "UCslowchannel00000000006",
+  "title": "Sample Channel Slow",
+  "handle": "@samplechannelslow",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 300,
+  "generate": {
+    "count": 300,
+    "id_prefix": "slw",
+    "title": "Slow episode {number}"
+  },
+  "page_delay_ms": 400,
+  "checks": [{ "fail": "NETWORK_UNREACHABLE" }, { "delay_ms": 2500 }]
+}

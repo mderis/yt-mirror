@@ -8,7 +8,10 @@ Use these words, with these meanings, in code, UI text, logs, tests and docs. If
 | **Video** | One regular video of a channel. Shorts and live streams are not videos in V1 | `Video` |
 | **Catalogue** | The app's stored list of a channel's videos | `catalogue` |
 | **Listing** | Reading the channel's video list from YouTube | `list_channel` |
-| **Check** | One refresh of a channel's catalogue: listing plus everything that follows from it | `check` |
+| **Check** | One refresh of a channel's catalogue: listing plus everything that follows from it. A check is a quick check or a full check (R-CH-12) | `check` |
+| **Quick check** | A check that reads the channel's video list from the newest video and stops at a full page of videos it already knows. It finds new videos and never marks one as removed | `CheckKind.QUICK` |
+| **Full check** | A check that reads the whole video list. Only a full check counts towards "removed from YouTube" | `CheckKind.FULL` |
+| **First listing** | The first full check of a channel, which fills its catalogue (R-CH-11) | `first_listed_at` |
 | **Mirror** (verb) | Download a video so that a correct file exists for it | `mirror`, job kind `download` |
 | **Auto-mirror** | Per-channel option: mirror every eligible video now and after each check | `auto_mirror` |
 | **Synced** | The video has a verified local file with correct metadata and dates | status `synced` |
@@ -23,9 +26,10 @@ Use these words, with these meanings, in code, UI text, logs, tests and docs. If
 | **Auto-exclude rule** | A per-channel rule that excludes matching videos | `ExcludeRule` |
 | **Exception** | A video the user protected from auto-exclude rules | `exclude_exception` |
 | **New** | First seen in a check after the channel's first listing, and still relevant (R-CH-15) | derived `is_new` |
-| **Removed from YouTube** | No longer listed on the channel after two successful checks | flag `gone` |
+| **Removed from YouTube** | No longer listed on the channel after two consecutive successful full checks | flag `gone` |
 | **Published time** | The moment the video became public on YouTube | `published_at` |
 | **Exact date / approximate date** | Whether the published time is known to the second or only roughly | `published_exact` |
+| **Date precision** | The unit YouTube gave an approximate date in: day, week, month or year. It tells the range the real date lies in (R-DT-04) | `published_precision` |
 | **Library** | The default parent folder for channel folders | `library` |
 | **Channel folder** | The folder that holds one channel's video files | `folder` |
 | **Hidden folder** | The `.yt-mirror` subfolder of a channel folder with metadata, thumbnails and temp files | `HIDDEN_DIR` |

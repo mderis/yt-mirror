@@ -4,6 +4,14 @@
 
 Everything in [SPEC.md](SPEC.md). The build order is in [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md).
 
+## To decide before the first public release
+
+Not in the specification and in no milestone yet. Each needs the maintainer's decision, requirements in the spec and a milestone before work starts.
+
+| Idea | Notes |
+|---|---|
+| Optional crash reports and anonymous usage counts | Opt-in, off by default, asked once at first start, a switch for each in Settings. Sent to Sentry or a service that speaks its protocol. Never sent: paths, the user name, channel names, video titles or IDs, the API key. Behind a Telemetry port, with an adapter that sends nothing in tests and CI. Conflicts with R-HE-03 as it stands. Proposed requirements and the privacy page: [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md), Q-28 |
+
 ## Candidates for later versions
 
 Not committed. Each needs its own spec section, designs and decision record before work starts.
@@ -11,11 +19,12 @@ Not committed. Each needs its own spec section, designs and decision record befo
 | Idea | Notes |
 |---|---|
 | SponsorBlock | Mark sponsor segments as chapters. Declined for V1 |
+| A video in two channels | A video that two channels list (a collaboration) is shown in both, with one file on disk. Version 1 gives it to the channel that listed it first (R-CH-17, D-075) |
 | Shorts and live streams | Per-channel toggles for the other tabs |
 | Playlists and single videos as sources | |
 | Proxy setting | |
 | Background operation | Menu bar agent or scheduled runs while the window is closed |
-| Sign-in with cookies | Members-only and age-restricted videos |
+| Sign-in with cookies | Members-only and age-restricted videos. Signing in with the cookies of a browser is also the usual way around YouTube's "confirm you're not a bot" check, which refuses requests from some network addresses (R-ER-05). Version 1 only explains the check and pauses. If the check turns out to be common for users, this may have to move into version 1 |
 | MP4 output, audio-only output | |
 | More subtitle languages, UI translations | Strings are already centralised (R-PL-06) |
 | Per-channel overrides for subtitles and check interval | |

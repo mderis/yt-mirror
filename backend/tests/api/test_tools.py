@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.api.conftest import PORT, TOKEN, Api, make_diagnostics
+from tests.api.conftest import PORT, TOKEN, Api, new_world, services_around
 from tests.fixtures.builders import make_toolchain, tool_box_with
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.tool_box import FakeToolBox
-from ytmirror.api.app import ApiConfig, ApiServices, create_app
+from ytmirror.api.app import ApiConfig, create_app
 from ytmirror.api.security import SecurityPolicy
 from ytmirror.core.models import ToolName
 from ytmirror.services.events import EventBus
@@ -19,7 +19,7 @@ def api_with(tool_box: FakeToolBox, tmp_path: Path, frontend_dir: Path, clock: F
     events = EventBus()
     toolchain = make_toolchain(tool_box=tool_box, events=events)
     toolchain.verify()
-    services = ApiServices(make_diagnostics(tmp_path), toolchain, events)
+    services = services_around(tmp_path, toolchain, new_world(tmp_path, events))
     config = ApiConfig(SecurityPolicy.for_local_server(TOKEN, PORT), frontend_dir)
     return Api(create_app(config, services, clock), frontend_dir)
 
