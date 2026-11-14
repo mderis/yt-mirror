@@ -75,6 +75,7 @@ describe('the placeholder page', () => {
       '/api/health',
       '/api/health',
       '/api/tools',
+      '/api/state',
     ])
     expect(screen.queryByRole('alert')).toBeNull()
     expect(allToolsReady().setup_required).toBe(false)

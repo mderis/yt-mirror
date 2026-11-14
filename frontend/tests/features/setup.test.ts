@@ -57,6 +57,7 @@ describe('the first-run screen', () => {
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/health',
       '/api/tools',
+      '/api/state',
       '/api/tools/ffmpeg/install',
     ])
   })
