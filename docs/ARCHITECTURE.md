@@ -74,6 +74,7 @@ yt-mirror/
     ytmirror/
       core/                  Pure domain code. No I/O, no framework imports.
         models.py            Dataclasses: Channel, Video, Job, Settings, ...
+        identity.py          Name and bundle identifier of an installed copy and of a clone (R-NA-01)
         status.py            Video and channel status machines
         naming.py            Title to file name rules (R-FN-*)
         dates.py             Date handling rules (R-DT-*)
@@ -89,6 +90,7 @@ yt-mirror/
         media_tools.py       ffmpeg and ffprobe operations
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
+        native_app_mac.py    The menu bar, the app's name and the end of the app, through AppKit (section 7.10)
         github_releases.py   Release lookup and download
         system_clock.py      The real clock behind the Clock port
         system_probe.py      Read-only facts about the Mac, for the environment report
@@ -125,9 +127,10 @@ yt-mirror/
         logging_setup.py     The debug log pipeline
         server.py            The HTTP server thread
         window.py            The app window
+        signals.py           Turns Ctrl+C and a termination signal into a request to quit
         doctor.py            Text of the environment report
         bundle.py            Builds the macOS app bundle (section 7.10, from milestone M1)
-        menus.py             The menu bar, defined as data (section 7.10, from milestone M5)
+        menus.py             The menu bar, defined as data (section 7.10). The app menu and Edit from M1, the rest from M5
       tools/                 Developer programs: python -m ytmirror.tools.<name>
       migrations/            Alembic environment and versions
     tests/
@@ -472,5 +475,6 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_SESSION_TOKEN` | app | A fixed session token instead of a random one. For tests only |
 | `YTM_NO_WINDOW` | app | Serve without opening a window or a browser, until a stop signal. For tests |
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
+| `YTM_WINDOW_REPORT` | app | A file to which the app writes what macOS shows of it, once the window is up: its name, its bundle identifier and its menu bar. For tests |
 | `YTM_UV_BASE_URL` | `start` | Where uv is downloaded from. For tests. The checksum is checked in every case |
 | `YTM_E2E_CHROME_CHANNEL` | Playwright | Use an installed Chrome where Playwright's Chromium cannot be downloaded |

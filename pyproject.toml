@@ -48,6 +48,7 @@ addopts = ["--strict-markers", "--strict-config", "-m", "not live"]
 markers = [
     "live: needs the real YouTube. Opt-in, never run in CI (docs/TESTING.md section 8).",
     "infra: an infrastructure test that covers no requirement. Set from the docstring (docs/TESTING.md rule 1).",
+    "window: opens the real app window for a few seconds (docs/TESTING.md section 1). Leave them out with: -m 'not window'.",
 ]
 filterwarnings = ["error"]
 

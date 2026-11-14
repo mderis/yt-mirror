@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.fixtures.fakes.clock import FakeClock
+from tests.fixtures.fakes.native_app import FakeNativeApp
 from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.app import main as main_module
@@ -28,7 +30,8 @@ from ytmirror.app.main import (
     run_app,
     wait_for_stop_signal,
 )
-from ytmirror.core.models import LogDetail, Settings
+from ytmirror.app.menus import menu_bar
+from ytmirror.core.models import AppIdentity, LogDetail, Settings
 
 TOKEN = "integration-test-token"
 
@@ -45,13 +48,30 @@ def options(**changes: object) -> RunOptions:
         "port": None,
         "session_token": TOKEN,
         "frontend_url": None,
+        "window_report": None,
     }
     values.update(changes)
     return RunOptions(**values)  # pyright: ignore[reportArgumentType]  (test helper with loose types)
 
 
-def _no_window_expected(_url: str, *, debug: bool) -> None:
-    pytest.fail(f"The app window must not open in this mode (debug={debug})")
+def _no_window_expected(_url: str, **_how: object) -> None:
+    pytest.fail("The app window must not open in this mode")
+
+
+class OpenedWindows:
+    """Stands in for ``open_window``: remembers how every window was asked for."""
+
+    def __init__(self) -> None:
+        """Start with no window."""
+        self.windows: list[dict[str, object]] = []
+
+    def __call__(self, url: str, **how: object) -> None:
+        """Remember the window instead of opening it."""
+        self.windows.append({"url": url, **how})
+
+
+def _never() -> None:
+    pytest.fail("The shutdown work is not the business of this way of showing the app")
 
 
 class Visit:
@@ -65,7 +85,7 @@ class Visit:
         self.health: dict[str, object] = {}
         self.health_without_session = 0
 
-    def __call__(self, url: str) -> None:
+    def __call__(self, url: str, _before_quit: object = None) -> None:
         """Visit the app the way the window does, then return so the app stops."""
         self.first_url = url
         base = url.split("/?", maxsplit=1)[0]
@@ -193,10 +213,44 @@ def test_old_log_files_are_removed_at_start(paths: AppPaths) -> None:
     assert (paths.logs_dir / "yt-mirror-2026-11-20.jsonl").exists()
 
 
+def test_quit_runs_the_shutdown_work_once_before_macos_ends_the_process(paths: AppPaths) -> None:
+    """R-PL-13: on Quit the app stops its server and writes its last log line first.
+
+    Quit ends the process inside macOS: the window never returns to the app.
+    The window is given the shutdown work, and the work runs exactly once
+    even when the window returns afterwards.
+    """
+    seen: dict[str, object] = {}
+
+    def window_in_which_the_user_quits(url: str, before_quit: Callable[[], None]) -> None:
+        base = url.split("/?", maxsplit=1)[0]
+        before_quit()
+        seen["events"] = [line["event"] for line in log_lines(paths)]
+        try:
+            httpx2.get(base + "/api/health", timeout=2)
+        except httpx2.HTTPError as error:
+            seen["server"] = type(error).__name__
+        before_quit()
+
+    run_app(
+        options(), paths, build_container(paths), wait=window_in_which_the_user_quits, console=None
+    )
+
+    assert seen["events"] == [
+        "db.migration.started",
+        "db.migration.finished",
+        "app.started",
+        "app.config",
+        "app.stopping",
+    ]
+    assert seen["server"] == "ConnectError"
+    assert [line["event"] for line in log_lines(paths)].count("app.stopping") == 1
+
+
 def test_a_crash_is_logged_with_its_stack_trace_and_passed_on(paths: AppPaths) -> None:
     """R-LG-06: ``app.crashed`` records an unexpected end, and the error is not swallowed."""
 
-    def broken_window(_url: str) -> None:
+    def broken_window(_url: str, _before_quit: object) -> None:
         raise RuntimeError("window library exploded")
 
     with pytest.raises(RuntimeError, match="window library exploded"):
@@ -232,22 +286,76 @@ def test_doctor_prints_the_report_and_creates_no_data(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_the_default_way_to_show_the_app_is_the_window(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_default_way_to_show_the_app_is_the_window(
+    monkeypatch: pytest.MonkeyPatch, paths: AppPaths
+) -> None:
     """R-PL-02: the UI runs in a dedicated app window, not a browser tab."""
-    opened: list[tuple[str, bool]] = []
+    opened = OpenedWindows()
+    monkeypatch.setattr(main_module, "open_window", opened)
+    container = build_container(paths, native=FakeNativeApp())
 
-    def fake_open_window(url: str, *, debug: bool) -> None:
-        opened.append((url, debug))
+    choose_wait(options(no_window=False, debug=True), container)(
+        "http://127.0.0.1:1/?token=t", _never
+    )
 
-    monkeypatch.setattr(main_module, "open_window", fake_open_window)
+    (window,) = opened.windows
+    assert window["url"] == "http://127.0.0.1:1/?token=t"
+    assert window["debug"] is True
+    assert window["native"] is container.native
+    assert window["before_quit"] is _never
 
-    choose_wait(options(no_window=False, debug=True))("http://127.0.0.1:1/?token=t")
 
-    assert opened == [("http://127.0.0.1:1/?token=t", True)]
+def test_the_window_carries_the_name_and_the_menu_bar_of_this_installation(
+    monkeypatch: pytest.MonkeyPatch, paths: AppPaths
+) -> None:
+    """R-NA-01, R-NA-03: an installed copy is "yt-mirror", a clone "yt-mirror (dev)"."""
+    opened = OpenedWindows()
+    monkeypatch.setattr(main_module, "open_window", opened)
+
+    choose_wait(options(no_window=False), build_container(paths))("http://127.0.0.1:1/", _never)
+    (paths.code_root / ".git").mkdir()
+    choose_wait(options(no_window=False), build_container(paths))("http://127.0.0.1:1/", _never)
+
+    installed, clone = opened.windows
+    assert installed["title"] == "yt-mirror"
+    assert installed["menus"] == menu_bar("yt-mirror")
+    assert clone["title"] == "yt-mirror (dev)"
+    assert clone["menus"] == menu_bar("yt-mirror (dev)")
+    assert installed["when_shown"] is None
+
+
+def test_asked_for_a_window_report_the_app_writes_what_macos_shows(
+    monkeypatch: pytest.MonkeyPatch, paths: AppPaths, tmp_path: Path
+) -> None:
+    """infra: tests read the name and the menu bar of the real window from a file."""
+    report = tmp_path / "window.json"
+    native = FakeNativeApp(AppIdentity("yt-mirror (dev)", "io.github.mderis.yt-mirror.dev"))
+    native.show_menu_bar(menu_bar("yt-mirror (dev)"))
+    opened = OpenedWindows()
+    monkeypatch.setattr(main_module, "open_window", opened)
+    container = build_container(paths, native=native)
+
+    choose_wait(options(no_window=False, window_report=report), container)("http://x/", _never)
+    when_shown = opened.windows[0]["when_shown"]
+    assert callable(when_shown)
+    when_shown()
+
+    shown = json.loads(report.read_text(encoding="utf-8"))
+    assert shown["identity"] == {
+        "name": "yt-mirror (dev)",
+        "bundle_identifier": "io.github.mderis.yt-mirror.dev",
+    }
+    assert [menu["title"] for menu in shown["menu_bar"]] == ["yt-mirror (dev)", "Edit"]
+    assert shown["menu_bar"][1]["items"][1] == {
+        "title": "Redo",
+        "action": "redo",
+        "shortcut": {"key": "z", "shift": True, "option": False},
+        "enabled": True,
+    }
 
 
 def test_the_browser_flag_opens_the_default_browser_instead(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], paths: AppPaths
 ) -> None:
     """R-PL-02: a ``--browser`` flag opens the UI in the default browser instead."""
     opened: list[str] = []
@@ -256,7 +364,10 @@ def test_the_browser_flag_opens_the_default_browser_instead(
     monkeypatch.setattr(main_module, "wait_for_stop_signal", lambda: waited.append(True))
     monkeypatch.setattr(main_module, "open_window", _no_window_expected)
 
-    choose_wait(options(no_window=False, browser=True))("http://127.0.0.1:1/?token=t")
+    container = build_container(paths)
+    choose_wait(options(no_window=False, browser=True), container)(
+        "http://127.0.0.1:1/?token=t", _never
+    )
 
     assert opened == ["http://127.0.0.1:1/?token=t"]
     assert waited == [True]
@@ -264,14 +375,16 @@ def test_the_browser_flag_opens_the_default_browser_instead(
 
 
 def test_without_a_window_the_app_just_waits_for_a_stop_signal(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, paths: AppPaths
 ) -> None:
     """infra: automated tests run the server alone and stop it with a signal."""
     waited: list[bool] = []
     monkeypatch.setattr(main_module, "wait_for_stop_signal", lambda: waited.append(True))
     monkeypatch.setattr(main_module, "open_window", _no_window_expected)
 
-    choose_wait(options(no_window=True, browser=True))("http://127.0.0.1:1/")
+    choose_wait(options(no_window=True, browser=True), build_container(paths))(
+        "http://127.0.0.1:1/", _never
+    )
 
     assert waited == [True]
 

@@ -5,11 +5,19 @@ options, builds the container, brings the database up to date, starts the
 HTTP server in a thread and shows the window on the main thread. When the
 window closes, the app stops (docs/DECISIONS.md D-020).
 
+However the app is asked to quit, its shutdown work runs once before the
+process ends (R-PL-13, docs/DECISIONS.md D-052). Closing the window returns
+to this module. Quit, a logout and a stop signal end the process inside
+macOS, so the same work is also handed to the window as ``before_quit``.
+
 This module must not contain rules. It only orders the steps of a run.
 
 Tests: backend/tests/integration/app/test_main.py
 """
 
+import dataclasses
+import functools
+import json
 import os
 import secrets
 import signal
@@ -17,6 +25,7 @@ import sys
 import threading
 import webbrowser
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from types import FrameType
 from typing import TextIO
 
@@ -35,10 +44,13 @@ from ytmirror.app.logging_setup import (
     remove_old_logs,
     set_verbose,
 )
+from ytmirror.app.menus import menu_bar
 from ytmirror.app.server import BackgroundServer, bind_local_socket
 from ytmirror.app.window import open_window
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.identity import app_identity
 from ytmirror.core.models import LogDetail
+from ytmirror.ports.native_app import NativeApp
 
 # Not __name__: started with "python -m" this module is called __main__.
 _log: FilteringBoundLogger = structlog.get_logger("ytmirror.app.main")
@@ -53,8 +65,29 @@ UPDATE_NOT_AVAILABLE = (
 )
 BROWSER_HINT = "yt-mirror is open in your browser. Press Ctrl+C here to quit.\n"
 
-type Wait = Callable[[str], None]
-"""Shows the app at the given address and returns when the app should stop."""
+type Wait = Callable[[str, Callable[[], None]], None]
+"""Shows the app at the given address and returns when the app should stop.
+
+The second argument is the shutdown work of the app. A way of showing the app
+in which macOS can end the process by itself must make it run before that.
+"""
+
+
+class _Once:
+    """Runs a piece of work the first time it is asked, and never again."""
+
+    def __init__(self, work: Callable[[], None]) -> None:
+        self._work = work
+        self._lock = threading.Lock()
+        self._done = False
+
+    def run(self) -> None:
+        """Do the work, unless it was done before. A second caller waits for the first."""
+        with self._lock:
+            if self._done:
+                return
+            self._done = True
+            self._work()
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
@@ -76,25 +109,55 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     container = build_container(paths)
     if options.doctor:
         return run_doctor(container.diagnostics, sys.stdout)
-    return run_app(options, paths, container, wait=choose_wait(options), console=sys.stderr)
+    wait = choose_wait(options, container)
+    return run_app(options, paths, container, wait=wait, console=sys.stderr)
 
 
-def choose_wait(options: RunOptions) -> Wait:
+def choose_wait(options: RunOptions, container: Container) -> Wait:
     """Return how this run shows the app: window, browser, or nothing.
 
-    Implements R-PL-02.
+    Implements R-PL-02. The window gets the app's name and its menu bar
+    (R-NA-01, R-NA-03).
 
     Args:
         options: The options of this run.
+        container: The wired adapters and services.
 
     Returns:
         A function that shows the app and returns when the app should stop.
     """
     if options.no_window:
-        return lambda _url: wait_for_stop_signal()
+        return lambda _url, _before_quit: wait_for_stop_signal()
     if options.browser:
-        return _wait_in_browser
-    return lambda url: open_window(url, debug=options.debug)
+        return lambda url, _before_quit: _wait_in_browser(url)
+    name = app_identity(container.info.install_kind).name
+    native = container.native
+    when_shown: Callable[[], None] | None = None
+    if options.window_report is not None:
+        when_shown = functools.partial(write_window_report, options.window_report, native)
+    return lambda url, before_quit: open_window(
+        url,
+        title=name,
+        debug=options.debug,
+        native=native,
+        menus=menu_bar(name),
+        before_quit=before_quit,
+        when_shown=when_shown,
+    )
+
+
+def write_window_report(report: Path, native: NativeApp) -> None:
+    """Write what macOS shows of the app to a file. For automated tests.
+
+    Args:
+        report: The file to write, as JSON.
+        native: The app as macOS sees it.
+    """
+    shown = {
+        "identity": dataclasses.asdict(native.identity()),
+        "menu_bar": [dataclasses.asdict(menu) for menu in native.shown_menu_bar()],
+    }
+    report.write_text(json.dumps(shown), encoding="utf-8")
 
 
 def run_app(
@@ -135,11 +198,16 @@ def run_app(
             set_verbose(True)
         server = _start_server(options, paths, container, token)
         _log_start(options, paths, container, server.url)
+        stop = _Once(lambda: _stop(server))
+
+        def before_quit() -> None:
+            stop.run()
+            writer.close()
+
         try:
-            wait(f"{server.url}/?token={token}")
+            wait(f"{server.url}/?token={token}", before_quit)
         finally:
-            _log.info("app.stopping", msg="yt-mirror is stopping")
-            server.stop()
+            stop.run()
     except Exception:
         _log.error(
             "app.crashed",
@@ -151,6 +219,12 @@ def run_app(
     finally:
         writer.close()
     return EXIT_OK
+
+
+def _stop(server: BackgroundServer) -> None:
+    """The shutdown work of the app. Later milestones add their workers here."""
+    _log.info("app.stopping", msg="yt-mirror is stopping")
+    server.stop()
 
 
 def wait_for_stop_signal() -> None:

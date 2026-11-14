@@ -8,7 +8,8 @@ Rule: a feature is not done until its tests exist, pass, and have been reviewed.
 |---|---|---|---|
 | Unit | pytest | `core/` rules: naming, dates, status machine, quality, exclusion, matching, error classification | Milliseconds, no I/O |
 | Service | pytest with fakes | Each use case in `services/` against fake ports and an in-memory or temp SQLite | Fast |
-| Integration | pytest on macOS | Real adapters: SQLite repositories, real file dates and Trash on a temp folder, real ffmpeg on tiny generated media, yt-dlp gateway against recorded responses | Seconds |
+| Integration | pytest on macOS | Real adapters: SQLite repositories, real file dates and Trash on a temp folder, real ffmpeg on tiny generated media, yt-dlp gateway against recorded responses, AppKit for the menu bar | Seconds |
+| Window | pytest on macOS, marker `window` | The real app in a child process with its real window: the menu bar, the app's name, every way of quitting. These tests guard what relies on the pinned window library (D-049, D-052). A window appears for a few seconds. Leave them out with `uv run pytest -m "not window"` | Seconds |
 | API | pytest + FastAPI test client | Every endpoint: success, validation errors, error code mapping, auth token, origin check | Fast |
 | Migration | pytest | Upgrade from every released schema version with data, then verify | Fast |
 | Component | Vitest + Vue Testing Library | Every shared component and every feature view with mocked API | Fast |

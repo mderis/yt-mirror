@@ -19,6 +19,7 @@ ENV_PORT = "YTM_PORT"
 ENV_SESSION_TOKEN = "YTM_SESSION_TOKEN"
 ENV_NO_WINDOW = "YTM_NO_WINDOW"
 ENV_FRONTEND_URL = "YTM_FRONTEND_URL"
+ENV_WINDOW_REPORT = "YTM_WINDOW_REPORT"
 
 DEFAULT_DEV_FRONTEND_URL = "http://127.0.0.1:5173/"
 _MAX_PORT = 65535
@@ -61,6 +62,7 @@ class RunOptions:
         port: A fixed port, or None for any free port.
         session_token: A fixed session token, or None for a random one. For automated tests.
         frontend_url: The address of the development server, or None.
+        window_report: A file to write what the window shows to, or None. For automated tests.
     """
 
     dev: bool
@@ -72,6 +74,7 @@ class RunOptions:
     port: int | None
     session_token: str | None
     frontend_url: str | None
+    window_report: Path | None = None
 
 
 def resolve_paths(env: Mapping[str, str]) -> AppPaths:
@@ -148,4 +151,5 @@ def parse_options(argv: Sequence[str], env: Mapping[str, str]) -> RunOptions:
         port=port,
         session_token=env.get(ENV_SESSION_TOKEN) or None,
         frontend_url=frontend_url,
+        window_report=Path(env[ENV_WINDOW_REPORT]) if env.get(ENV_WINDOW_REPORT) else None,
     )
