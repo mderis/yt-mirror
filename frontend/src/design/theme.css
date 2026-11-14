@@ -58,6 +58,9 @@
   --color-neutral-bg: var(--ytm-color-neutral-bg);
   --color-neutral-text: var(--ytm-color-neutral-text);
   --color-track: var(--ytm-color-track);
+  --color-on-warn: var(--ytm-color-on-warn);
+  --color-scrim: var(--ytm-color-scrim);
+  --color-on-scrim: var(--ytm-color-on-scrim);
 
   --font-text: var(--ytm-font-text);
   --font-heading: var(--ytm-font-heading);

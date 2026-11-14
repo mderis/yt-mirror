@@ -103,6 +103,8 @@ One value per theme. Utility classes use the token name, for example `bg-surface
 | `err-bg` / `err-text` | `#3A1A1C` / `#FFA39B` | `#FDE7E5` / `#8E1B12` | Failures |
 | `neutral-bg` / `neutral-text` | `#22262E` / `#B4BBC7` | `#ECEEF2` / `#454D5A` | Queued, excluded |
 | `track` | `#2A303B` | `#DDE1E7` | Progress track, skeletons |
+| `on-warn` | `#1A1206` | `#1A1206` | Text on `warn`: the "new" badge. The same in every theme, because `warn` is |
+| `scrim` / `on-scrim` | `#0B0D11` / `#E8EBF0` | `#0B0D11` / `#E8EBF0` | A dark layer over what is not in the colours of a theme, and the text on it: the duration badge on a thumbnail, the backdrop behind a dialog. The same in every theme (D-070) |
 
 ### 2.3 Type tokens
 
