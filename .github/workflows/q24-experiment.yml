@@ -32,13 +32,6 @@ jobs:
           version: "0.13.8"
       - name: Install Python and the app's packages
         run: uv sync --frozen --no-dev
-      - name: What the merged M0 app does when it is asked to quit
-        env:
-          Q24_REAL_KEYS: "1"
-        run: |
-          sw_vers
-          site=$(.venv/bin/python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-          .github/q24-experiment/m0_check.sh "$PWD" "$PWD/.venv/bin/python" "$site" "$RUNNER_TEMP/m0"
       - name: Every way of quitting the test app
         env:
           Q24_REAL_KEYS: "1"
@@ -48,64 +41,12 @@ jobs:
           "$GITHUB_WORKSPACE/.venv/bin/python" run_quit_checks.py \
             "$GITHUB_WORKSPACE/.venv/bin/python" "$site" \
             "$GITHUB_WORKSPACE/frontend/src/design/brand/icon.svg" "$RUNNER_TEMP/q24"
-
-  logout:
-    name: Q-24 (d) real logout on macos-15
-    runs-on: macos-15
-    timeout-minutes: 12
-    permissions:
-      contents: read
-      checks: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: "0.13.8"
-      - name: Install Python and the app's packages
-        run: uv sync --frozen --no-dev
-      - name: Start the test app with "downloads running", then really log out
+      - name: What the merged M0 app does when it is asked to quit
+        if: always()
+        timeout-minutes: 8
         env:
-          GH_TOKEN: ${{ github.token }}
+          Q24_REAL_KEYS: "1"
         run: |
-          py="$PWD/.venv/bin/python"
-          site=$("$py" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-          work="$RUNNER_TEMP/q24"
-          here="$PWD/.github/q24-experiment"
-          mkdir -p "$work"
-          "$py" "$here/build_bundle.py" --out "$work/yt-mirror.app" --name yt-mirror \
-            --bundle-id io.github.mderis.yt-mirror.q24 --python "$py" --site "$site" \
-            --script "$here/app.py" --data "$work/data" \
-            --icon-svg "$PWD/frontend/src/design/brand/icon.svg"
-          open "$work/yt-mirror.app"
-          until [ -f "$work/data/control.json" ]; do sleep 0.5; done
-          sleep 4
-          port=$("$py" -c "import json,sys; print(json.load(open(sys.argv[1]))['port'])" "$work/data/control.json")
-          curl -s "http://127.0.0.1:$port/busy?on=1"; echo
-
-          # The reporter runs as a system service, so the logout does not end it.
-          printf '%s' "$GH_TOKEN" | sudo tee /var/root/q24-token >/dev/null
-          sudo chmod 600 /var/root/q24-token
-          sudo cp "$here/logout_report.sh" /usr/local/q24-report.sh
-          cat > "$work/q24.report.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>Label</key><string>q24.report</string>
-            <key>ProgramArguments</key><array>
-              <string>/bin/sh</string><string>/usr/local/q24-report.sh</string>
-              <string>$work</string><string>$GITHUB_REPOSITORY</string><string>$GITHUB_SHA</string><string>$py</string>
-            </array>
-            <key>RunAtLoad</key><true/>
-          </dict></plist>
-          PLIST
-          sudo cp "$work/q24.report.plist" /Library/LaunchDaemons/q24.report.plist
-          sudo chown root:wheel /Library/LaunchDaemons/q24.report.plist
-          sudo launchctl bootstrap system /Library/LaunchDaemons/q24.report.plist
-          sleep 2
-
-          date +%s > "$work/logout-requested"
-          osascript -e 'tell application "loginwindow" to «event aevtrlgo»' || true
-          sleep 60
-          echo "This step outlived the logout request. The test app's log:"
-          cat "$work/data/app.log"
-          echo "owner of the console: $(stat -f %Su /dev/console)"
+          sw_vers
+          site=$(.venv/bin/python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+          .github/q24-experiment/m0_check.sh "$PWD" "$PWD/.venv/bin/python" "$site" "$RUNNER_TEMP/m0"

@@ -20,8 +20,8 @@ sys.exit(main([]))" >"$W/out.txt" 2>&1 &
         YTM_HOME="$R" YTM_DATA_DIR="$D" "$PY" -m ytmirror.app.main >"$W/out.txt" 2>&1 &
     fi
     PID=$!
-    i=0; until grep -q '"app.started"' "$D"/logs/*.jsonl 2>/dev/null; do i=$((i+1)); [ $i -gt 100 ] && break; sleep 0.2; done
-    sleep 3
+    i=0; until grep -q '"app.started"' "$D"/logs/*.jsonl 2>/dev/null; do i=$((i+1)); [ $i -gt 450 ] && break; sleep 0.2; done
+    sleep 5
     case "$way" in
         quit*) "$PY" "$HERE/dock_quit.py" "$PID" "$SITE" >/dev/null ;;
         real*)
@@ -31,9 +31,12 @@ sys.exit(main([]))" >"$W/out.txt" 2>&1 &
         Ctrl*) kill -INT "$PID" ;;
         termination*) kill -TERM "$PID" ;;
     esac
-    i=0; while kill -0 "$PID" 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.2; done
+    i=0; while kill -0 "$PID" 2>/dev/null && [ $i -lt 100 ]; do i=$((i+1)); sleep 0.2; done
+    ended="ended by itself"
+    if kill -0 "$PID" 2>/dev/null; then ended="DID NOT END, was killed"; kill -9 "$PID"; fi
     wait "$PID" 2>/dev/null; code=$?
     events=$(grep -o '"event": *"[a-z._]*"' "$D"/logs/*.jsonl | sed 's/.*: *"//; s/"//' | tr '\n' ' ')
     if grep -q '"app.stopping"' "$D"/logs/*.jsonl; then verdict="shutdown code RAN"; else verdict="shutdown code SKIPPED"; fi
-    echo "M0, $way: $verdict (exit code $code; log events: $events)"
+    echo "M0, $way: $verdict ($ended, exit code $code; log events: $events)"
+    tail -3 "$W/out.txt" | cut -c1-200
 done
