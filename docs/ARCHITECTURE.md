@@ -382,7 +382,7 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 
 ### 7.5 File dates on macOS (`filesystem_mac.py`)
 - Modification and access time: `os.utime`.
-- Creation time: `setattrlist` with `ATTR_CMN_CRTIME` through `ctypes`. `VERIFY` (Q-02). Fallback to investigate: setting the modification time earlier than the creation time moves the creation time back on APFS.
+- Creation time: `setattrlist` with `ATTR_CMN_CRTIME` through `ctypes` (D-077). It works on APFS and on exFAT. There is no fallback: setting the modification time earlier than the creation time moves the creation time back on APFS only.
 - Verification reads `st_birthtime` and `st_mtime`.
 - Other operations in this adapter: move to Trash (so deletes are recoverable), reveal in Finder, open with the default app, free space of a volume, atomic rename, cross-volume move with copy, verify and delete.
 
