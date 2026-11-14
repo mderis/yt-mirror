@@ -23,7 +23,7 @@ Items marked `VERIFY` are assumptions that the implementer must confirm with a s
 |     v                                   v                                           |
 |  Core (pure rules and state machine)    Ports (interfaces)                          |
 |                                             v                                       |
-|                                         Adapters: yt-dlp, YouTube API, feed,        |
+|                                         Adapters: yt-dlp, YouTube API,              |
 |                                         ffmpeg, macOS filesystem, SQLite, GitHub    |
 +-------------------------------------------------------------------------------------+
         |                    |                     |
@@ -45,7 +45,7 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | Downloads | yt-dlp as a Python library | Never the command line |
 | Media tools | ffmpeg and ffprobe (downloaded binaries) | Called by yt-dlp and by the repair service |
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
-| HTTP client | httpx2 | YouTube API, channel feed, GitHub releases, tool downloads. The successor of httpx, also used by the test client (D-041) |
+| HTTP client | httpx2 | YouTube API, GitHub releases, tool downloads, thumbnails. The successor of httpx, also used by the test client (D-041) |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
 | Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10. The version is pinned exactly, because the menu bar relies on how this version behaves (D-049) |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |
@@ -73,7 +73,10 @@ yt-mirror/
   backend/
     ytmirror/
       core/                  Pure domain code. No I/O, no framework imports.
-        models.py            Dataclasses: Channel, Video, Job, Settings, ...
+        models.py            Dataclasses: Settings, the tools, the menu bar, the events, ...
+        channels.py          Dataclasses: Channel, Video, what a lookup and a listing give
+        channel_input.py     What the user pasted to add a channel (R-CH-01, R-CH-02)
+        catalogue.py         What a quick and a full check change in a catalogue (R-CH-12 to R-CH-15)
         identity.py          Name and bundle identifier of an installed copy and of a clone (R-NA-01)
         icon.py              The app icon as data: colours from the tokens, the macOS icon file format
         status.py            Video and channel status machines
@@ -86,12 +89,14 @@ yt-mirror/
       ports/                 typing.Protocol interfaces, one file per port
       adapters/
         ytdlp_gateway.py     Listing, metadata and downloads through yt-dlp
+        fixture_youtube.py   The fake YouTube, read from files, which the app can start with (section 10)
         youtube_api.py       Optional Data API client (exact dates)
-        channel_feed.py      Channel feed client (newest videos)
         media_tools.py       ffmpeg and ffprobe operations
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
+        folder_picker_webview.py  The folder dialog of the app window (section 7.8)
         tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
+        image_cache.py       The pictures of the catalogue as files in data/cache/
         native_app_mac.py    The menu bar, the app's name and the end of the app, through AppKit (section 7.10)
         image_renderer_mac.py  Draws the icon source file into pixels, through AppKit
         github_releases.py   Release lookup and download
@@ -101,6 +106,10 @@ yt-mirror/
       services/
         channels.py          Add, remove, pause, settings, folder moves
         catalogue.py         Checks, new and removed detection, renames
+        channel_views.py     Channels as the interface shows them, and what runs on them
+        youtube_access.py    Every question to YouTube, and the pause of the whole app (R-ER-05)
+        thumbnails.py        The cache of thumbnails and avatars (R-CH-16)
+        state.py             The snapshot of the app for the window (section 7.6)
         dates.py             Exact date fetching and date repair
         queue.py             Queue state, ordering, parallelism, pause, limits
         downloader.py        One job from start to synced
@@ -119,6 +128,8 @@ yt-mirror/
         app.py               Builds the FastAPI app
         routers/             One router per resource
         schemas.py           Pydantic request and response models
+        catalogue_schemas.py The same for channels, videos, the snapshot and their events
+        pictures.py          Answers a request with a cached picture
         security.py          Host, Origin and session token checks (section 9)
         request_log.py       Request logging and the INTERNAL error boundary
         sse.py               Event stream
@@ -143,8 +154,10 @@ yt-mirror/
   frontend/
     src/
       api/                   Generated types and a thin typed client
-      stores/                Pinia stores (app, channels, videos, queue, settings, ui)
-      features/              One folder per feature: channel, queue, adopt, settings, ...
+      router.ts              The pages and their addresses (Vue Router, hash addresses, D-063)
+      stores/                Pinia stores (app, tools, channels, videos, ui, later queue and settings)
+      features/              One folder per feature: shell, welcome, channel, setup, tools, later queue, adopt, settings, ...
+      format/                How dates, durations, counts and sizes are written, and the clock of the interface
       components/            Shared presentational components
       design/                The theme center: tokens, Tailwind preset, fonts, brand icon, preview page
       i18n/                  All user-visible strings
@@ -184,7 +197,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | url | text | Canonical channel URL |
 | title | text | |
 | handle | text, null | `@handle` |
-| avatar_url | text, null | Cached locally too |
+| avatar_url | text, null | The address at YouTube. The picture itself is in the image cache |
 | folder | text | Absolute path, or relative to the library when not custom |
 | folder_is_custom | bool | |
 | quality | text, null | null means "use default" |
@@ -192,7 +205,8 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | mirror_after | int, null | Only auto-mirror videos published after this time |
 | paused | bool | |
 | first_listed_at | int, null | Set when the first full listing completes |
-| last_check_at | int, null | Last successful check |
+| last_check_at | int, null | Last successful check, quick or full |
+| last_full_check_at | int, null | Last successful full check (R-CH-26, R-CH-35) |
 | last_check_error | text, null | Error code of the last failed check |
 | position | int | Sidebar order |
 
@@ -204,16 +218,19 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | title | text | Current title on YouTube |
 | duration_s | int, null | |
 | view_count | int, null | |
-| published_at | int, null | See R-DT-* |
+| published_at | int, null | See R-DT-*. For an approximate date: the point the listing gave, which is the latest possible date |
 | published_exact | bool | false while only an approximate date is known |
+| published_precision | text, null | `day`, `week`, `month` or `year` for an approximate date (R-DT-04). null for an exact date and for no date |
+| thumbnail_url | text, null | The address at YouTube. The picture itself is in the image cache (R-CH-16) |
 | channel_position | int | Order on the channel page, used as a tie-breaker (R-DT-11) |
 | status | text | See section 6 |
 | excluded | bool | |
 | excluded_by | text, null | `manual` or a rule ID |
 | exclude_exception | bool | User chose to keep it despite rules (R-EX-07) |
-| missing_checks | int | Consecutive successful checks without this video (R-CH-13) |
+| missing_checks | int | Consecutive successful full checks without this video (R-CH-13) |
 | gone | bool | Removed from YouTube |
 | first_seen_at | int | |
+| last_seen_at | int | The last successful check that listed it (R-DT-01) |
 | seen_in_first_listing | bool | false means it can be "new" (R-CH-15) |
 | file_name | text, null | Relative to the channel folder |
 | file_size | int, null | |
@@ -288,16 +305,34 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 ## 7. Key flows
 
 ### 7.1 Check a channel (`services/catalogue.py`)
-1. Emit "checking". List the channel's Videos tab through `ytdlp_gateway.list_channel` (flat listing with approximate dates).
-2. If the listing fails or returns zero entries for a channel that had videos, record the error, keep everything as it is, schedule a retry (R-CH-25). Stop.
-3. In one transaction: insert unknown videos, update title, duration, views and position of known ones, reset `missing_checks` for listed videos and increment it for unlisted ones, set `gone` where it reaches 2 (R-CH-13).
-4. For each title that changed on a synced video: rename the file (R-FN-06) through `filesystem_mac`, then restore its dates.
-5. Verify that each synced file exists. Missing ones become `file_missing` (R-MI-06), unless the channel folder itself is unavailable (R-QU-11).
-6. Run exclusion rules on new videos (R-EX-06).
-7. Fetch exact dates for the newest videos from the channel feed. Queue the rest in `date_fetch_queue`.
-8. If dates repair is on, compare file dates with `published_at` and fix differences (R-DT-09).
-9. If auto-mirror is on, enqueue eligible videos (R-MI-02, R-MI-03).
-10. Emit the new channel state, write activity entries, send a notification if there are new videos.
+
+A check is a quick check or a full check (R-CH-12, D-059). Both read the channel's Videos tab through `YouTubeGateway.list_channel`: a listing that is read video by video, newest first, with approximate dates. The reader decides when to stop. yt-dlp fetches the next page of 30 videos only when the reader asks for it, so a listing that is stopped early costs no further request.
+
+Measured in November 2026 on four real channels: a quick check with nothing new took 3 to 5 seconds whatever the size of the channel, and one more page for every 30 new videos. A full check took 12 seconds for 149 videos, 30 seconds for 453 and 7 minutes for 6,597.
+
+**Reading and writing the catalogue**
+
+1. Emit "checking".
+2. **Quick check:** read from the newest video and stop after 30 videos in a row that the catalogue already has. A new video in between starts the count again. A channel with fewer videos is read to its end. **Full check:** read everything, and say after every page how many videos were read (R-CH-27). A full check can be cancelled: then nothing is changed and the check counts for nothing.
+3. If the listing fails, is cut off, or (full check) returns no video for a channel that had some: record the error code, keep everything as it is (R-CH-13, R-CH-25). Stop. The automatic retry with backoff is built in M4.
+4. In one transaction: insert unknown videos, update title, duration and views of the videos that were read, and set their `last_seen_at`. A value the listing did not give never replaces a known one. A video that was read is no longer `gone`, and its `missing_checks` is 0.
+   - **Quick check:** the videos that were read take the positions they were read in. The others keep their order behind them. `missing_checks` of a video that was not read is left alone: a quick check never marks anything as removed.
+   - **Full check:** every video takes its listed position. `missing_checks` is counted up for every video that was not listed, and `gone` is set where it reaches 2 (R-CH-13). `last_full_check_at` is set. The first full check also sets `first_listed_at`: it is the first listing (R-CH-11), and the videos it finds are not "new" (R-CH-15).
+5. The channel's name, handle and avatar address are taken over from the listing.
+
+**Work that follows a check, quick or full (R-CH-28).** Each step is added by the milestone that builds what it needs.
+
+6. For each title that changed on a synced video: rename the file (R-FN-06) through `filesystem_mac`, then restore its dates.
+7. Verify that each synced file exists. Missing ones become `file_missing` (R-MI-06), unless the channel folder itself is unavailable (R-QU-11).
+8. Run exclusion rules on new videos (R-EX-06).
+9. Queue the videos without an exact date in `date_fetch_queue`.
+10. If dates repair is on, compare file dates with `published_at` and fix differences (R-DT-09).
+11. If auto-mirror is on, enqueue eligible videos (R-MI-02, R-MI-03).
+12. Emit the new channel state, write activity entries, send a notification if there are new videos.
+
+Checks never run side by side: one worker takes them one after another (R-CH-24), so two listings never ask YouTube at the same time. A first listing that a quit interrupted has written nothing, and is started again at the next start (R-CH-11).
+
+**Approximate dates (R-DT-04, D-060).** The listing gives a point in time, not the words YouTube showed ("2 years ago"). The point is "now minus N units", and it is the latest date the video can have: the real date lies up to one unit before it. `core/dates.py` finds the unit from the point and the time of the listing, with the same arithmetic yt-dlp uses. YouTube counts in days up to 13, in weeks from 2 to 4, in months from 1 to 11, and then in years. Where two units fit, the coarser one is stored. The first approximate date of a video is kept: a later listing never replaces it, because it can only be coarser.
 
 ### 7.2 Download one video (`services/downloader.py`)
 1. Job becomes `running`. Check the disk guard and the folder (R-QU-10, R-QU-11).
@@ -325,10 +360,23 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 
 `VERIFY` each option name against the pinned yt-dlp version when implementing (Q-04).
 
+**Listing and channel lookup (verified in milestone M2 against yt-dlp 2026.10.26, D-059, D-061).**
+
+- The address is always the channel's Videos tab (`.../videos`). Without the tab a channel can come back as a list of its tabs, and Shorts and streams must not be listed (R-CH-07). An entry that yt-dlp marks as a live stream or a past live stream is left out.
+- `extract_flat: in_playlist`, and `extract_info(..., process=False)`: the entries then are a generator that fetches one page when asked.
+- Extractor arguments: `youtubetab: approximate_date`, without which a listing has no dates at all, and `youtube: raise_incomplete_data`, without which yt-dlp ends a cut-off listing as if it were complete. A cut-off listing would count videos as missing.
+- A listing gives per video: ID, title, duration, a rounded view count, one or two thumbnail addresses and the approximate date. Duration and view count are missing on a few. It never gives a description or an exact date.
+- A channel without a Videos tab ("This channel does not have a videos tab") has an empty catalogue. It is not an error.
+- Timeouts and retries are set by the app. With yt-dlp's defaults a stalled connection is reported only after about 160 seconds.
+- yt-dlp writes no cache outside the app folder.
+- A lookup reads the channel's facts without reading its videos: channel ID, name, handle, address, avatar. There is no video count in them. The count of the preview (R-CH-03) comes from the playlist `UULF<channel id without UC>`, which holds the channel's long videos. This is a convention of YouTube that is documented nowhere, so the count is optional in every respect (D-061).
+- Every error text of yt-dlp is turned into an error code in this adapter. A text it does not know is logged in full and becomes `YOUTUBE_CHANGED`.
+
 ### 7.4 Exact dates (`services/dates.py`)
 - With an API key: `videos.list` with `part=snippet,liveStreamingDetails`, 50 IDs per request (1 quota unit per request, default quota 10,000 units per day).
-- Channel feed: `https://www.youtube.com/feeds/videos.xml?channel_id=<id>` gives exact `published` times for the newest entries.
-- Without a key: one metadata extraction per video through yt-dlp, at most one every 2 seconds, paused while downloads are running or after any rate-limit signal (back off 15 minutes, doubling up to 6 hours).
+- Without a key: one metadata lookup per video through yt-dlp, paused while downloads are running or after any rate-limit signal (back off 15 minutes, doubling up to 6 hours), and under the pause of the whole app after a "not a bot" check (R-ER-05).
+- What one lookup costs was measured in milestone M2 on 32 videos from the maintainer's network (D-072). With yt-dlp's default options: 10.3 seconds. With the lightest options that still return the exact time (the `web` client, `player_skip: configs, js`, `skip: hls, dash, translated_subs`, `process=False`): 3.5 seconds. Lookups in parallel with these options: 2.0 seconds per video with two at a time, 1.4 with three, 0.9 with four, without an error in 96 lookups. No longer run was made, so how many lookups YouTube accepts in a row is still open (Q-08). The rate the app uses and the time it tells the user come from what it measures while it runs, never from a fixed number.
+- There is no other source without a key. The channel feed (`feeds/videos.xml`) answered "not found" for every channel from three networks during M2 and is not used. A listing, of the channel or of its uploads playlist, has approximate dates only.
 - Each exact date found updates `published_at`, sets `published_exact`, and emits an update.
 
 ### 7.5 File dates on macOS (`filesystem_mac.py`)
@@ -338,9 +386,12 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 - Other operations in this adapter: move to Trash (so deletes are recoverable), reveal in Finder, open with the default app, free space of a volume, atomic rename, cross-volume move with copy, verify and delete.
 
 ### 7.6 Events and live updates
-- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated`, `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, `task.progress`.
+- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`.
 - `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced. When the app stops, the bus is closed first: every stream ends, so an open window never holds up the shutdown.
 - On connect and after a reconnect the frontend refetches snapshots (`/api/state`, the open channel's videos), so a missed event can never leave the UI stale.
+- One store of the interface owns the stream (`stores/app.ts`) and passes every event on to the store it belongs to. What the events tell is newer than the answer of a call: the answer to "Check now" is not taken over, and the answer to adding a channel only when no event told about the channel yet (D-073).
+- A channel carries three numbers that only grow, so that the interface knows what to load again without comparing times, which are whole seconds (D-073): `catalogue_version` grows with every stored check, and the list of the open channel is loaded again when it changes. `avatar_version` grows when the avatar was cached anew, and is part of the avatar's address. `pictures` grows with every batch of cached pictures. Only a thumbnail that was asked for and was missing is asked for again, once per batch: the pictures of a channel with thousands of videos arrive in hundreds of batches, and a batch must not draw the whole list again.
+- `channel.updated` says "checking" before the worker can take the check, so a check that ends at once is never told as checking after it has ended.
 
 ### 7.7 Concurrency
 - One asyncio event loop for HTTP and SSE.
@@ -431,16 +482,22 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | Method and path | Purpose |
 |---|---|
 | GET `/health` | The server runs: app version and database schema version |
-| GET `/state` | App snapshot: channels with derived status, queue summary, banners, settings, versions |
+| GET `/state` | App snapshot: channels with derived status, queue summary, banners, settings, versions. From M2: the channels, the channel that was open last, the library and its disk, whether a folder can be chosen, and the pause of YouTube |
+| PUT `/state/open-channel` | Remember which channel is open, for the next start (R-UI-02) |
+| POST `/youtube/try-now` | End the pause after a "not a bot" check and take up the work that waited (R-ER-05) |
 | GET `/events` | Server-Sent Events stream |
-| POST `/channels/lookup` | Resolve a URL or handle to a channel preview (R-CH-03) |
+| POST `/channels/lookup` | Resolve a URL or handle to a channel preview (R-CH-03). The video count is not in it |
+| GET `/channels/lookup/{id}/video-count`, `/channels/lookup/{id}/avatar` | The optional video count of a preview, which waits at most 8 seconds (D-061), and its avatar |
+| POST `/folders/choose` | Show the folder dialog of macOS and return the chosen folder (R-CH-05) |
 | POST `/channels` | Add a channel |
-| GET, PATCH, DELETE `/channels/{id}` | Read, change settings, remove (`keep_files` flag) |
-| POST `/channels/{id}/check` | Check now |
+| GET, PATCH, DELETE `/channels/{id}` | Read, change settings (from M2: pause and resume), remove (`keep_files` flag from M3) |
+| POST `/channels/{id}/check` | Check now (`kind`: `quick` or `full`) |
+| POST `/channels/{id}/check/cancel` | Cancel a full check (R-CH-27) |
 | POST `/channels/check-all` | Check all channels |
 | POST `/channels/{id}/mirror-missing` | Queue everything eligible once |
 | POST `/channels/{id}/open-folder` | Open in Finder |
 | GET `/channels/{id}/videos` | The catalogue (all rows, compact fields) |
+| GET `/channels/{id}/avatar`, `/videos/{id}/thumbnail` | A cached picture, or `NOT_FOUND` at once when it is not cached (R-CH-16, D-067) |
 | GET `/videos/{id}` | Full details for the panel |
 | POST `/videos/mirror` | Queue videos (`ids`, optional `first`) |
 | POST `/videos/exclude` , `/videos/restore` | Exclude and restore (`ids`, `file_action`) |
@@ -464,6 +521,8 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 
 The OpenAPI schema generated by FastAPI is the contract. Frontend types are generated from it.
 
+Outside `/api`, and without the session token: the built interface, and the app icon as `/favicon.svg` and `/favicon.png`, made from the icon source file (D-064).
+
 ## 9. Security
 
 - Bind to 127.0.0.1 on a random free port. Reject requests whose `Host` or `Origin` header is not that address (protects against DNS rebinding and other websites calling the local API).
@@ -477,18 +536,18 @@ The OpenAPI schema generated by FastAPI is the contract. Frontend types are gene
 
 ## 10. Testing seams
 
-Every external dependency is behind a port, and each port has a fake in `backend/tests/fixtures/fakes/`:
+Every external dependency is behind a port, and each port has a fake in `backend/tests/fixtures/fakes/`. The one exception is the fake YouTube: the real app must be able to start with it, and the app is installed without its tests, so it is an adapter of the app (D-062).
 
 | Port | Fake behaviour |
 |---|---|
-| YouTubeGateway | Serves channels and videos from JSON fixtures, simulates progress, failures by error code, rate limits |
+| YouTubeGateway | Serves channels and videos from JSON fixtures, simulates progress, failures by error code, rate limits. This one fake is part of the app: `adapters/fixture_youtube.py` (D-062) |
 | ExactDateSource | Returns dates from fixtures, simulates quota errors |
 | MediaTools | Creates tiny real MKV files with ffmpeg in integration tests, a pure fake in unit tests |
 | FileSystem | Real temp directories on macOS runners, an in-memory fake in unit tests |
 | Releases | Serves fake release archives for updater tests |
 | Notifier, Clock, Random | Recorders and controllable values |
 
-The environment variable `YTM_FAKE_YOUTUBE=<fixtures dir>` starts the real app with the fake gateway. End-to-end tests and screenshot generation use it. See [TESTING.md](TESTING.md). It arrives with the gateway in milestone M2.
+The environment variable `YTM_FAKE_YOUTUBE=<fixtures dir>` starts the real app with the fake gateway. End-to-end tests and screenshot generation use it. See [TESTING.md](TESTING.md).
 
 Environment variables, all optional. Only `app/config.py` and `start` read them.
 
@@ -500,6 +559,8 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_SESSION_TOKEN` | app | A fixed session token instead of a random one. For tests only |
 | `YTM_NO_WINDOW` | app | Serve without opening a window or a browser, until a stop signal. For tests |
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
+| `YTM_FAKE_YOUTUBE` | app | A folder with a recorded world of channels (`e2e/fixtures/youtube/`). The app then never talks to the real YouTube. For tests and for reproducing a problem |
+| `YTM_LIBRARY_DIR` | app | The default of the library folder instead of `~/Movies/YouTube`. For tests, so that no test creates a folder in the user's own library |
 | `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
 | `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |
 | `YTM_TOOL_SOURCE` | app | Use only the tool source of this name. The automated checks install from each source on its own (D-053) |

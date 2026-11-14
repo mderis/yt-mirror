@@ -44,7 +44,7 @@ yt-mirror is a local macOS app that keeps folders on the user's disk in sync wit
 | R-PL-08 | No proxy setting in V1. The app must still honour the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables and system proxy behaviour of its HTTP libraries. |
 | R-PL-09 | Background work happens only while the app is running. There is no background service or scheduler in V1. |
 | R-PL-10 | Every call to the local API must carry a session token created at random at each start. The window receives it in its first address, where it is exchanged for a cookie that scripts cannot read. A missing or wrong token is refused. The server also accepts the same token in an `Authorization: Bearer` header, which tools and tests use. No other credential opens the API. |
-| R-PL-11 | The local server serves the built interface and nothing else from the disk, and does not expose its API description. |
+| R-PL-11 | The local server serves the built interface, the app's own icon and, through the API, the cached thumbnails and avatars (R-CH-16), and nothing else from the disk. It does not expose its API description. |
 | R-PL-12 | A health endpoint reports that the server runs, with the app version and the database schema version. |
 | R-PL-13 | The app stops cleanly however it is asked to quit: Quit in the menu bar, Cmd+Q, Quit in the Dock, closing the window, logout, restart, shutdown, Ctrl+C or a termination signal. It stops its work and closes the database before the process ends. This requirement is the shutdown work of the quit path only: whether a quit is first held for a question is R-NA-06 and R-QU-12. A server that cannot start is reported, not a hang. |
 
@@ -77,10 +77,10 @@ Design: `AddChannel1.html`, `AddChannel2.html`, `Welcome.html`.
 |---|---|
 | R-CH-01 | The user adds a channel by pasting a channel URL (`/@handle`, `/channel/UC...`, `/c/name`, `/user/name`, with or without a tab suffix such as `/videos`), a bare `@handle`, or a bare channel ID. |
 | R-CH-02 | A video URL, playlist URL or anything else is rejected with a plain message that says what is accepted. |
-| R-CH-03 | The app looks the channel up and shows its name, handle, avatar and video count before the user confirms. |
+| R-CH-03 | The app looks the channel up and shows its name, handle and avatar before the user confirms, and its video count when YouTube gives one. The count never delays or fails the lookup: without it the same dialog is shown, worded without a number. It is a preview only. Once the channel is listed, the number of the catalogue is shown everywhere. |
 | R-CH-04 | Adding a channel that already exists opens the existing channel and says so. |
 | R-CH-05 | In step 2 the user chooses: save folder (default `<library>/<channel name>`), quality (default "Use default"), and what to mirror: "pick myself" (default), "auto-mirror everything", or "auto-mirror videos uploaded after a date". |
-| R-CH-06 | If the chosen folder already contains video files, the app says how many and offers to match them after adding (section 9). |
+| R-CH-06 | If the chosen folder already contains video files, the app says how many and offers to match them after adding (section 9). Video files are the files directly in the folder whose names end in `.mkv`, `.mp4`, `.webm`, `.mov`, `.m4v` or `.avi`. |
 | R-CH-07 | Only regular videos are listed. Shorts and live streams (including past streams from the Live tab) are not listed in V1. |
 
 ### 3.2 The video catalogue
@@ -88,35 +88,38 @@ Design: `AddChannel1.html`, `AddChannel2.html`, `Welcome.html`.
 | ID | Requirement |
 |---|---|
 | R-CH-10 | For every regular video of the channel the app stores and shows: thumbnail, title, duration, upload date, view count, and status. After download it also shows quality, file size, codecs and subtitle availability. |
-| R-CH-11 | The first listing of a large channel must not block the UI. Progress is shown ("120 videos found so far") and the user can use the rest of the app (design: `StateLoading.html`). |
-| R-CH-12 | A **check** refreshes the catalogue: new videos are added, titles, durations and view counts are updated, and videos no longer listed are marked **removed from YouTube**. |
-| R-CH-13 | A video is marked removed from YouTube only after it has been missing from two consecutive successful checks. A failed or empty check never marks anything as removed. |
+| R-CH-11 | The first listing of a large channel must not block the UI. Progress is shown ("120 videos found so far") and the user can use the rest of the app (design: `StateLoading.html`). A first listing that was interrupted, for example by quitting, starts again the next time the app starts. |
+| R-CH-12 | A **check** refreshes the catalogue. There are two kinds. A **quick check** reads the channel's video list from the newest video and stops when it has read a full page (30 videos in a row) that the catalogue already has. It adds new videos and updates the title, duration and view count of the videos it read. A **full check** reads the whole list and does the same for every video, and only a full check finds videos that are no longer listed: they count towards **removed from YouTube** (R-CH-13). Every successful check also takes over the channel's current name, handle and avatar. The channel folder keeps its name. |
+| R-CH-13 | A video is marked removed from YouTube only after it has been missing from two consecutive successful full checks. A quick check never marks anything as removed, and it neither counts as one of the two nor breaks their sequence. A failed, cancelled or empty check never marks anything as removed. A video that is listed again is no longer removed. |
 | R-CH-14 | A removed video keeps its local file and stays in the list with a "Removed from YouTube" marker. It is never deleted automatically. |
-| R-CH-15 | A video first seen in a check after the channel's first listing is **new**. It stays new until it is synced, excluded, or 14 days have passed. |
+| R-CH-15 | A video first seen in a check after the channel's first listing is **new**. It stays new until it is synced, excluded, or 14 days have passed since the app first saw it. The video's own date plays no part in this. |
 | R-CH-16 | Thumbnails for the catalogue are cached locally so the list works offline and for removed videos. |
 
 ### 3.3 Checking for new videos
 
 | ID | Requirement |
 |---|---|
-| R-CH-20 | When the app opens, it checks all non-paused channels, one after another (setting, default on). A global indicator shows "Checking channels: 3 of 5". |
-| R-CH-21 | Selecting a channel triggers a check if the last successful check is older than 5 minutes. |
-| R-CH-22 | While the app is open, all non-paused channels are re-checked on an interval (setting: 30 min, 1 h, 3 h, never. Default 30 min). |
-| R-CH-23 | "Check now" on a channel and "Check all channels now" in the sidebar start a check immediately. |
+| R-CH-20 | When the app opens, it checks all non-paused channels, one after another, with a quick check (setting, default on). A global indicator shows "Checking channels: 3 of 5". |
+| R-CH-21 | Selecting a channel triggers a quick check if the last successful check is older than 5 minutes. |
+| R-CH-22 | While the app is open, all non-paused channels are re-checked with a quick check on an interval (setting: 30 min, 1 h, 3 h, never. Default 30 min). |
+| R-CH-23 | "Check now" on a channel and "Check all channels now" in the sidebar start a quick check immediately. "Full check" in the channel menu starts a full check of that channel. |
 | R-CH-24 | Checks run sequentially with a short random delay between channels to avoid rate limiting. |
 | R-CH-25 | A failed check shows a banner on the channel with a retry button, keeps the previous catalogue, and is retried automatically with backoff (5, 15, 60 minutes). Design: `StateError.html`. |
+| R-CH-26 | A full check runs by itself for a channel whose last full check is older than a setting (default 7 days): at most one channel at a time, and never while downloads of that channel are running. Adding a channel is a full check: its first listing (R-CH-11). |
+| R-CH-27 | A full check shows its progress ("Full check: 1,200 of about 6,600") and can be cancelled. A cancelled check changes nothing. |
+| R-CH-28 | The work of a check that needs no listing runs with every check, quick or full: verifying that the files of synced videos exist (R-MI-06) and repairing file dates (R-DT-09). |
 
 ### 3.4 Channel management
 Design: `ChannelSettings.html`, `RemoveChannel.html`, `Menus.html`.
 
 | ID | Requirement |
 |---|---|
-| R-CH-30 | Per channel the user can: open its folder in Finder, check now, pause and resume, open it on YouTube, open channel settings, and remove it. |
-| R-CH-31 | A paused channel is not checked and its downloads do not run. Its queued downloads stay queued. |
+| R-CH-30 | Per channel the user can: open its folder in Finder, check now, run a full check, pause and resume, open it on YouTube, open channel settings, and remove it. |
+| R-CH-31 | A paused channel is not checked, neither automatically nor by hand, and its downloads do not run. Its queued downloads stay queued. |
 | R-CH-32 | Removing a channel asks whether to keep the files (default) or move them to the Trash. The channel's catalogue, exclude list and settings are deleted from the database either way. |
 | R-CH-33 | Changing a channel's folder moves its downloaded files and its hidden metadata folder to the new location, with progress, and rolls back on failure. |
 | R-CH-34 | The sidebar shows per channel: avatar, name, a status line (section 12.1) and a count of new videos. |
-| R-CH-35 | The channel header shows totals: videos, synced, excluded, size on disk, and the last check result. |
+| R-CH-35 | The channel header shows totals: videos, synced, excluded, size on disk, and the last check result, with the time of the last check and the time of the last full check. |
 
 ---
 
@@ -126,7 +129,7 @@ Design: `ChannelSettings.html`, `RemoveChannel.html`, `Menus.html`.
 |---|---|
 | R-MI-01 | The user selects one or more videos and clicks "Mirror". They enter the download queue. |
 | R-MI-02 | **Auto-mirror** (per channel, default off): every listed video that is not excluded, not synced and not removed from YouTube is queued, now and after every check. |
-| R-MI-03 | "Only mirror videos uploaded after" (per channel, optional date): auto-mirror ignores older videos. They stay listed and can be mirrored by hand. |
+| R-MI-03 | "Only mirror videos uploaded after" (per channel, optional date): auto-mirror ignores older videos. They stay listed and can be mirrored by hand. A video whose date is approximate (R-DT-04) is decided at once only when its whole possible range lies before or after that date. When the range includes the date, the app does not decide from the approximate date: it gets the exact date first, ahead of all other videos, and decides then. |
 | R-MI-04 | "Mirror everything missing" (channel menu) queues all eligible videos once without turning auto-mirror on. |
 | R-MI-05 | Excluded videos are never queued, by any path. |
 | R-MI-06 | A synced video whose file has disappeared from disk gets the status "File missing". It is re-downloaded automatically only if the channel has auto-mirror on. Otherwise the user decides. |
@@ -198,7 +201,7 @@ Design: `ExcludeConfirm.html`, `ExcludePreview.html`, `ChannelSettings.html`.
 
 | ID | Requirement |
 |---|---|
-| R-FI-01 | There is one library folder (setting, default `~/Movies/YouTube`). Each channel gets a subfolder named after the channel. A channel can instead use any custom folder. |
+| R-FI-01 | There is one library folder (setting, default `~/Movies/YouTube`). Each channel gets a subfolder named after the channel: the channel name with the substitutions of R-FN-02. When that folder already belongs to another channel, ` [<channel id>]` is appended. A channel can instead use any custom folder. The channel folder is created when the channel is added. |
 | R-FI-02 | The user-visible channel folder contains only video files (and optional thumbnail images). All other files live in the hidden `.yt-mirror` subfolder. |
 | R-FI-03 | Temporary and partial files live in the hidden subfolder, never next to finished videos. |
 | R-FI-04 | The database stores each file path relative to its channel folder, so moving the library needs only a settings change. |
@@ -238,7 +241,7 @@ Design: `Main.html`, `WebGrid.html`, `ListLight.html`, `GridLight.html`, `Detail
 | R-UI-03 | A channel has two views, list and grid, with a toggle. The default view is a setting. The choice is remembered per app, not per channel. |
 | R-UI-04 | Filter tabs with counts: All, New, Not downloaded, Synced, Failed, Excluded. |
 | R-UI-05 | Search filters the current tab by title as the user types. |
-| R-UI-06 | Sort: newest first (default), oldest first, title, duration, size on disk. |
+| R-UI-06 | Sort: newest first (default), oldest first, title, duration, size on disk. Sorting by date never uses an approximate date (R-DT-04): while any date in the channel is approximate, "newest first" and "oldest first" follow the position of the videos on the channel, which is exact. |
 | R-UI-07 | Lists must stay smooth with 5,000 videos in one channel. |
 | R-UI-08 | A details panel shows, for one video: thumbnail, title, status, actions, file facts (name, folder, size, video and audio format, upload time, download time, thumbnail, video ID), description and chapters. |
 | R-UI-09 | Per-video actions, shown according to status: Mirror, Mirror first, Cancel, Retry, Play, Show in Finder, Details, Open on YouTube, Copy link, Re-download, Repair metadata, Exclude forever, Restore. |
@@ -275,8 +278,8 @@ Dates are the most important metadata in this app. These rules have dedicated te
 | R-DT-01 | Three dates per video are stored separately and never mixed: **published** (YouTube), **downloaded**, **last seen** on YouTube. |
 | R-DT-02 | All timestamps are stored in UTC with second precision. They are displayed in the Mac's local time zone as absolute dates ("11 Nov 2026", with the time in the details panel). Relative dates ("2 weeks ago") are not used for publish dates. |
 | R-DT-03 | The published time is the moment the video became public. For premieres and scheduled videos this is the release time, not the upload time. |
-| R-DT-04 | A date known only approximately (from the channel listing) is stored with a flag and shown as approximate ("around Sep 2026", "exact date pending"). It is never written to a file. |
-| R-DT-05 | Exact dates are obtained from, in order of preference: the optional YouTube API key (fast, in batches), the channel's feed (newest videos, immediately), a background fetch of each video's metadata (slow, throttled, setting default on), and always from the full metadata at download time. |
+| R-DT-04 | A date known only approximately (from the channel listing) is stored with its precision: the unit YouTube gave it in (day, week, month or year). So the app knows the range the real date lies in, not only one point. An approximate date is never written to a file. It is shown as its precision allows, from the middle of that range: "around 2005" for years, "around Mar 2026" for months, "around 11 Nov 2026" for weeks and days. A video for which the listing gave no date at all shows "date pending" and no date. |
+| R-DT-05 | Exact dates are obtained from, in order of preference: the optional YouTube API key (fast, in batches), a background fetch of each video's metadata (slow, throttled, setting default on), and always from the full metadata at download time. The background fetch takes the newest videos first. Videos whose exact date a decision is waiting for (R-MI-03) go to the front. |
 | R-DT-06 | The background fetch shows progress on the channel ("Exact dates: 340 of 1,000"), yields to downloads, survives restarts, and never causes rate-limit failures for downloads (it backs off first). |
 | R-DT-07 | Every downloaded file has both its **creation date** and its **modification date** set to the exact published time. After setting them the app reads them back and verifies them. |
 | R-DT-08 | The published time is also embedded in the MKV metadata and present in the raw metadata JSON. |
@@ -284,6 +287,7 @@ Dates are the most important metadata in this app. These rules have dedicated te
 | R-DT-10 | Renaming, moving, repairing metadata and re-downloading must all leave the file dates equal to the published time. |
 | R-DT-11 | Sorting a channel folder in Finder by Date Created or Date Modified must give the same order as "newest first" in the app. Videos with identical published times are ordered consistently by their position on the channel. |
 | R-DT-12 | Optional YouTube API key: off by default, entered in Settings, with an in-app step-by-step guide and a "Test key" button (design: `ApiKeyGuide.html`). The key is stored only locally. Removing it changes nothing except speed. If the key fails or its quota is used up, the app falls back to the slow path without any error dialog. The guide, the setting and the website must state plainly that the key is free: Google charges nothing for this API, no payment details are needed, and there is only a daily usage limit that yt-mirror stays far below. |
+| R-DT-13 | An approximate date must look like a placeholder that is being replaced, not like a final value, in the list, the grid and the details panel. It has three states, each with an icon and a tooltip, never told apart by colour alone. **Waiting:** the exact date is not being fetched yet. Dimmed text, a clock icon, tooltip "Exact date pending". **Updating:** the exact date is being fetched now. The same dimmed text, an animated loading icon, tooltip "Getting the exact date...". **Unavailable:** fetching failed or is paused. Dimmed text, a warning icon, a tooltip that says why and that it will be tried again. When the exact date arrives, it replaces the approximate one in normal text, with a short highlight that fades. With the system "reduce motion" setting nothing moves, and the icons still differ. |
 
 ---
 
@@ -323,6 +327,7 @@ There are **general settings** and **per-channel settings**. A channel uses the 
 | Thumbnail image next to video | Off | n/a |
 | Check all channels on open | On | n/a |
 | Re-check interval | 30 minutes | n/a |
+| Full check at least every | 7 days | n/a |
 | Fetch exact dates in background | On | n/a |
 | YouTube API key | Empty | n/a |
 | Repair file dates on every check | On | n/a |
@@ -377,7 +382,7 @@ Design: `States.html` (the complete catalogue).
 | R-FB-01 | Channel statuses: Checking, Up to date, N new videos, Mirroring X of Y, Paused, Could not check, Matching files X of Y, Exact dates X of Y. One status line is shown at a time, by priority: error, mirroring, checking, matching, exact dates, new, paused, up to date. |
 | R-FB-02 | Video statuses: Not downloaded, Queued, Downloading (percent in the status chip. Quality, speed and time left next to it), Processing, Synced (with height), File missing, Failed (with reason), Excluded. Markers that combine with a status: New, Removed from YouTube, Approximate date, Lower than target quality. |
 | R-FB-03 | Status changes appear in the UI within one second without a manual refresh. |
-| R-FB-04 | Banners for app-wide conditions: tool missing, yt-dlp update available, app update available, queue paused by the disk guard, cannot reach YouTube, library folder not found, and success confirmations. Each banner has the action that fixes it. |
+| R-FB-04 | Banners for app-wide conditions: tool missing, yt-dlp update available, app update available, queue paused by the disk guard, cannot reach YouTube, YouTube asks to confirm that you are not a bot (R-ER-05), library folder not found, and success confirmations. Each banner has the action that fixes it. |
 | R-FB-05 | Toasts confirm user actions and offer Undo where possible. |
 | R-FB-06 | macOS notifications (each can be turned off): new videos found, a batch of downloads finished (one per batch), a failure or queue pause. |
 
@@ -389,6 +394,7 @@ Design: `States.html` (the complete catalogue).
 | R-ER-02 | Every error has a stable code (see [LOGGING.md](LOGGING.md)). User text is written per code, never taken from a raw exception. Every error response of the local API carries its code and its technical details. |
 | R-ER-03 | No error may leave a video, channel or the queue in a state the user cannot get out of from the UI. |
 | R-ER-04 | When the window cannot reach its own server it says so and offers a retry, under an error code of its own. |
+| R-ER-05 | YouTube sometimes refuses requests with a check of its own: "Sign in to confirm you're not a bot". The check depends on the network address the requests come from, not on the channel or the video. The app treats it as one condition of the whole app, under an error code of its own. It stops everything it would ask of YouTube by itself and tries again later, with a pause that grows (15 minutes, doubling up to 6 hours). It shows one banner, never one error per video. The banner says in plain words what the check is, that it depends on the network address in use, and what the user can try: another network or another VPN location, waiting, and the optional API key for exact dates (R-DT-12). An action the user starts by hand is still tried, and as soon as YouTube answers the kind of request it had refused, the pause ends and the banner goes. |
 
 ### 12.3 Activity log
 Design: `Activity.html`.
@@ -435,6 +441,7 @@ Design: `Help.html`, `ReportProblem.html`.
 | R-QA-05 | The app starts and is usable within 3 seconds on a typical Mac with 20 channels and 20,000 videos in the database. |
 | R-QA-06 | A crash or forced quit at any moment must not corrupt the database or leave a half-written file that looks like a finished video. |
 | R-QA-07 | At start the app creates its database when missing and brings it to the current schema through the migrations. A current database is left alone. The database runs in WAL mode with foreign keys enforced. |
+| R-QA-08 | The status of a video changes only along the transitions of [ARCHITECTURE.md](ARCHITECTURE.md) section 6.1. Any other change is refused and changes nothing. |
 
 ---
 

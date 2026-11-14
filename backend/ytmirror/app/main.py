@@ -49,6 +49,7 @@ from ytmirror.app.server import BackgroundServer, bind_local_socket
 from ytmirror.app.single_instance import InstanceLock, bring_to_front, bundle_of
 from ytmirror.app.window import open_window
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.icon import icon_with_colours
 from ytmirror.core.identity import app_identity
 from ytmirror.core.models import LogDetail
 from ytmirror.ports.native_app import NativeApp
@@ -258,6 +259,9 @@ def run_app(
         remove_old_logs(paths.logs_dir, container.clock.now().date())
         container.schema.bring_up_to_date()
         container.toolchain.verify()
+        # The checks and the pictures are background work: it starts with the app.
+        container.catalogue.start()
+        container.thumbnails.start()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
             set_verbose(True)
         server = _start_server(options, paths, container, token)
@@ -288,6 +292,8 @@ def run_app(
 def _stop(server: BackgroundServer, container: Container) -> None:
     """The shutdown work of the app. Later milestones add their workers here."""
     _log.info("app.stopping", msg="yt-mirror is stopping")
+    # A check that is running ends at the next video and stores nothing (R-PL-13).
+    container.catalogue.stop()
     # Ends the event streams of open windows first, or the server would wait for them.
     container.events.close()
     server.stop()
@@ -320,17 +326,58 @@ def _start_server(
 ) -> BackgroundServer:
     sock = bind_local_socket(options.port)
     port: int = sock.getsockname()[1]
+    favicon = favicon_svg(paths)
     config = ApiConfig(
         security=SecurityPolicy.for_local_server(token, port, extra_origin=options.frontend_url),
         frontend_dir=paths.frontend_dir,
         frontend_url=options.frontend_url or LOCAL_FRONTEND,
+        favicon_svg=favicon,
+        favicon_png=None if favicon is None else lambda: container.images.svg_to_png(favicon, 64),
     )
-    services = ApiServices(
-        diagnostics=container.diagnostics, toolchain=container.toolchain, events=container.events
-    )
-    server = BackgroundServer(create_app(config, services, container.clock), sock)
+    server = BackgroundServer(create_app(config, api_services(container), container.clock), sock)
     server.start()
     return server
+
+
+def api_services(container: Container) -> ApiServices:
+    """Return the services of a container as the HTTP layer takes them.
+
+    Args:
+        container: The wired adapters and services.
+    """
+    return ApiServices(
+        diagnostics=container.diagnostics,
+        toolchain=container.toolchain,
+        events=container.events,
+        state=container.state,
+        youtube=container.youtube,
+        channels=container.channels,
+        catalogue=container.catalogue,
+        views=container.views,
+        thumbnails=container.thumbnails,
+    )
+
+
+def favicon_svg(paths: AppPaths) -> str | None:
+    """Return the app icon as SVG text with the colours of the tokens (D-064).
+
+    The icon is made from the one icon source file (docs/DESIGN.md section 5),
+    with the same code that colours the macOS icon.
+
+    Args:
+        paths: Where the parts of this installation are.
+
+    Returns:
+        The SVG text, or None when the icon source or the token file is not there.
+    """
+    design = paths.code_root / "frontend" / "src" / "design"
+    try:
+        return icon_with_colours(
+            (design / "brand" / "icon.svg").read_text(encoding="utf-8"),
+            (design / "tokens.css").read_text(encoding="utf-8"),
+        )
+    except OSError:
+        return None
 
 
 def _log_start(options: RunOptions, paths: AppPaths, container: Container, url: str) -> None:

@@ -32,7 +32,7 @@ describe('the banner of a tool that is not in order', () => {
 
     renderWithApp(App)
 
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
     expect(document.querySelector('[data-banner]')).toBeNull()
   })
 
@@ -41,7 +41,7 @@ describe('the banner of a tool that is not in order', () => {
 
     renderWithApp(App)
 
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
     expect(banner('ffmpeg').textContent).toContain(
       'ffmpeg is missing. yt-mirror cannot mirror videos without it.',
     )
@@ -55,7 +55,7 @@ describe('the banner of a tool that is not in order', () => {
 
     renderWithApp(App)
 
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
     expect(banner('deno').textContent).toContain('Deno no longer works.')
     expect(within(banner('deno')).getByRole('button', { name: 'Install now' })).toBeTruthy()
   })
@@ -64,7 +64,7 @@ describe('the banner of a tool that is not in order', () => {
     const newestStream = fakeEventStream()
     const fetchMock = withTool(tool('ffmpeg', 'missing'))
     renderWithApp(App)
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
 
     await fireEvent.click(within(banner('ffmpeg')).getByRole('button', { name: 'Install now' }))
     await waitFor(() => expect(banner('ffmpeg').textContent).toContain('Installing ffmpeg'))
@@ -83,7 +83,7 @@ describe('the banner of a tool that is not in order', () => {
     const newestStream = fakeEventStream()
     withTool(tool('ffmpeg', 'missing'))
     renderWithApp(App)
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
 
     newestStream().toolUpdated(tool('ffmpeg', 'ok'), false)
 
@@ -94,7 +94,7 @@ describe('the banner of a tool that is not in order', () => {
     const newestStream = fakeEventStream()
     const fetchMock = withTool(tool('deno', 'missing'))
     renderWithApp(App)
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
 
     newestStream().toolUpdated(tool('deno', 'failed', { error_code: 'DISK_FULL' }), false)
 
@@ -113,7 +113,7 @@ describe('the banner of a tool that is not in order', () => {
 
     renderWithApp(App)
 
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
     expect(banner('deno').textContent).toContain(
       'Deno could not be installed: an unexpected problem.',
     )
@@ -124,7 +124,7 @@ describe('the banner of a tool that is not in order', () => {
 
     renderWithApp(App)
 
-    await screen.findByText('yt-mirror is running.')
+    await screen.findByRole('heading', { name: 'Mirror your first channel' })
     expect(banner('ytdlp').textContent).toContain(
       'yt-dlp is missing. Quit yt-mirror and open it again to repair it.',
     )

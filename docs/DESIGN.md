@@ -49,6 +49,8 @@ Not drawn, by decision: layouts narrower than the minimum window (R-PL-03), the 
 
 Not drawn yet: the About window (R-NA-05, section 7.2). It needs a mockup before milestone M7.
 
+Not drawn, and built from the text of section 8: a channel without any regular video (the empty state of the list), and the states of an approximate date.
+
 ## 2. The theme center and its tokens
 
 Requirements: R-TH-01 to R-TH-09 in [SPEC.md](SPEC.md). Decision: D-036.
@@ -101,6 +103,8 @@ One value per theme. Utility classes use the token name, for example `bg-surface
 | `err-bg` / `err-text` | `#3A1A1C` / `#FFA39B` | `#FDE7E5` / `#8E1B12` | Failures |
 | `neutral-bg` / `neutral-text` | `#22262E` / `#B4BBC7` | `#ECEEF2` / `#454D5A` | Queued, excluded |
 | `track` | `#2A303B` | `#DDE1E7` | Progress track, skeletons |
+| `on-warn` | `#1A1206` | `#1A1206` | Text on `warn`: the "new" badge. The same in every theme, because `warn` is |
+| `scrim` / `on-scrim` | `#0B0D11` / `#E8EBF0` | `#0B0D11` / `#E8EBF0` | A dark layer over what is not in the colours of a theme, and the text on it: the duration badge on a thumbnail, the backdrop behind a dialog. The same in every theme (D-070) |
 
 ### 2.3 Type tokens
 
@@ -131,7 +135,7 @@ Font sizes. Utility classes use the token name, for example `text-title-sm`.
 
 | Token | Value | Use |
 |---|---|---|
-| `space` | 4 px | The spacing step. All spacing is a whole multiple of it (`p-4` is 16 px) |
+| `space` | 4 px | The spacing step. Spacing is a whole multiple of it (`p-4` is 16 px), or half of it: 2 px (`gap-0.5`), the smallest step, for gaps between items that must stay visibly separate, such as sidebar entries and the segments of a toggle. No other fraction exists |
 | `radius-xs` | 4 px | Duration badges, small tags |
 | `radius-sm` | 6 px | Menu items, view toggle, key caps |
 | `radius-md` | 8 px | Buttons, inputs, selects |
@@ -152,6 +156,9 @@ The mockups in `docs/design/v1/` were drawn before the scale in sections 2.3 and
 | Font size 30 or 32 px | `heading-lg` (28) in the app, `display-md` (36) on the website |
 | Radius 10 or 14 px | `radius-lg` (12) |
 | Any pill value (14 px on chips, 22 px, 30 px) | `radius-full` |
+| Spacing that is neither 2 px nor a multiple of 4 px | The nearest step. A value exactly between two steps takes the smaller one: 6 to 4, 10 to 8, 14 to 12, 18 to 16, 22 to 20 |
+
+Exception to the spacing rule: a value is never rounded down where that would put an interactive control under its minimum height or a touch target under its minimum size (section 2.7). There it is rounded up (D-065).
 
 ### 2.6 Line height, font weight and motion tokens
 
@@ -190,7 +197,7 @@ Targets: interactive elements are at least 44 px high, except dense table and to
 3. **Dialogs** have a title that states the question or the outcome, a short body, and buttons whose labels are verbs ("Exclude", "Remove channel"), never "OK" or "Yes".
 4. **Destructive actions** use the danger style and are never the default button.
 5. **Errors** follow the four-part pattern in `ErrorDetails.html`.
-6. **Dates** are absolute. An approximate date is always marked as such.
+6. **Dates** are absolute. An approximate date is always marked as such, with the word "around", an icon and a tooltip (section 8.2).
 7. **Empty, loading and error states** exist for every list and panel.
 8. **Icons** are inline stroke icons from one set. No emoji.
 9. **Wording** uses the terms in [GLOSSARY.md](GLOSSARY.md) exactly. The same thing is never called two names.
@@ -239,7 +246,7 @@ Labels are written as macOS writes them: title case, and three dots after an ite
 | | Show Downloads | | Always |
 | | Show Activity | | Always |
 | | Reload | | Only with `./start --debug` |
-| Channel | Check Now | Cmd+R | A channel is open and no check of it is running |
+| Channel | Check Now | Cmd+R | A channel is open, it is not paused, and no check of it is running (R-CH-31) |
 | | Check All Channels | | At least one channel is not paused |
 | | Mirror Everything Missing | | A channel is open and has eligible videos |
 | | Pause Channel (Resume Channel for a paused one) | | A channel is open |
@@ -272,3 +279,81 @@ The menu bar is the source of truth (R-NA-09). The mockup `Shortcuts.html` preda
 
 Cmd+R is "Reload" in a web view by default. In yt-mirror it is "Check Now", and the debug-only "Reload" item has no shortcut.
 
+
+## 8. Where the app differs from the mockups on purpose
+
+The mockups are not edited (section 2.5). This section lists what the app does differently by decision, so that a difference is not taken for a mistake.
+
+### 8.1 The channel menu and its "More actions" button
+
+The channel header has a "More actions" button that `Main.html` does not show. It opens the channel menu of `Menus.html`, which also opens by a right-click on a channel in the sidebar. It is a deliberate addition (D-066): a menu that opens only by a right-click cannot be reached by keyboard (R-UI-13, R-UI-14) and is not found by someone who does not know it is there.
+
+The menu shows only the items whose targets exist. From milestone M2: Check now, Full check, Pause channel or Resume channel, Open folder, Open on YouTube, Remove channel. "Check now" and "Full check" are not offered for a paused channel (R-CH-31). "Mirror everything missing" arrives in M5 and "Channel settings" in M7.
+
+The video menus of milestone M5 use the same Menu component and the same pattern: a right-click on a row or card, and the visible "More actions" button that the row and card mockups already show.
+
+### 8.2 Approximate dates
+
+Requirements R-DT-04 and R-DT-13 (D-060). The mockups show "Uploaded around Sep 2026" and "exact date pending" as words in the line under the title. The app shows this instead:
+
+| What is known | Text | Looks |
+|---|---|---|
+| The exact date | "Uploaded 11 Nov 2026" | Normal text |
+| A date to the year | "Uploaded around 2005" | Dimmed text and a state icon |
+| A date to the month | "Uploaded around Mar 2026" | Dimmed text and a state icon |
+| A date to the week or day | "Uploaded around 11 Nov 2026" | Dimmed text and a state icon |
+| No date | "date pending" | Dimmed text and a state icon |
+
+The state of a date that is not exact, by icon and tooltip, never by colour alone:
+
+| State | When | Icon | Tooltip |
+|---|---|---|---|
+| Waiting | The exact date is not being fetched yet | Clock, not moving | "Exact date pending" |
+| Updating | The exact date is being fetched now | Loading icon, turning | "Getting the exact date..." |
+| Unavailable | Fetching failed or is paused | Warning | Why, and that it will be tried again |
+
+When the exact date arrives it takes the place of the approximate one in normal text, with a short highlight that fades. With "reduce motion" nothing turns and nothing fades, and the three icons still differ. The same states appear in the list, the grid and the details panel, and on the theme preview page. Milestone M2 builds the texts and the waiting state, M3 the highlight, M4 the other two states, M5 the grid.
+
+### 8.3 Checks
+
+Requirements R-CH-12 and R-CH-23 to R-CH-27 (D-059). `Main.html` has one "Check now" button. In the app it starts a quick check. "Full check" is in the channel menu. While a full check runs, the channel page shows "Full check: 1,200 of about 6,600" with a progress bar and "Cancel", in the place where `StateLoading.html` shows the progress of the first listing. The header shows two times: "Checked 2 min ago" and "Full check 3 days ago".
+
+### 8.4 A channel without videos
+
+No mockup. The list area shows the empty state: the title "No videos yet" and the text "This channel has no regular videos. Shorts and live streams are not listed."
+
+### 8.5 The add channel dialog without a video count
+
+The video count of the preview is optional (R-CH-03, D-061). Without it the preview shows the handle alone, and the choice reads "All videos now, and new ones as they appear." instead of "All 57 videos now, and new ones as they appear."
+
+### 8.6 Elements that arrive with their target
+
+An element whose target a later milestone builds is not shown before that milestone (D-066). Which element arrives when is listed in [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md) as "Postponed from M2".
+
+### 8.7 Smaller differences
+
+| Mockup | App | Why |
+|---|---|---|
+| The logo in the sidebar is a glyph drawn with strokes | The brand icon, drawn from the icon source file | Section 5: one source for every logo |
+| Letter-spacing on the "Channels" label | None | There is no letter-spacing token (R-TH-02) |
+| Icons of 13, 14 and 18 px, with strokes of 2.5 and 3 | Icons of 12, 16 and 20 px, one stroke width | The sizes are steps of the spacing scale |
+| Video titles and button labels in weight 600 | Weight 500 | Section 2.6 |
+| Dialogs without a shadow | `shadow-overlay` | Section 2.7 |
+| A channel entry of 54 px, a "check all" button of 32 px | 56 px and 36 px | The scale, and the minimum size of section 2.7 |
+| Coloured circles for avatars | The real avatar, on the `track` colour while it loads | The mockups have no pictures |
+| The folder in step 2 of the add channel dialog is a text field | The folder is shown as text, next to "Choose..." | A folder is never typed: the app takes a path only from the folder dialog of macOS ([ARCHITECTURE.md](ARCHITECTURE.md) section 9) |
+| "Choose..." is always there | Not shown with `--browser` | The folder dialog exists only in the app window |
+| The header of a first listing has no buttons (`StateLoading.html`) | It has "More actions" | Pausing and removing a channel must be reachable by keyboard while it is being listed |
+| "Last check failed 2 min ago" in the header | "Last check failed" | The time of a failed check is not stored. The banner tells the time of the last successful check, as a date and a time |
+| "Up to date · checked 2 min ago" in full | Cut off with "..." when the sidebar is too narrow for it, with the full text as tooltip | The sidebar is 256 px wide, as in the mockup, where the text does not fit either |
+| The welcome title is 32 px | 28 px (`heading-lg`) | Section 2.5 |
+
+### 8.8 States that have no mockup
+
+| State | What the app shows |
+|---|---|
+| An action of the user failed (for example "Open folder" for a folder that is gone) | An error banner above the page with the texts of the error code, until it is dismissed. Toasts and "Show details" arrive with milestone M7 |
+| A channel was opened because it existed already (R-CH-04) | An info banner on its page: "<channel> was added before. Here it is.", until it is dismissed. `States.html` has no toast for this |
+| The list of a channel could not be loaded | An error banner in the list area with "Try again" |
+| YouTube's "not a bot" check (R-ER-05) | One banner above the page with "Try now", in the place of the "Cannot reach YouTube" banner of `States.html` |
+| The window is not connected to its server | The brand icon, "Connecting to yt-mirror", or the error with "Try again" (R-ER-04) |

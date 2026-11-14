@@ -13,6 +13,8 @@ npm --prefix e2e test
 - **The first run has apps of its own.** The shared app is brought past its first run before the tests (`global-setup.ts`). A test of the first run itself starts its own app on empty folders (`tests/fresh-app.ts`) and can make a download fail for that app only.
 - **Screenshots** are in `tests/__screenshots__/`, one per browser. After an intended visual change run `npm --prefix e2e run test:update-screenshots`, look at the new images, and commit them.
 - **Chromium cannot be downloaded everywhere.** Where Playwright's download is refused, use an installed Google Chrome: `YTM_E2E_CHROME_CHANNEL=chrome npm --prefix e2e test`.
-- The fake YouTube (`e2e/fixtures/youtube/`) arrives in milestone M2.
+- **YouTube is a fake.** Every app the tests start gets `YTM_FAKE_YOUTUBE=fixtures/youtube`, a recorded world of channels (docs/TESTING.md section 4), and a library folder of its own (`YTM_LIBRARY_DIR`). No test asks the real YouTube or writes into `~/Movies/YouTube`.
+- **Channels have apps of their own too.** A test that adds or changes channels starts its own app (`tests/fresh-app.ts`) and brings it past the first run through the API (`finishSetup`). The shared app never gets a channel.
+- **The time zone is fixed** to UTC in `playwright.config.ts`, because dates are shown in the time zone of the machine (R-DT-02).
 
 Every test title starts with the requirement IDs it covers.

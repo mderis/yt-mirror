@@ -8,13 +8,16 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.api.conftest import PORT, TOKEN, Api, make_diagnostics
+from tests.api.conftest import PORT, TOKEN, Api, new_world, services_around
 from tests.fixtures.builders import make_toolchain, tool_box_with
 from tests.fixtures.fakes.clock import FakeClock
+from tests.fixtures.world import SMALL_ID, World, channel_file
 from ytmirror.api import sse
-from ytmirror.api.app import ApiConfig, ApiServices, create_app
+from ytmirror.api.app import ApiConfig, create_app
 from ytmirror.api.schemas import Tool
 from ytmirror.api.security import SecurityPolicy
+from ytmirror.core.channels import YouTubePause, YouTubePauseChanged
+from ytmirror.core.errors import ErrorCode
 from ytmirror.core.models import AppEvent, ToolName, ToolReport, ToolStatus, ToolUpdated
 from ytmirror.services.events import EventBus, Listener
 from ytmirror.services.toolchain import ToolchainService
@@ -43,6 +46,8 @@ class Stream:
         self.status = 0
         self.content_type = ""
         self.text = ""
+        # Others listen to the bus as well. Only a listener that comes from now on is the stream.
+        bus.listening.clear()
         self._thread = threading.Thread(target=self._read, args=(client,))
         self._thread.start()
         assert bus.listening.wait(timeout=10), "the stream did not start to listen"
@@ -90,7 +95,7 @@ def client(
     clock: FakeClock,
 ) -> TestClient:
     """A signed-in client of the app."""
-    services = ApiServices(make_diagnostics(tmp_path), toolchain, bus)
+    services = services_around(tmp_path, toolchain, new_world(tmp_path, bus))
     config = ApiConfig(SecurityPolicy.for_local_server(TOKEN, PORT), frontend_dir)
     return Api(create_app(config, services, clock), frontend_dir).signed_in_client()
 
@@ -193,3 +198,48 @@ def test_one_event_is_one_name_line_and_one_data_line() -> None:
     assert data_line.startswith("data: {")
     assert json.loads(data_line.removeprefix("data: "))["version"] == "2.9.8"
     assert rest == ["", ""]
+
+
+def test_the_events_of_the_catalogue_arrive_on_the_stream(
+    client: TestClient, bus: WatchedBus, tmp_path: Path
+) -> None:
+    """R-FB-03, R-CH-11: a channel that changes and the progress of its listing reach the window."""
+    folder = tmp_path / "catalogue-world"
+    folder.mkdir()
+    world = World(folder, channel_file(videos=35), bus=bus)
+    stream = Stream(client, bus)
+
+    world.add_and_list()
+    bus.close()
+
+    events = stream.events()
+    names = [name for name, _data in events]
+    progress = [data["progress"] for name, data in events if name == "task.progress"]
+    last_channel = [data["channel"] for name, data in events if name == "channel.updated"][-1]
+    assert set(names) == {"channel.updated", "task.progress"}
+    assert progress == [
+        {"channel_id": SMALL_ID, "kind": "first_listing", "done": 0, "total": None},
+        {"channel_id": SMALL_ID, "kind": "first_listing", "done": 30, "total": None},
+    ]
+    assert (last_channel["id"], last_channel["videos"], last_channel["status"]) == (  # type: ignore[index]
+        SMALL_ID,
+        35,
+        "up_to_date",
+    )
+    assert last_channel["pictures"] > 0  # type: ignore[index, operator]
+
+
+def test_the_pause_of_youtube_arrives_on_the_stream_as_a_banner(
+    client: TestClient, bus: WatchedBus
+) -> None:
+    """R-ER-05, R-FB-04: the window hears at once when the app pauses and when it goes on."""
+    stream = Stream(client, bus)
+
+    bus.publish(YouTubePauseChanged(YouTubePause(ErrorCode.BOT_CHECK, 1794641000)))
+    bus.publish(YouTubePauseChanged(None))
+    bus.close()
+
+    assert stream.events() == [
+        ("banner.changed", {"youtube_pause": {"code": "BOT_CHECK", "until": 1794641000}}),
+        ("banner.changed", {"youtube_pause": None}),
+    ]

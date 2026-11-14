@@ -58,6 +58,7 @@ Run from the repository root. `uv` here means a uv on your PATH. If you have non
 | Check the environment | `./start --doctor` |
 | Start a clone and check it (a window appears for a moment) | `scripts/smoke_test.sh` |
 | The same, with the real tool downloads and a moved folder, as CI does | `YTM_SMOKE_TOOLS=1 YTM_SMOKE_MOVE=1 scripts/smoke_test.sh` |
+| Run against the fake YouTube, with data and a library of its own | `YTM_FAKE_YOUTUBE=e2e/fixtures/youtube YTM_DATA_DIR=/tmp/ytm-fake/data YTM_LIBRARY_DIR=/tmp/ytm-fake/library ./start` |
 | Backend tests | `uv run pytest` |
 | Backend tests without the ones that open the app window | `uv run pytest -m "not window"` |
 | Backend tests with the coverage thresholds | `uv run pytest --cov --cov-report=json:coverage.json && uv run python scripts/check_coverage.py coverage.json` |
@@ -77,7 +78,6 @@ Not available yet:
 
 | Task | Command | Arrives in |
 |---|---|---|
-| Run against the fake YouTube | `YTM_FAKE_YOUTUBE=e2e/fixtures/youtube ./start` | M2 |
 | Explain a video's history | `uv run python -m ytmirror.tools.explain <video id>` | M7 |
 | Update the app | `./start --update` | M9 |
 | Docs site locally | `npm --prefix docs run dev` | M10 |

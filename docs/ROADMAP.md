@@ -15,7 +15,7 @@ Not committed. Each needs its own spec section, designs and decision record befo
 | Playlists and single videos as sources | |
 | Proxy setting | |
 | Background operation | Menu bar agent or scheduled runs while the window is closed |
-| Sign-in with cookies | Members-only and age-restricted videos |
+| Sign-in with cookies | Members-only and age-restricted videos. Signing in with the cookies of a browser is also the usual way around YouTube's "confirm you're not a bot" check, which refuses requests from some network addresses (R-ER-05). Version 1 only explains the check and pauses. If the check turns out to be common for users, this may have to move into version 1 |
 | MP4 output, audio-only output | |
 | More subtitle languages, UI translations | Strings are already centralised (R-PL-06) |
 | Per-channel overrides for subtitles and check interval | |

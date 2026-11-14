@@ -55,8 +55,10 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 |---|---|
 | app | `app.started`, `app.stopping`, `app.crashed`, `app.config` (paths, versions, install kind), `app.external_log` (a line written by a library such as uvicorn or Alembic. Its text is in `msg`, its logger name in `component`) |
 | toolchain | `tool.check`, `tool.install.started`, `tool.install.finished`, `tool.install.failed`, `ytdlp.update.finished` |
-| channel | `channel.added`, `channel.removed`, `channel.paused`, `channel.resumed`, `channel.folder_moved` |
-| check | `check.started`, `check.finished` (counts: new, updated, gone, renamed, missing), `check.failed`, `check.retry_scheduled` |
+| channel | `channel.added`, `channel.removed`, `channel.paused`, `channel.resumed`, `channel.folder_moved`, `channel.count_unavailable` (the preview of a channel has no video count, with the reason, R-CH-03), `channel.count_differs` (the first listing found another number of videos than the preview showed) |
+| check | `check.started`, `check.finished` (counts: new, updated, gone, returned, read, renamed, missing), `check.failed`, `check.cancelled`, `check.retry_scheduled`. Each carries `kind`: `quick` or `full` (R-CH-12) |
+| youtube | `youtube.paused` (YouTube answered with its "not a bot" check, with `request`: the kind of request that was refused, and the length of the pause, R-ER-05), `youtube.resumed` |
+| image | `image.cache.finished` (pictures of a channel were cached: stored, failed, left, R-CH-16) |
 | dates | `dates.fetch.batch`, `dates.fetch.backoff`, `dates.applied`, `dates.repaired`, `dates.verify_failed` |
 | queue | `queue.enqueued`, `queue.paused`, `queue.resumed`, `queue.reordered`, `queue.disk_guard` |
 | download | `download.started`, `download.stage`, `download.retry`, `download.finished`, `download.failed`, `download.cancelled` |
@@ -76,6 +78,7 @@ Defined once in `backend/ytmirror/core/errors.py`. Each code has: a name, whethe
 |---|---|---|
 | `NETWORK_UNREACHABLE` | transient | No connection to YouTube |
 | `RATE_LIMITED` | transient | YouTube asked us to slow down |
+| `BOT_CHECK` | transient | YouTube refused the request with its check "Sign in to confirm you're not a bot". It depends on the network address the request comes from. The whole app pauses what it asks of YouTube by itself (R-ER-05). Never shown once per video |
 | `YOUTUBE_CHANGED` | transient | Extraction failed in a way that suggests yt-dlp is outdated. Triggers the yt-dlp update offer (R-UP-06) |
 | `VIDEO_PRIVATE` | permanent | |
 | `VIDEO_REMOVED` | permanent | |

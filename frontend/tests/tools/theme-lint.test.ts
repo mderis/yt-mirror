@@ -106,12 +106,17 @@ describe('the theme lint rules', () => {
     expect(rulesFor(script, 'src/a.ts')).toEqual([])
   })
 
-  it('R-TH-06: rejects spacing that is not a whole multiple of the step', () => {
+  it('R-TH-06: rejects spacing that is neither half a step nor whole steps', () => {
     expect(rulesFor(template('p-1.5'))).toEqual(['off-scale'])
     expect(rulesFor(template('hover:gap-x-2.5'))).toEqual(['off-scale'])
-    expect(rulesFor(template('-mt-0.5'))).toEqual(['off-scale'])
+    expect(rulesFor(template('-mt-0.25'))).toEqual(['off-scale'])
     expect(rulesFor(template('w-3.5 max-w-7.5'))).toEqual(['off-scale', 'off-scale'])
+    expect(rulesFor(template('gap-0.75 p-10.5'))).toEqual(['off-scale', 'off-scale'])
     expect(rulesFor(template('p-4 gap-2 w-64 -mt-1 inset-0'))).toEqual([])
+  })
+
+  it('R-TH-06: accepts half a step, the 2 px step of the spacing scale', () => {
+    expect(rulesFor(template('gap-0.5 p-0.5 -mt-0.5 hover:gap-x-0.5 inset-0.5'))).toEqual([])
   })
 
   it('R-TH-06: rejects one-off line heights and durations', () => {
@@ -220,7 +225,7 @@ describe('the theme lint on the source tree', () => {
     expect(files).toContain('index.html')
     expect(files).toContain('theme-preview.html')
     expect(files).toContain(join('src', 'App.vue'))
-    expect(files).toContain(join('src', 'features', 'placeholder', 'PlaceholderPage.vue'))
+    expect(files).toContain(join('src', 'features', 'shell', 'AppShell.vue'))
     expect(files).toContain(join('src', 'design', 'theme.css'))
     expect(files.some((file) => file.includes(join('design', 'fonts', 'inter')))).toBe(false)
   })
@@ -228,7 +233,7 @@ describe('the theme lint on the source tree', () => {
   it('R-TH-01: treats only src/design as the theme center', () => {
     expect(scopeOf(join('src', 'design', 'preview', 'ThemePreview.vue'))).toBe('design')
     expect(scopeOf(join('src', 'designer', 'Other.vue'))).toBe('code')
-    expect(scopeOf(join('src', 'features', 'placeholder', 'PlaceholderPage.vue'))).toBe('code')
+    expect(scopeOf(join('src', 'features', 'shell', 'AppShell.vue'))).toBe('code')
     expect(scopeOf('index.html')).toBe('code')
   })
 

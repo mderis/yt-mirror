@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { useToolsStore } from '@/stores/tools'
 
-import { fakeEventStream } from '../helpers/events'
 import { allToolsReady, errorBody, firstStart, jsonResponse, mockApi, tool } from '../helpers/fetch'
 
 beforeEach(() => setActivePinia(createPinia()))
@@ -63,7 +62,6 @@ describe('the tools store', () => {
   })
 
   it('R-FB-03: a tool that is installed before the request is answered stays installed', async () => {
-    const newestStream = fakeEventStream()
     let answer: (response: Response) => void = () => {}
     mockApi({
       'GET /api/tools': jsonResponse(firstStart()),
@@ -71,19 +69,17 @@ describe('the tools store', () => {
     })
     const store = useToolsStore()
     await store.load()
-    store.listen()
 
     const installing = store.install('deno')
-    newestStream().toolUpdated(tool('deno', 'installing', { progress: 0 }))
-    newestStream().toolUpdated(tool('deno', 'ok', { version: '2.9.8', source: 'deno' }))
+    store.apply(tool('deno', 'installing', { progress: 0 }))
+    store.apply(tool('deno', 'ok', { version: '2.9.8', source: 'deno' }))
     answer(jsonResponse(tool('deno', 'installing', { progress: 0 })))
     await installing
 
     expect(store.tools[3]).toMatchObject({ status: 'ok', version: '2.9.8' })
   })
 
-  it('R-FB-03: a failure that arrives on the stream is not replaced by a late refusal', async () => {
-    const newestStream = fakeEventStream()
+  it('R-FB-03: a failure that an event told is not replaced by a late refusal', async () => {
     let answer: (response: Response) => void = () => {}
     mockApi({
       'GET /api/tools': jsonResponse(firstStart()),
@@ -91,10 +87,9 @@ describe('the tools store', () => {
     })
     const store = useToolsStore()
     await store.load()
-    store.listen()
 
     const installing = store.install('deno')
-    newestStream().toolUpdated(tool('deno', 'failed', { error_code: 'DISK_FULL' }))
+    store.apply(tool('deno', 'failed', { error_code: 'DISK_FULL' }))
     answer(jsonResponse(errorBody('INTERNAL'), 500))
     await installing
 
@@ -137,15 +132,13 @@ describe('the tools store', () => {
     expect(store.tools).toEqual([])
   })
 
-  it('R-FB-03: an event of the stream updates the tool without a new request', async () => {
-    const newestStream = fakeEventStream()
+  it('R-FB-03: a tool event updates the tool without a new request', async () => {
     const fetchMock = mockApi({ 'GET /api/tools': jsonResponse(firstStart()) })
     const store = useToolsStore()
     await store.load()
-    store.listen()
 
-    newestStream().toolUpdated(tool('ffmpeg', 'installing', { progress: 0.64 }))
-    newestStream().toolUpdated(tool('deno', 'ok', { version: '2.9.8', source: 'deno' }))
+    store.apply(tool('ffmpeg', 'installing', { progress: 0.64 }))
+    store.apply(tool('deno', 'ok', { version: '2.9.8', source: 'deno' }))
 
     expect(store.tools[2]).toMatchObject({ status: 'installing', progress: 0.64 })
     expect(store.tools[3]).toMatchObject({ status: 'ok', version: '2.9.8', source: 'deno' })
@@ -153,61 +146,11 @@ describe('the tools store', () => {
   })
 
   it('R-FB-03: an event about a tool that is not known yet adds it', () => {
-    const newestStream = fakeEventStream()
     const store = useToolsStore()
-    store.listen()
 
-    newestStream().toolUpdated(tool('deno', 'missing'))
+    store.apply(tool('deno', 'missing'))
 
     expect(store.tools.map((known) => known.name)).toEqual(['deno'])
-  })
-
-  it('R-FB-03: after a break of the stream the tools are loaded again', async () => {
-    const newestStream = fakeEventStream()
-    const answers = [jsonResponse(firstStart()), jsonResponse(allToolsReady())]
-    const fetchMock = mockApi({ 'GET /api/tools': () => answers.shift() as Response })
-    const store = useToolsStore()
-    await store.load()
-    store.listen()
-
-    newestStream().emit('open')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    newestStream().emit('error')
-    newestStream().emit('open')
-    await Promise.resolve()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(store.allReady).toBe(true)
-  })
-
-  it('R-FB-03: a reload that fails after a break leaves the known state in place', async () => {
-    const newestStream = fakeEventStream()
-    const answers = [jsonResponse(firstStart()), jsonResponse(errorBody('INTERNAL'), 500)]
-    mockApi({ 'GET /api/tools': () => answers.shift() as Response })
-    const store = useToolsStore()
-    await store.load()
-    store.listen()
-
-    newestStream().emit('error')
-    newestStream().emit('open')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(store.tools).toHaveLength(4)
-  })
-
-  it('infra: listening twice opens one stream, and stopping closes it', () => {
-    const newestStream = fakeEventStream()
-    const store = useToolsStore()
-
-    store.listen()
-    const first = newestStream()
-    store.listen()
-    store.stopListening()
-    store.stopListening()
-
-    expect(newestStream()).toBe(first)
-    expect(first.closed).toBe(true)
   })
 
   it('R-IN-03: the first-run screen installs one tool at a time, in order', async () => {

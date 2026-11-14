@@ -5,6 +5,7 @@ import { h } from 'vue'
 import AppBanner from '@/components/AppBanner.vue'
 import AppButton from '@/components/AppButton.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import { ICON_NAMES } from '@/components/icons'
 import ProgressBar from '@/components/ProgressBar.vue'
 
 describe('the button', () => {
@@ -54,17 +55,14 @@ describe('the button', () => {
 })
 
 describe('the icon', () => {
-  it.each(['check', 'download', 'clock', 'warning', 'retry'] as const)(
-    'R-UI-14: the %s icon is drawn with strokes in the text colour',
-    (name) => {
-      const { container } = render(AppIcon, { props: { name } })
-      const icon = container.querySelector('svg')
+  it.each(ICON_NAMES)('R-UI-14: the %s icon is drawn with strokes in the text colour', (name) => {
+    const { container } = render(AppIcon, { props: { name } })
+    const icon = container.querySelector('svg')
 
-      expect(icon?.getAttribute('stroke')).toBe('currentColor')
-      expect(icon?.getAttribute('fill')).toBe('none')
-      expect(icon?.querySelectorAll('path, circle').length).toBeGreaterThan(0)
-    },
-  )
+    expect(icon?.getAttribute('stroke')).toBe('currentColor')
+    expect(icon?.getAttribute('fill')).toBe('none')
+    expect(icon?.querySelectorAll('path, circle').length).toBeGreaterThan(0)
+  })
 })
 
 describe('the progress bar', () => {

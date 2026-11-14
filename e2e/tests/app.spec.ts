@@ -7,18 +7,18 @@ const FIRST_URL = `/?token=${SESSION_TOKEN}`
 
 async function openApp(page: Page): Promise<void> {
   await page.goto(FIRST_URL)
-  await expect(page.getByText('yt-mirror is running.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mirror your first channel' })).toBeVisible()
   await page.evaluate(() => document.fonts.ready)
 }
 
-test('R-IN-02, R-PL-10: a started app shows the placeholder, and the token leaves the address', async ({
+test('R-IN-02, R-PL-10: a started app shows its first screen, and the token leaves the address', async ({
   page,
 }) => {
   await openApp(page)
 
-  expect(page.url()).toBe(`${APP_URL}/`)
-  await expect(page.getByRole('heading', { level: 1, name: 'yt-mirror' })).toBeVisible()
-  await expect(page.getByText(/^Version \d+\.\d+\.\d+/)).toBeVisible()
+  // What follows the `#` is the page of the interface (D-063). The token is gone.
+  expect(page.url()).toBe(`${APP_URL}/#/`)
+  await expect(page.getByRole('navigation', { name: 'Channels' })).toBeVisible()
   await expect(page).toHaveTitle('yt-mirror')
 })
 
@@ -79,7 +79,7 @@ test('infra: "Try again" recovers once the session exists', async ({ page, conte
 
   await page.getByRole('button', { name: 'Try again' }).click()
 
-  await expect(page.getByText('yt-mirror is running.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mirror your first channel' })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
@@ -125,18 +125,18 @@ for (const theme of ['light', 'dark'] as const) {
       )
     })
 
-    test(`R-TH-09: the placeholder page looks as recorded in the ${theme} theme`, async ({
+    test(`R-TH-09: the welcome screen looks as recorded in the ${theme} theme`, async ({
       page,
     }) => {
       await openApp(page)
 
-      await expect(page).toHaveScreenshot(`placeholder-${theme}.png`, {
-        // The version number changes with every release.
-        mask: [page.getByText(/^Version /)],
+      await expect(page).toHaveScreenshot(`welcome-${theme}.png`, {
+        // The free space and the place of the library differ from machine to machine.
+        mask: [page.locator('[data-free-space]'), page.locator('[data-library]')],
       })
     })
 
-    test(`R-UI-14: the placeholder page has no accessibility violations in the ${theme} theme`, async ({
+    test(`R-UI-14: the welcome screen has no accessibility violations in the ${theme} theme`, async ({
       page,
     }) => {
       await openApp(page)

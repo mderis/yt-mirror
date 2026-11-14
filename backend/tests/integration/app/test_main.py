@@ -118,7 +118,7 @@ def test_a_run_serves_the_interface_and_the_api_behind_the_session_token(paths: 
     assert visit.redirect_status == 303
     assert visit.page_status == 200
     assert visit.health["status"] == "ok"
-    assert visit.health["schema_version"] == "0003"
+    assert visit.health["schema_version"] == "0004"
 
 
 def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPaths) -> None:
@@ -128,7 +128,7 @@ def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPat
     engine = create_db_engine(paths.database_file)
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0003"
+    assert version == "0004"
 
 
 def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
