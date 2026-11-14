@@ -18,6 +18,8 @@ const props = withDefaults(
     title: string
     /** The status line, in words. */
     status: string
+    /** More about the status, as its tooltip. None: the status itself. */
+    statusNote?: string | undefined
     /** The icon of the status. */
     statusIcon: IconName
     /** How the status line is coloured. The words and the icon carry the meaning. */
@@ -29,7 +31,13 @@ const props = withDefaults(
     /** True for the channel that is open. */
     selected?: boolean
   }>(),
-  { statusTone: 'muted', avatar: undefined, newVideos: undefined, selected: false },
+  {
+    statusNote: undefined,
+    statusTone: 'muted',
+    avatar: undefined,
+    newVideos: undefined,
+    selected: false,
+  },
 )
 
 defineEmits<{
@@ -75,7 +83,7 @@ const pictureFailed = ref(false)
       </span>
       <span class="flex items-center gap-1 text-label" :class="toneClass" data-status>
         <AppIcon :name="statusIcon" size="sm" />
-        <span class="truncate" :title="status">{{ status }}</span>
+        <span class="truncate" :title="statusNote ?? status">{{ status }}</span>
       </span>
     </span>
     <AppBadge v-if="newVideos">{{ newVideos }}</AppBadge>

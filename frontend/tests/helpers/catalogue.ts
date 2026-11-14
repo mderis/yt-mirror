@@ -24,6 +24,7 @@ export function channel(changes: Partial<Channel> = {}): Channel {
     last_check_at: NOW - 120,
     last_full_check_at: NOW - 3600,
     last_check_error: null,
+    last_check_error_at: null,
     status: 'up_to_date',
     videos: 12,
     synced: 0,

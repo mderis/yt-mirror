@@ -511,6 +511,7 @@ export interface components {
      *         last_check_at: The last successful check of either kind, or None.
      *         last_full_check_at: The last successful full check, or None.
      *         last_check_error: The error code of the last check when it failed, or None.
+     *         last_check_error_at: When that check failed, or None.
      *         progress: The first listing or full check that is running, or None.
      *         pictures: A number that grows when more pictures of the channel are cached.
      *         avatar_version: A number that grows when the avatar of the channel was cached anew.
@@ -538,6 +539,8 @@ export interface components {
       /** Last Check At */
       last_check_at: number | null
       last_check_error: components['schemas']['ErrorCode'] | null
+      /** Last Check Error At */
+      last_check_error_at: number | null
       /** Last Full Check At */
       last_full_check_at: number | null
       /** Mirror After */
@@ -569,7 +572,13 @@ export interface components {
      *     Each milestone adds the statuses that can occur from it on.
      * @enum {string}
      */
-    ChannelStatus: 'could_not_check' | 'checking' | 'new_videos' | 'paused' | 'up_to_date'
+    ChannelStatus:
+      | 'checking'
+      | 'waiting_for_youtube'
+      | 'could_not_check'
+      | 'new_videos'
+      | 'paused'
+      | 'up_to_date'
     /**
      * ChannelUpdatedEvent
      * @description The data of the ``channel.updated`` event of ``GET /api/events``.

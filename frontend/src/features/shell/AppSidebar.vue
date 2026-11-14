@@ -84,6 +84,7 @@ async function checkAll(): Promise<void> {
           <SidebarItem
             :title="entry.channel.title"
             :status="entry.status.text"
+            :status-note="entry.status.note"
             :status-icon="entry.status.icon"
             :status-tone="entry.status.tone"
             :avatar="pictures.avatar(entry.channel.id, entry.channel.avatar_version)"

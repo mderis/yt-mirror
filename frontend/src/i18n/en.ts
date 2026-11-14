@@ -157,6 +157,8 @@ export const en = {
     newVideos: '{count} new video | {count} new videos',
     paused: 'Paused',
     couldNotCheck: 'Could not check',
+    waitingForYouTube: 'Waiting for YouTube',
+    nextAttempt: 'The next attempt is at {time}.',
     newBadge: '{count} new',
   },
   /** The welcome screen of an app without channels (R-UI-02, design: Welcome.html). */
@@ -208,8 +210,8 @@ export const en = {
     all: 'Mirror everything and keep it in sync (auto-mirror)',
     allHint: 'All {count} videos now, and new ones as they appear.',
     allHintWithoutCount: 'All videos now, and new ones as they appear.',
-    after: 'Auto-mirror, but only videos uploaded after a date',
-    afterDate: 'Uploaded after',
+    after: 'Auto-mirror, but only videos uploaded on or after a date',
+    afterDate: 'Uploaded on or after',
     /** Why the pasted text is no channel, and what is accepted (R-CH-02). */
     rejected: {
       empty: "Paste a channel link, a handle such as {'@'}name, or a channel ID.",
@@ -232,6 +234,7 @@ export const en = {
     fullCheck: 'Full check {ago}',
     checking: 'Checking for new videos...',
     lastCheckFailed: 'Last check failed',
+    waitingForYouTube: 'Waiting for YouTube. The next attempt is at {time}.',
     paused: 'Paused. No checks until you resume.',
     checkNow: 'Check now',
     openFolder: 'Open folder',
@@ -262,6 +265,8 @@ export const en = {
       keptList:
         'The video list below is from the last successful check ({when}). Your downloaded files are not affected.',
       noList: 'The video list could not be read yet.',
+      failedAt: 'The check failed on {when}.',
+      retrying: 'Trying again now.',
       tryAgain: 'Try again',
     },
     empty: {

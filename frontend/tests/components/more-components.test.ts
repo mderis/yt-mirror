@@ -286,7 +286,7 @@ describe('the status chip and the badge', () => {
     expect(screen.getByText('Not downloaded').querySelector('svg')).toBeNull()
   })
 
-  it('R-CH-34: the badge for new videos is dark text on the "new" colour', () => {
+  it('R-CH-34, R-UI-14: the badge for new videos is dark text on the "new" colour', () => {
     render(AppBadge, { slots: { default: '3 new' } })
     render(AppBadge, { props: { shape: 'tag' }, slots: { default: 'New' } })
 
@@ -439,6 +439,21 @@ describe('the sidebar item', () => {
     expect(within(item).getByText('3 new')).toBeTruthy()
   })
 
+  it('R-FB-01: a status line can carry a note of its own as its tooltip', () => {
+    render(SidebarItem, {
+      props: {
+        ...props,
+        status: 'Waiting for YouTube',
+        statusNote: 'The next attempt is at 06:57.',
+      },
+    })
+
+    const status = screen.getByRole('button').querySelector('[data-status] [title]')
+
+    expect(status?.textContent).toBe('Waiting for YouTube')
+    expect(status?.getAttribute('title')).toBe('The next attempt is at 06:57.')
+  })
+
   it('R-CH-34: a channel without new videos and without a picture shows neither', async () => {
     render(SidebarItem, { props: { ...props, avatar: '/missing' } })
     const item = screen.getByRole('button')
@@ -547,7 +562,7 @@ describe('the video row', () => {
 })
 
 describe('loading and empty', () => {
-  it('R-CH-11: a skeleton is a grey block that says nothing to a screen reader', () => {
+  it('R-UI-14: a skeleton is a grey block that says nothing to a screen reader', () => {
     const { container } = render(SkeletonBlock)
 
     const block = container.querySelector('[data-skeleton]')

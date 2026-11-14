@@ -230,7 +230,7 @@ describe('the add channel dialog', () => {
       within(dialog).getByText('Mirror everything and keep it in sync (auto-mirror)'),
     ).toBeTruthy()
     expect(
-      within(dialog).getByText('Auto-mirror, but only videos uploaded after a date'),
+      within(dialog).getByText('Auto-mirror, but only videos uploaded on or after a date'),
     ).toBeTruthy()
   })
 
@@ -328,19 +328,19 @@ describe('the add channel dialog', () => {
     })
   })
 
-  it('R-CH-05, R-MI-03: "only videos uploaded after a date" needs the date, which begins with that day', async () => {
+  it('R-CH-05, R-MI-03: "only videos uploaded on or after a date" needs the date, and the day itself counts', async () => {
     const { app, dialog } = await atStepTwo({
       'POST /api/channels': jsonResponse({ channel: added, existing: false }, 201),
       [`GET /api/channels/${NEW_ID}/videos`]: jsonResponse({ videos: [] }),
     })
     const add = within(dialog).getByRole('button', { name: 'Add channel' })
-    expect(within(dialog).queryByLabelText('Uploaded after')).toBeNull()
+    expect(within(dialog).queryByLabelText('Uploaded on or after')).toBeNull()
 
     await fireEvent.click(
-      within(dialog).getByRole('radio', { name: /only videos uploaded after a date/ }),
+      within(dialog).getByRole('radio', { name: /only videos uploaded on or after a date/ }),
     )
     const withoutDate = add.hasAttribute('disabled')
-    await fireEvent.update(within(dialog).getByLabelText('Uploaded after'), '2026-11-01')
+    await fireEvent.update(within(dialog).getByLabelText('Uploaded on or after'), '2026-11-01')
     await fireEvent.click(add)
     await screen.findByRole('heading', { level: 1, name: 'Sample Channel Three' })
 

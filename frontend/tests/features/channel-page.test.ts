@@ -266,6 +266,119 @@ describe('the channel page', () => {
     expect(rows()).toHaveLength(2)
   })
 
+  it('R-FB-01, R-CH-25: while a retry runs the channel says checking, the banner stays and says so, and the buttons are busy', async () => {
+    const failed = channel({
+      status: 'could_not_check',
+      last_check_error: 'NETWORK_UNREACHABLE',
+      last_check_error_at: NOW - 600,
+    })
+    const app = await openApp({
+      channels: [failed],
+      videos: [video(1)],
+      answers: { [CHECK]: jsonResponse({ ...failed, status: 'checking' }) },
+    })
+    await waitFor(() => row(1))
+    const banner = part('[data-banner="check-failed"]')
+    const before = banner.textContent
+
+    await fireEvent.click(within(banner).getByRole('button', { name: 'Try again' }))
+    app.stream().channelUpdated({ ...failed, status: 'checking' })
+
+    await waitFor(() => expect(banner.textContent).toContain('Trying again now.'))
+    expect(before).toContain('The check failed on 14 Nov 2026, 06:32.')
+    const tryAgain = within(banner).getByRole('button', { name: 'Try again' })
+    expect(tryAgain.getAttribute('aria-busy')).toBe('true')
+    expect(tryAgain.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Check now' }).getAttribute('aria-busy')).toBe('true')
+    expect(part('[data-check]').textContent).toContain('Checking for new videos...')
+    expect(
+      screen.getByRole('navigation', { name: 'Channels' }).querySelector('[data-status]')
+        ?.textContent,
+    ).toBe('Checking for new videos...')
+
+    app.stream().channelUpdated(channel({ last_check_at: NOW, catalogue_version: 2 }))
+
+    await waitFor(() => expect(document.querySelector('[data-banner="check-failed"]')).toBeNull())
+    expect(part('[data-check]').textContent).toContain('Checked just now')
+  })
+
+  it('R-CH-25: a retry that fails again shows the new failure with its time', async () => {
+    const failed = channel({
+      status: 'could_not_check',
+      last_check_error: 'NETWORK_UNREACHABLE',
+      last_check_error_at: NOW - 600,
+    })
+    const app = await openApp({ channels: [failed] })
+    await page()
+
+    app.stream().channelUpdated({ ...failed, status: 'checking' })
+    app.stream().channelUpdated({
+      ...failed,
+      last_check_error: 'RATE_LIMITED',
+      last_check_error_at: NOW - 120,
+    })
+
+    const banner = await waitFor(() => {
+      const found = part('[data-banner="check-failed"]')
+      expect(found.textContent).toContain('YouTube asked yt-mirror to slow down.')
+      return found
+    })
+    expect(banner.textContent).toContain('The check failed on 14 Nov 2026, 06:40.')
+    expect(banner.textContent).not.toContain('Trying again now.')
+  })
+
+  it('R-CH-11, R-CH-25: the retry of a failed first listing shows the progress of a first listing', async () => {
+    const failed = channel({
+      status: 'could_not_check',
+      last_check_error: 'NETWORK_UNREACHABLE',
+      last_check_error_at: NOW - 60,
+      first_listed_at: null,
+      last_check_at: null,
+      last_full_check_at: null,
+      videos: 0,
+    })
+    const app = await openApp({ channels: [failed] })
+    await page()
+    const listingBefore = document.querySelector('[data-listing]')
+
+    app.stream().channelUpdated({ ...failed, status: 'checking' })
+    app
+      .stream()
+      .taskProgress({ channel_id: CHANNEL_ID, kind: 'first_listing', done: 120, total: null })
+
+    expect(listingBefore).toBeNull()
+    await waitFor(() =>
+      expect(part('[data-listing]').textContent?.trim()).toBe(
+        'Reading the video list from YouTube: 120 videos found so far...',
+      ),
+    )
+    expect(
+      document.querySelectorAll('[data-skeleton-list] [data-skeleton]').length,
+    ).toBeGreaterThan(0)
+    expect(part('[data-banner="check-failed"]').textContent).toContain('Trying again now.')
+  })
+
+  it('R-FB-01, R-ER-05: a first listing that waits for YouTube says so, with the time of the next attempt', async () => {
+    await openApp({
+      channels: [
+        channel({
+          status: 'waiting_for_youtube',
+          first_listed_at: null,
+          last_check_at: null,
+          last_full_check_at: null,
+          videos: 0,
+        }),
+      ],
+      state: { youtube_pause: { code: 'BOT_CHECK', until: NOW + 900 } },
+    })
+    await page()
+
+    expect(part('[data-listing]').textContent?.trim()).toBe(
+      'Waiting for YouTube. The next attempt is at 06:57.',
+    )
+    expect(part('[data-listing] svg').getAttribute('data-icon')).toBe('clock')
+  })
+
   it('R-CH-25, R-ER-02: the banner of a failed check has the words of its error code', async () => {
     await openApp({
       channels: [channel({ status: 'could_not_check', last_check_error: 'RATE_LIMITED' })],

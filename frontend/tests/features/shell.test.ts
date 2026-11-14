@@ -67,8 +67,12 @@ describe('the shell', () => {
       channel({ id: 'UC3', title: 'Three', status: 'new_videos', new_videos: 1 }),
       channel({ id: 'UC4', title: 'Four', status: 'paused', paused: true }),
       channel({ id: 'UC5', title: 'Five', status: 'could_not_check' }),
+      channel({ id: 'UC6', title: 'Six', status: 'waiting_for_youtube', first_listed_at: null }),
     ]
-    await openApp({ channels: statuses })
+    await openApp({
+      channels: statuses,
+      state: { youtube_pause: { code: 'BOT_CHECK', until: NOW + 900 } },
+    })
 
     const lines = [...sidebar().querySelectorAll('[data-status]')]
     expect(lines.map((line) => line.textContent)).toEqual([
@@ -77,8 +81,42 @@ describe('the shell', () => {
       '1 new video',
       'Paused',
       'Could not check',
+      'Waiting for YouTube',
     ])
     expect(lines.every((line) => line.querySelector('svg') !== null)).toBe(true)
+  })
+
+  it('R-FB-01, R-ER-05: "Waiting for YouTube" tells in its tooltip when the next attempt is due', async () => {
+    await openApp({
+      channels: [
+        channel({ status: 'waiting_for_youtube', first_listed_at: null, last_check_at: null }),
+      ],
+      state: { youtube_pause: { code: 'BOT_CHECK', until: NOW + 900 } },
+    })
+
+    const line = sidebar().querySelector('[data-status]')
+
+    expect(line?.textContent).toBe('Waiting for YouTube')
+    expect(line?.querySelector('[title]')?.getAttribute('title')).toBe(
+      'The next attempt is at 06:57.',
+    )
+    expect(line?.querySelector('svg')?.getAttribute('data-icon')).toBe('clock')
+  })
+
+  it('R-UI-02: when the channel that was open last no longer exists, the first channel is opened', async () => {
+    await openApp({
+      channels: [channel(), other],
+      state: { open_channel_id: 'UCgone00000000000000000099' },
+    })
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sample Channel' })).toBeTruthy()
+    expect(item('Sample Channel').getAttribute('aria-current')).toBe('page')
+  })
+
+  it('R-UI-02: with channels and none that was open last, the first channel is opened', async () => {
+    await openApp({ channels: [channel(), other], state: { open_channel_id: null } })
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sample Channel' })).toBeTruthy()
   })
 
   it('R-CH-11: a channel that was never listed says in the sidebar that it is being read', async () => {

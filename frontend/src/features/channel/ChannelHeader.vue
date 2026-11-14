@@ -15,7 +15,8 @@ import AppIcon from '@/components/AppIcon.vue'
 import IconButton from '@/components/IconButton.vue'
 import type { IconName } from '@/components/icons'
 import ProgressBar from '@/components/ProgressBar.vue'
-import { formatBytes, formatNumber } from '@/format'
+import { formatBytes, formatNumber, formatTime } from '@/format'
+import { clock } from '@/format/clock'
 import { useAgo } from '@/format/useAgo'
 import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
@@ -37,6 +38,10 @@ const menuOpen = ref(false)
 const listing = computed(() => isBeingListed(props.channel))
 
 const listingText = computed(() => {
+  const until = channels.youtubePause?.until
+  if (props.channel.status === 'waiting_for_youtube' && until !== undefined) {
+    return t('channel.waitingForYouTube', { time: formatTime(until, clock.timeZone) })
+  }
   const found = props.channel.progress?.done ?? 0
   return found > 0
     ? t('channel.listing.found', { count: formatNumber(found) }, found)
@@ -91,7 +96,7 @@ const fullCheck = computed(() =>
       </h1>
       <template v-if="listing">
         <p class="mt-2 flex items-center gap-2" role="status" data-listing>
-          <AppIcon name="retry" size="md" />
+          <AppIcon :name="channel.status === 'waiting_for_youtube' ? 'clock' : 'retry'" size="md" />
           {{ listingText }}
         </p>
         <ProgressBar class="mt-3 max-w-105" :value="null" :label="t('channel.listing.progress')" />

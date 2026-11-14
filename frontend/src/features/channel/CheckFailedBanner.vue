@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /**
  * The banner of a failed check (R-CH-25, design: StateError.html): what
- * happened, that the catalogue of the last successful check is kept, and
- * the button that checks again. "Show details" arrives with milestone M7.
+ * happened and when, that the catalogue of the last successful check is
+ * kept, and the button that checks again. While a new attempt waits or
+ * runs, the banner stays, says so, and its button is busy (D-076).
+ * "Show details" arrives with milestone M7.
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -32,20 +34,33 @@ const texts = computed(() => textsOf(props.code))
 const title = computed(() =>
   props.code === 'NETWORK_UNREACHABLE' ? t('channel.failed.reach') : texts.value.happened,
 )
+/** A moment as the banner tells it: "11 Nov 2026, 21:40". */
+function moment(seconds: number): string {
+  return `${formatDate(seconds, clock.timeZone)}, ${formatTime(seconds, clock.timeZone)}`
+}
+
+const retrying = computed(() => props.channel.status === 'checking')
+const failedAt = computed(() => {
+  const at = props.channel.last_check_error_at
+  return at === null ? null : t('channel.failed.failedAt', { when: moment(at) })
+})
+
 const kept = computed(() => {
   const last = props.channel.last_check_at
   if (last === null) {
     return t('channel.failed.noList')
   }
-  const when = `${formatDate(last, clock.timeZone)}, ${formatTime(last, clock.timeZone)}`
-  return t('channel.failed.keptList', { when })
+  return t('channel.failed.keptList', { when: moment(last) })
 })
 </script>
 
 <template>
   <AppBanner tone="error" data-banner="check-failed">
     <p class="font-medium">{{ title }}</p>
-    <p class="text-meta">{{ kept }} {{ texts.action }}</p>
+    <p class="text-meta">
+      <template v-if="retrying">{{ t('channel.failed.retrying') }} {{ kept }}</template>
+      <template v-else>{{ failedAt }} {{ kept }} {{ texts.action }}</template>
+    </p>
     <template #action>
       <AppButton
         icon="retry"
