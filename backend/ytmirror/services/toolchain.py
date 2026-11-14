@@ -110,6 +110,14 @@ class ToolchainService:
         self._remember_a_completed_setup()
         return self.reports()
 
+    def check_now(self) -> tuple[ToolReport, ...]:
+        """Check every tool and return what was found, without remembering anything.
+
+        For ``./start --doctor``, which only looks: nothing is stored, logged
+        or published.
+        """
+        return tuple(self._check(tool) for tool in ToolName)
+
     def reports(self) -> tuple[ToolReport, ...]:
         """Return the state of every tool as it was last seen, in display order."""
         with self._lock:

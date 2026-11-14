@@ -3,6 +3,7 @@
 import io
 from pathlib import Path
 
+from tests.fixtures.builders import make_toolchain
 from tests.fixtures.fakes.database_schema import FakeDatabaseSchema
 from tests.fixtures.fakes.system_probe import FakeSystemProbe
 from ytmirror.app.doctor import render_report, run_doctor
@@ -23,7 +24,9 @@ def make_diagnostics(probe: FakeSystemProbe) -> DiagnosticsService:
         frontend_dir=HOME / "app" / "frontend" / "dist",
         uv_executable=HOME / "tools" / "uv" / "uv",
     )
-    return DiagnosticsService(info, FakeDatabaseSchema(current="0002"), probe)
+    return DiagnosticsService(
+        info, FakeDatabaseSchema(current="0002"), probe, make_toolchain(probe=probe)
+    )
 
 
 def healthy_probe() -> FakeSystemProbe:
@@ -31,6 +34,7 @@ def healthy_probe() -> FakeSystemProbe:
     return FakeSystemProbe(
         commands={str(HOME / "tools" / "uv" / "uv"): "uv 0.13.8"},
         modules={"webview"},
+        packages={"yt-dlp": "2026.10.26"},
         files={HOME / "app" / "frontend" / "dist" / "index.html"},
     )
 

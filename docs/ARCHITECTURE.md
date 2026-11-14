@@ -91,6 +91,7 @@ yt-mirror/
         media_tools.py       ffmpeg and ffprobe operations
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
+        tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
         native_app_mac.py    The menu bar, the app's name and the end of the app, through AppKit (section 7.10)
         image_renderer_mac.py  Draws the icon source file into pixels, through AppKit
         github_releases.py   Release lookup and download
@@ -255,7 +256,7 @@ User-facing log (R-AC-*): `id`, `at`, `kind`, `channel_id`, `video_id`, `job_id`
 `key`, `value` (JSON). Keys are defined in one typed model in `core/models.py`.
 
 ### app_meta
-`key`, `value`. Holds `schema_version` (also tracked by Alembic), `app_version`, `install_kind` (`clone`, `archive`), `last_update_check_at`.
+`key`, `value`. Holds facts the app keeps about itself. From milestone M1: `setup_completed_at`, the moment every tool was in order for the first time (R-IN-03). Later milestones add `app_version`, `install_kind` (`clone`, `archive`) and `last_update_check_at`. The schema version is tracked by Alembic.
 
 ### date_fetch_queue
 `video_id`, `attempts`, `next_try_at`. Work list for R-DT-05 and R-DT-06 so it survives restarts.
@@ -337,8 +338,8 @@ Computed by `core/status.py` from the channel row, its jobs and running backgrou
 - Other operations in this adapter: move to Trash (so deletes are recoverable), reveal in Finder, open with the default app, free space of a volume, atomic rename, cross-volume move with copy, verify and delete.
 
 ### 7.6 Events and live updates
-- Services publish typed events to an in-process bus (`services/events.py`): `channel.updated`, `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, `task.progress`.
-- `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced.
+- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated`, `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, `task.progress`.
+- `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced. When the app stops, the bus is closed first: every stream ends, so an open window never holds up the shutdown.
 - On connect and after a reconnect the frontend refetches snapshots (`/api/state`, the open channel's videos), so a missed event can never leave the UI stale.
 
 ### 7.7 Concurrency
@@ -480,6 +481,8 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_SESSION_TOKEN` | app | A fixed session token instead of a random one. For tests only |
 | `YTM_NO_WINDOW` | app | Serve without opening a window or a browser, until a stop signal. For tests |
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
+| `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |
+| `YTM_TOOL_SOURCE` | app | Use only the tool source of this name. The automated checks install from each source on its own (D-053) |
 | `YTM_WINDOW_REPORT` | app | A file to which the app writes what macOS shows of it, once the window is up: its name, its bundle identifier and its menu bar. For tests |
 | `YTM_UV_BASE_URL` | `start` | Where uv is downloaded from. For tests. The checksum is checked in every case |
 | `YTM_E2E_CHROME_CHANNEL` | Playwright | Use an installed Chrome where Playwright's Chromium cannot be downloaded |

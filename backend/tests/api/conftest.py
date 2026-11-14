@@ -7,13 +7,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tests.fixtures.builders import make_toolchain
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.database_schema import FakeDatabaseSchema
 from tests.fixtures.fakes.system_probe import FakeSystemProbe
-from ytmirror.api.app import ApiConfig, create_app
+from ytmirror.api.app import ApiConfig, ApiServices, create_app
 from ytmirror.api.security import SecurityPolicy
 from ytmirror.core.models import AppInfo, InstallKind
 from ytmirror.services.diagnostics import DiagnosticsService
+from ytmirror.services.events import EventBus
 
 PORT = 8000
 TOKEN = "test-session-token"
@@ -52,7 +54,17 @@ def make_diagnostics(tmp_path: Path) -> DiagnosticsService:
         frontend_dir=tmp_path / "dist",
         uv_executable=tmp_path / "tools" / "uv" / "uv",
     )
-    return DiagnosticsService(info, FakeDatabaseSchema(current="0002"), FakeSystemProbe())
+    return DiagnosticsService(
+        info, FakeDatabaseSchema(current="0002"), FakeSystemProbe(), make_toolchain()
+    )
+
+
+def make_services(tmp_path: Path) -> ApiServices:
+    """Return the services of the app over fakes, on a Mac where every tool is in place."""
+    events = EventBus()
+    toolchain = make_toolchain(events=events)
+    toolchain.verify()
+    return ApiServices(diagnostics=make_diagnostics(tmp_path), toolchain=toolchain, events=events)
 
 
 @pytest.fixture
@@ -71,4 +83,4 @@ def api(tmp_path: Path, frontend_dir: Path, clock: FakeClock) -> Api:
     config = ApiConfig(
         security=SecurityPolicy.for_local_server(TOKEN, PORT), frontend_dir=frontend_dir
     )
-    return Api(create_app(config, make_diagnostics(tmp_path), clock), frontend_dir)
+    return Api(create_app(config, make_services(tmp_path), clock), frontend_dir)

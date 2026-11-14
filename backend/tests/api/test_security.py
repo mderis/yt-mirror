@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from structlog.testing import capture_logs
 
-from tests.api.conftest import BASE_URL, PORT, TOKEN, Api, make_diagnostics
+from tests.api.conftest import BASE_URL, PORT, TOKEN, Api, make_services
 from tests.fixtures.fakes.clock import FakeClock
 from ytmirror.api.app import ApiConfig, create_app
 from ytmirror.api.security import SESSION_COOKIE, SecurityPolicy, rejection_for
@@ -205,7 +205,7 @@ def test_in_dev_mode_the_first_url_leads_to_the_development_server(
         frontend_dir=frontend_dir,
         frontend_url=dev_url,
     )
-    dev = Api(create_app(config, make_diagnostics(tmp_path), clock), frontend_dir)
+    dev = Api(create_app(config, make_services(tmp_path), clock), frontend_dir)
     client = dev.client()
 
     with_token = client.get("/", params={"token": TOKEN})

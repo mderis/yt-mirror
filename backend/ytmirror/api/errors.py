@@ -27,6 +27,10 @@ _STATUS: dict[ErrorCode, int] = {
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.INVALID_REQUEST: 422,
     ErrorCode.LOCAL_SERVER_UNREACHABLE: 503,
+    ErrorCode.NETWORK_UNREACHABLE: 502,
+    ErrorCode.CHECKSUM_MISMATCH: 502,
+    ErrorCode.DISK_FULL: 507,
+    ErrorCode.TOOL_MISSING: 503,
     ErrorCode.INTERNAL: 500,
 }
 
@@ -36,6 +40,10 @@ _MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.NOT_FOUND: "There is nothing at this address.",
     ErrorCode.INVALID_REQUEST: "The request is not valid.",
     ErrorCode.LOCAL_SERVER_UNREACHABLE: "The window cannot reach the local server.",
+    ErrorCode.NETWORK_UNREACHABLE: "A download could not be reached.",
+    ErrorCode.CHECKSUM_MISMATCH: "A downloaded file does not match its checksum.",
+    ErrorCode.DISK_FULL: "There is no room left on the disk.",
+    ErrorCode.TOOL_MISSING: "A tool the app needs is missing or does not work.",
     ErrorCode.INTERNAL: "yt-mirror hit an unexpected problem.",
 }
 

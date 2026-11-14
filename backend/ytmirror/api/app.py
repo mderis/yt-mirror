@@ -14,14 +14,17 @@ from starlette.responses import FileResponse, RedirectResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from ytmirror import __version__
+from ytmirror.api import sse
 from ytmirror.api.errors import error_response, install_error_handlers
 from ytmirror.api.request_log import RequestLogMiddleware
-from ytmirror.api.routers import health
+from ytmirror.api.routers import health, tools
 from ytmirror.api.schemas import ErrorResponse
 from ytmirror.api.security import API_PREFIX, SESSION_COOKIE, SecurityMiddleware, SecurityPolicy
 from ytmirror.core.errors import ErrorCode
 from ytmirror.ports.clock import Clock
 from ytmirror.services.diagnostics import DiagnosticsService
+from ytmirror.services.events import EventBus
+from ytmirror.services.toolchain import ToolchainService
 
 LOCAL_FRONTEND = "/"
 
@@ -42,12 +45,27 @@ class ApiConfig:
     frontend_url: str = LOCAL_FRONTEND
 
 
-def create_app(config: ApiConfig, diagnostics: DiagnosticsService, clock: Clock) -> FastAPI:
+@dataclass(frozen=True, slots=True)
+class ApiServices:
+    """The services the HTTP layer talks to.
+
+    Attributes:
+        diagnostics: Behind the health endpoint.
+        toolchain: Behind the tool endpoints.
+        events: The bus whose events the event stream passes on.
+    """
+
+    diagnostics: DiagnosticsService
+    toolchain: ToolchainService
+    events: EventBus
+
+
+def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAPI:
     """Return the FastAPI app.
 
     Args:
         config: Security policy and interface location.
-        diagnostics: The service behind the health endpoint.
+        services: The services behind the endpoints.
         clock: Used to measure request durations.
 
     Returns:
@@ -65,7 +83,11 @@ def create_app(config: ApiConfig, diagnostics: DiagnosticsService, clock: Clock)
             500: {"model": ErrorResponse},
         },
     )
-    app.include_router(health.build_router(diagnostics), prefix=API_PREFIX)
+    app.include_router(health.build_router(services.diagnostics), prefix=API_PREFIX)
+    app.include_router(tools.build_router(services.toolchain), prefix=API_PREFIX)
+    app.include_router(
+        sse.build_router(services.events, services.toolchain.setup_required), prefix=API_PREFIX
+    )
     _add_frontend(app, config)
     install_error_handlers(app)
     # The middleware added last runs first: the request log wraps the security checks.

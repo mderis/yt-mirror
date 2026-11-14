@@ -2,9 +2,11 @@
 
 from pathlib import Path
 
+from tests.fixtures.builders import make_toolchain, tool_box_with
 from tests.fixtures.fakes.database_schema import FakeDatabaseSchema
 from tests.fixtures.fakes.system_probe import FakeSystemProbe
-from ytmirror.core.models import AppInfo, CheckResult, InstallKind
+from tests.fixtures.fakes.tool_box import FakeToolBox
+from ytmirror.core.models import AppInfo, CheckResult, InstallKind, ToolName
 from ytmirror.services.diagnostics import DiagnosticsService
 
 HOME = Path("/apps/yt-mirror")
@@ -30,6 +32,7 @@ def healthy_probe() -> FakeSystemProbe:
     return FakeSystemProbe(
         commands={str(UV): "uv 0.13.8", "node": "v26.8.1"},
         modules={"webview"},
+        packages={"yt-dlp": "2026.10.26"},
         files={FRONTEND / "index.html"},
     )
 
@@ -38,19 +41,24 @@ def report(
     probe: FakeSystemProbe | None = None,
     schema: FakeDatabaseSchema | None = None,
     install_kind: InstallKind = InstallKind.CLONE,
+    tool_box: FakeToolBox | None = None,
 ) -> dict[str, CheckResult]:
     """Run the environment report and return the results by name."""
+    used_probe = probe if probe is not None else healthy_probe()
     service = DiagnosticsService(
         make_info(install_kind),
         schema if schema is not None else FakeDatabaseSchema(current="0002"),
-        probe if probe is not None else healthy_probe(),
+        used_probe,
+        make_toolchain(probe=used_probe, tool_box=tool_box),
     )
     return {result.name: result for result in service.environment_report()}
 
 
 def test_health_reports_the_app_version_and_the_schema_version() -> None:
     """R-PL-12: the health endpoint is backed by the real versions."""
-    service = DiagnosticsService(make_info(), FakeDatabaseSchema(current="0002"), healthy_probe())
+    service = DiagnosticsService(
+        make_info(), FakeDatabaseSchema(current="0002"), healthy_probe(), make_toolchain()
+    )
 
     health = service.health()
 
@@ -76,6 +84,9 @@ def test_the_report_lists_its_checks_in_a_fixed_order() -> None:
         "Python",
         "uv",
         "Node.js",
+        "yt-dlp",
+        "ffmpeg",
+        "Deno",
         "Interface",
         "App window",
         "Data folder",
@@ -236,3 +247,59 @@ def test_a_damaged_database_fails() -> None:
     assert not result.ok
     assert "damaged" in result.detail
     assert result.fix is not None
+
+
+def test_every_tool_is_listed_with_its_version_and_the_source_it_came_from() -> None:
+    """R-IN-03: ``./start --doctor`` says which source a tool came from."""
+    results = report()
+
+    assert results["yt-dlp"] == CheckResult("yt-dlp", True, "2026.10.26")
+    assert results["ffmpeg"] == CheckResult("ffmpeg", True, "9.0.2 from martin-riedl")
+    assert results["Deno"] == CheckResult("Deno", True, "2.9.8 from deno")
+
+
+def test_a_tool_that_was_not_downloaded_yet_fails_and_says_how_it_gets_installed() -> None:
+    """R-IN-04: a missing tool is reported with what fixes it."""
+    results = report(tool_box=tool_box_with([ToolName.DENO]))
+
+    assert results["Deno"].ok
+    assert not results["ffmpeg"].ok
+    assert results["ffmpeg"].detail == "not installed"
+    assert results["ffmpeg"].fix == "Start yt-mirror. It downloads ffmpeg by itself."
+
+
+def test_a_tool_that_no_longer_runs_fails_and_names_the_button_that_repairs_it() -> None:
+    """R-IN-04: a broken tool is told apart from a missing one."""
+    tool_box = tool_box_with()
+    tool_box.refusing.add("ffprobe")
+
+    result = report(tool_box=tool_box)["ffmpeg"]
+
+    assert not result.ok
+    assert result.detail == "9.0.2 from martin-riedl is installed but does not run"
+    assert result.fix == 'Start yt-mirror and choose "Install now" for ffmpeg.'
+
+
+def test_a_missing_ytdlp_is_repaired_by_the_launcher_not_by_the_app() -> None:
+    """R-IN-04: yt-dlp comes with the Python environment, which ``./start`` repairs."""
+    probe = healthy_probe()
+    probe.packages.clear()
+
+    result = report(probe=probe)["yt-dlp"]
+
+    assert not result.ok
+    assert result.detail == "not installed"
+    assert result.fix == "Run ./start again. It repairs the Python environment."
+
+
+def test_the_report_looks_at_the_tools_without_downloading_or_remembering_anything() -> None:
+    """R-IN-06: ``--doctor`` only reports and changes nothing."""
+    tool_box = tool_box_with([])
+    probe = healthy_probe()
+    toolchain = make_toolchain(probe=probe, tool_box=tool_box)
+    service = DiagnosticsService(make_info(), FakeDatabaseSchema(current="0002"), probe, toolchain)
+
+    service.environment_report()
+
+    assert tool_box.fetched == []
+    assert toolchain.reports() == ()

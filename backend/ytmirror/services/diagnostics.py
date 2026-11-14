@@ -1,8 +1,9 @@
 """Health of the app and the environment report of ``./start --doctor``.
 
 The full health check with fix buttons (R-LG-05) and the debug report
-(R-LG-04) arrive in milestone M7, the tool checks in M1. This module must
-only read: a check never repairs anything.
+(R-LG-04) arrive in milestone M7. The report names every tool and, for a
+downloaded one, the source it came from (R-IN-03). This module must only
+read: a check never repairs anything.
 
 Tests: backend/tests/unit/services/test_diagnostics.py
 """
@@ -13,28 +14,42 @@ from ytmirror.core.models import (
     CheckResult,
     Health,
     InstallKind,
+    ToolName,
+    ToolReport,
+    ToolStatus,
 )
 from ytmirror.ports.database_schema import DatabaseSchema
 from ytmirror.ports.system_probe import SystemProbe
+from ytmirror.services.toolchain import ToolchainService
 
 _SUPPORTED_ARCHITECTURES = ("arm64", "x86_64")
 _BYTES_PER_GB = 1024**3
+_TOOL_TITLES = {ToolName.YTDLP: "yt-dlp", ToolName.FFMPEG: "ffmpeg", ToolName.DENO: "Deno"}
+"""The tools the report lists by themselves. Python has a line of its own already."""
 
 
 class DiagnosticsService:
     """Reports whether the app and its environment are in working order."""
 
-    def __init__(self, info: AppInfo, schema: DatabaseSchema, probe: SystemProbe) -> None:
+    def __init__(
+        self,
+        info: AppInfo,
+        schema: DatabaseSchema,
+        probe: SystemProbe,
+        toolchain: ToolchainService,
+    ) -> None:
         """Create the service.
 
         Args:
             info: Facts about this installation.
             schema: The database schema port.
             probe: Read-only access to facts about the Mac.
+            toolchain: Knows the tools the app needs.
         """
         self._info = info
         self._schema = schema
         self._probe = probe
+        self._toolchain = toolchain
 
     def health(self) -> Health:
         """Return the app version and the database schema version."""
@@ -57,6 +72,11 @@ class DiagnosticsService:
         ]
         if self._info.install_kind is InstallKind.CLONE:
             checks.append(self._check_node())
+        checks += [
+            self._check_tool(report)
+            for report in self._toolchain.check_now()
+            if report.name in _TOOL_TITLES
+        ]
         checks += [
             self._check_frontend(),
             self._check_window_library(),
@@ -98,6 +118,29 @@ class DiagnosticsService:
                 "Install Node.js from https://nodejs.org. A clone needs it to build the interface.",
             )
         return CheckResult("Node.js", True, version)
+
+    def _check_tool(self, report: ToolReport) -> CheckResult:
+        title = _TOOL_TITLES[report.name]
+        if report.status is ToolStatus.OK:
+            origin = "" if report.source is None else f" from {report.source}"
+            return CheckResult(title, True, f"{report.version}{origin}")
+        if not report.installable:
+            return CheckResult(
+                title,
+                False,
+                "not installed",
+                "Run ./start again. It repairs the Python environment.",
+            )
+        if report.status is ToolStatus.BROKEN:
+            return CheckResult(
+                title,
+                False,
+                f"{report.version} from {report.source} is installed but does not run",
+                f'Start yt-mirror and choose "Install now" for {title}.',
+            )
+        return CheckResult(
+            title, False, "not installed", f"Start yt-mirror. It downloads {title} by itself."
+        )
 
     def _check_frontend(self) -> CheckResult:
         index = self._info.frontend_dir / "index.html"

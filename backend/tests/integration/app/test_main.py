@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -139,6 +140,7 @@ def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
     assert events == [
         "db.migration.started",
         "db.migration.finished",
+        *["tool.check"] * 4,
         "app.started",
         "app.config",
         "api.error",
@@ -239,12 +241,67 @@ def test_quit_runs_the_shutdown_work_once_before_macos_ends_the_process(paths: A
     assert seen["events"] == [
         "db.migration.started",
         "db.migration.finished",
+        *["tool.check"] * 4,
         "app.started",
         "app.config",
         "app.stopping",
     ]
     assert seen["server"] == "ConnectError"
     assert [line["event"] for line in log_lines(paths)].count("app.stopping") == 1
+
+
+def test_an_open_event_stream_does_not_hold_up_the_stop(paths: AppPaths) -> None:
+    """R-PL-13: the app stops cleanly and quickly while a window still listens for events."""
+    seen: dict[str, object] = {}
+    stream_ended = threading.Event()
+
+    def window_that_keeps_listening(url: str, _before_quit: object) -> None:
+        base = url.split("/?", maxsplit=1)[0]
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        connected = threading.Event()
+
+        def listen() -> None:
+            with httpx2.stream("GET", base + "/api/events", headers=headers, timeout=30) as stream:
+                seen["status"] = stream.status_code
+                for line in stream.iter_lines():
+                    if line.startswith(": connected"):
+                        connected.set()
+            stream_ended.set()
+
+        threading.Thread(target=listen, daemon=True).start()
+        assert connected.wait(timeout=10)
+
+    started = time.monotonic()
+    exit_code = run_app(
+        options(), paths, build_container(paths), wait=window_that_keeps_listening, console=None
+    )
+    took = time.monotonic() - started
+
+    assert exit_code == 0
+    assert seen["status"] == 200
+    assert stream_ended.wait(timeout=5)
+    assert took < 5, f"stopping took {took:.1f} s with an open event stream"
+
+
+def test_the_tools_are_checked_at_every_start(paths: AppPaths) -> None:
+    """R-IN-04: on every start the app verifies the tools, before the window asks for them."""
+    seen: dict[str, object] = {}
+
+    def window_that_asks_for_the_tools(url: str, _before_quit: object) -> None:
+        base = url.split("/?", maxsplit=1)[0]
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        seen["tools"] = httpx2.get(base + "/api/tools", headers=headers).json()
+
+    run_app(
+        options(), paths, build_container(paths), wait=window_that_asks_for_the_tools, console=None
+    )
+
+    tools: dict[str, object] = seen["tools"]  # type: ignore[assignment]
+    assert [tool["name"] for tool in tools["tools"]] == ["python", "ytdlp", "ffmpeg", "deno"]  # type: ignore[index, union-attr]
+    assert [tool["status"] for tool in tools["tools"]][:2] == ["ok", "ok"]  # type: ignore[index, union-attr]
+    assert [tool["status"] for tool in tools["tools"]][2:] == ["missing", "missing"]  # type: ignore[index, union-attr]
+    assert tools["setup_required"] is True
+    assert not (paths.home_dir / "tools").exists()
 
 
 def test_a_crash_is_logged_with_its_stack_trace_and_passed_on(paths: AppPaths) -> None:
@@ -444,5 +501,9 @@ def test_started_as_a_program_it_serves_logs_under_its_module_name_and_stops_on_
     lines = log_lines(paths)
     assert exit_code == 0
     assert [line["event"] for line in lines][-3:] == ["app.started", "app.config", "app.stopping"]
-    assert {line["component"] for line in lines} == {"services.schema", "app.main"}
+    assert {line["component"] for line in lines} == {
+        "services.schema",
+        "services.toolchain",
+        "app.main",
+    }
     assert TOKEN not in console

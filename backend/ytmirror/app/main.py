@@ -32,7 +32,7 @@ from typing import TextIO
 import structlog
 from structlog.typing import FilteringBoundLogger
 
-from ytmirror.api.app import LOCAL_FRONTEND, ApiConfig, create_app
+from ytmirror.api.app import LOCAL_FRONTEND, ApiConfig, ApiServices, create_app
 from ytmirror.api.security import SecurityPolicy
 from ytmirror.app.config import AppPaths, RunOptions, parse_options, resolve_paths
 from ytmirror.app.container import Container, build_container
@@ -238,11 +238,12 @@ def run_app(
     try:
         remove_old_logs(paths.logs_dir, container.clock.now().date())
         container.schema.bring_up_to_date()
+        container.toolchain.verify()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
             set_verbose(True)
         server = _start_server(options, paths, container, token)
         _log_start(options, paths, container, server.url)
-        stop = _Once(lambda: _stop(server))
+        stop = _Once(lambda: _stop(server, container))
 
         def before_quit() -> None:
             stop.run()
@@ -265,9 +266,11 @@ def run_app(
     return EXIT_OK
 
 
-def _stop(server: BackgroundServer) -> None:
+def _stop(server: BackgroundServer, container: Container) -> None:
     """The shutdown work of the app. Later milestones add their workers here."""
     _log.info("app.stopping", msg="yt-mirror is stopping")
+    # Ends the event streams of open windows first, or the server would wait for them.
+    container.events.close()
     server.stop()
 
 
@@ -303,7 +306,10 @@ def _start_server(
         frontend_dir=paths.frontend_dir,
         frontend_url=options.frontend_url or LOCAL_FRONTEND,
     )
-    server = BackgroundServer(create_app(config, container.diagnostics, container.clock), sock)
+    services = ApiServices(
+        diagnostics=container.diagnostics, toolchain=container.toolchain, events=container.events
+    )
+    server = BackgroundServer(create_app(config, services, container.clock), sock)
     server.start()
     return server
 
