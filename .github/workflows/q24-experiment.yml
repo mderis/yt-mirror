@@ -27,7 +27,12 @@ jobs:
         with:
           version: "0.13.8"
       - name: Install Python and the app's packages
-        run: uv sync --frozen --no-dev
+        # The same Python as ./start uses: the one uv manages, never one found on the runner.
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+        run: |
+          uv sync --frozen --no-dev
+          .venv/bin/python -c "import os, sys; print(os.path.realpath(sys.executable))"
       - name: Build the throwaway bundle and run every check
         env:
           Q24_SCREENSHOTS: "1"
