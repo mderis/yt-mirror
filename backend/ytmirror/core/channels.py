@@ -19,7 +19,7 @@ CHANNEL_ADDRESS = "https://www.youtube.com/channel/"
 
 
 class Quality(StrEnum):
-    """The quality a channel asks for (R-QL-01). The rules that use it arrive in milestone M3."""
+    """The quality a channel asks for (R-QL-01). Its rules are in ``core/quality.py``."""
 
     BEST = "best"
     P2160 = "2160"

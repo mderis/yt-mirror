@@ -1,9 +1,12 @@
-"""Names of folders on disk. File names of videos arrive in milestone M3.
+"""Names of folders and video files on disk.
 
-Implements the folder name of R-FI-01: a channel folder is named after the
-channel, with the substitutions of R-FN-02, in Unicode NFC (R-FN-03), and
-short enough for macOS. Only characters that macOS cannot store or that
-break Finder are substituted, each by a character that looks the same.
+Implements the folder name of R-FI-01 and the file name of R-FN-01 to
+R-FN-05: a channel folder is named after the channel and a video file after
+its title, with the substitutions of R-FN-02, in Unicode NFC (R-FN-03), and
+short enough for macOS (R-FN-04). Only characters that macOS cannot store or
+that break Finder are substituted, each by a character that looks the same.
+A name never tells which video a file belongs to: files are tracked by video
+ID (R-FN-07).
 
 This module must not look at the disk: names that are taken are passed in.
 
@@ -20,6 +23,8 @@ MAX_NAME_BYTES = 255
 # FULLWIDTH COLON (U+FF1A) for the colon.
 _SUBSTITUTES = {"/": "\u29f8", ":": "\uff1a"}
 _HIDDEN_PREFIX = "."
+VIDEO_EXTENSION = ".mkv"
+"""The extension of every video file: the container is always MKV (R-QL-03)."""
 _KEPT_VISIBLE = "_"
 
 
@@ -64,6 +69,36 @@ def channel_folder_name(title: str, channel_id: str, taken: Collection[str]) -> 
     if name.casefold() in {other.casefold() for other in taken}:
         return name + suffix
     return name
+
+
+def video_file_name(title: str, video_id: str, taken: Collection[str]) -> str:
+    """Return the name of the file of a video inside its channel folder (R-FN-01).
+
+    The name is the title plus ``.mkv``, with the substitutions of R-FN-02.
+    ``" [<video id>]"`` is appended when the name would be longer than 255
+    bytes, after the title is shortened (R-FN-04), and when the name is
+    taken, compared without regard to case (R-FN-05). A title that leaves
+    nothing becomes the video ID, as the name of a channel folder does
+    (R-FI-01).
+
+    Args:
+        title: The title of the video, exactly as YouTube gives it.
+        video_id: The video ID.
+        taken: File names in the channel folder that belong to other videos
+            or to no known video. A file of no known video is never
+            overwritten, so its name counts as taken.
+
+    Returns:
+        The file name, at most 255 bytes long, ending in ``.mkv``.
+    """
+    suffix = f" [{video_id}]"
+    title_part = safe_name(title) or video_id
+    whole = title_part + VIDEO_EXTENSION
+    taken_names = {other.casefold() for other in taken}
+    if len(whole.encode()) <= MAX_NAME_BYTES and whole.casefold() not in taken_names:
+        return whole
+    room = MAX_NAME_BYTES - len((suffix + VIDEO_EXTENSION).encode())
+    return _shortened(title_part, room) + suffix + VIDEO_EXTENSION
 
 
 def _shortened(name: str, most_bytes: int) -> str:

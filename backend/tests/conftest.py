@@ -7,10 +7,16 @@ from pathlib import Path
 
 import pytest
 import structlog
+from hypothesis import settings
 
 from tests.fixtures.fakes.clock import FakeClock
 
 INFRA_MARKER = "infra:"
+
+# Property tests draw the same examples on every run and keep no database of
+# examples on disk, so that a run never depends on an earlier one (TESTING rules 4 and 6).
+settings.register_profile("yt-mirror", derandomize=True, database=None, deadline=None)
+settings.load_profile("yt-mirror")
 
 REAL_TOOLS = Path(__file__).resolve().parents[2] / "tools"
 """The tools of the app folder these tests run from. No test may change them (TESTING rule 9)."""

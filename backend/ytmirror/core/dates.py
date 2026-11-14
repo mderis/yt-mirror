@@ -1,4 +1,9 @@
-"""Rules for dates. So far: approximate dates and their precision.
+"""Rules for dates: approximate dates and their precision, and the published time.
+
+The published time of a downloaded video (R-DT-03) is the moment the video
+became public: the release time of a premiere or a scheduled video, else the
+time of its upload. Only an exact time is ever written to a file (R-DT-04,
+R-DT-07).
 
 Implements the storing half of R-DT-04 (docs/DECISIONS.md D-060). A channel
 listing gives every video a point in time that is "the moment of the listing
@@ -35,6 +40,21 @@ _AT_LEAST_DAYS_FOR = (
     (DatePrecision.MONTH, 29),
     (DatePrecision.WEEK, 14),
 )
+
+
+def published_time(release_time: int | None, upload_time: int | None) -> int | None:
+    """Return the published time of a video from its full metadata (R-DT-03).
+
+    Args:
+        release_time: When a premiere or a scheduled video became public, if
+            it is one. Seconds since the Unix epoch, UTC.
+        upload_time: When the video was uploaded, to the second.
+
+    Returns:
+        The release time when there is one, else the upload time. None when
+        the metadata has neither: an exact time is never made up.
+    """
+    return release_time if release_time is not None else upload_time
 
 
 def precision_of(point: int, listed_at: int) -> DatePrecision:
