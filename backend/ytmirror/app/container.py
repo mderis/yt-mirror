@@ -127,7 +127,7 @@ def build_container(
         native=native if native is not None else MacNativeApp(),
         images=images if images is not None else MacImageRenderer(),
         schema=SchemaService(schema, used_clock),
-        settings=SettingsService(SqlSettingsRepository(engine, used_clock)),
+        settings=SettingsService(SqlSettingsRepository(engine, used_clock), paths.default_library),
         diagnostics=DiagnosticsService(info, schema, used_probe, toolchain),
         events=events,
         toolchain=toolchain,

@@ -75,7 +75,7 @@ def test_rows_hold_json_values_and_utc_second_timestamps(engine: Engine, clock: 
 
     with engine.connect() as connection:
         rows = connection.execute(
-            text("SELECT key, value, created_at, updated_at FROM settings")
+            text("SELECT key, value, created_at, updated_at FROM settings WHERE key = 'log_detail'")
         ).all()
     assert len(rows) == 1
     key, value, created_at, updated_at = rows[0]
@@ -95,8 +95,8 @@ def test_saving_an_unchanged_value_keeps_its_updated_time(engine: Engine, clock:
     repository.save(Settings())
 
     with engine.connect() as connection:
-        updated_at = connection.execute(text("SELECT updated_at FROM settings")).scalar_one()
-    assert updated_at == first
+        updated = connection.execute(text("SELECT updated_at FROM settings")).scalars().all()
+    assert set(updated) == {first}
 
 
 def test_a_stored_value_of_the_wrong_type_falls_back_to_the_default(
@@ -125,3 +125,25 @@ def test_keys_the_app_does_not_know_are_ignored(engine: Engine, clock: FakeClock
         )
 
     assert SqlSettingsRepository(engine, clock).load() == Settings()
+
+
+def test_the_library_folder_is_stored_and_has_its_default(
+    repository: SettingsRepository,
+) -> None:
+    """R-SE-04, R-FI-01: the library folder defaults to ~/Movies/YouTube and can be stored."""
+    assert repository.load().library_folder == "~/Movies/YouTube"
+
+    repository.save(Settings(library_folder="/Volumes/Media/YouTube"))
+
+    assert repository.load().library_folder == "/Volumes/Media/YouTube"
+
+
+def test_an_unreadable_library_folder_falls_back_to_the_default(
+    engine: Engine, clock: FakeClock
+) -> None:
+    """R-SE-04: a stored value that cannot be read has its default."""
+    SqlSettingsRepository(engine, clock).save(Settings())
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE settings SET value = '12' WHERE key = 'library_folder'"))
+
+    assert SqlSettingsRepository(engine, clock).load().library_folder == "~/Movies/YouTube"

@@ -94,6 +94,7 @@ yt-mirror/
         media_tools.py       ffmpeg and ffprobe operations
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
+        folder_picker_webview.py  The folder dialog of the app window (section 7.8)
         tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
         native_app_mac.py    The menu bar, the app's name and the end of the app, through AppKit (section 7.10)
         image_renderer_mac.py  Draws the icon source file into pixels, through AppKit

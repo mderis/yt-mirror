@@ -23,6 +23,10 @@ MINIMUM_MACOS_MAJOR = 15
 """The oldest supported macOS major version (R-PL-01, docs/DECISIONS.md D-035)."""
 
 
+DEFAULT_LIBRARY_FOLDER = "~/Movies/YouTube"
+"""The library folder of an app in which none was chosen (docs/SPEC.md section 10, R-FI-01)."""
+
+
 class LogDetail(StrEnum):
     """The "Log detail" setting (docs/SPEC.md section 10, docs/LOGGING.md section 1)."""
 
@@ -46,9 +50,12 @@ class Settings:
 
     Attributes:
         log_detail: How much the debug log records.
+        library_folder: The parent folder of the channel folders (R-FI-01). A leading
+            ``~`` stands for the home folder of the user.
     """
 
     log_detail: LogDetail = LogDetail.NORMAL
+    library_folder: str = DEFAULT_LIBRARY_FOLDER
 
 
 @dataclass(frozen=True, slots=True)
