@@ -32,6 +32,7 @@ Rule: a feature is not done until its tests exist, pass, and have been reviewed.
 6. Tests are independent and can run in any order and in parallel.
 7. A bug fix starts with a test that fails for that bug.
 8. Fakes live in one place and are themselves tested against the same contract tests as the real adapters, so a fake cannot drift from reality. The one fake that is not in that place is the fake YouTube, which is an adapter of the app because the app itself can start with it (D-062). It passes the same contract test.
+9. No test, script or check deletes, installs or rebuilds anything in the `tools/` or `data/` folder of the app folder it runs from. Whatever installs or removes tools uses a folder of its own (`YTM_TOOL_DIR`, `YTM_DATA_DIR`). The backend test session and the smoke test compare the tools of the app folder before and after, and fail when they changed. The hand tests of R-IN-03 and R-IN-04 that delete a tool are done on a copy of the app folder, never on the clone you work in.
 
 ## 3. Coverage thresholds (enforced in CI)
 
