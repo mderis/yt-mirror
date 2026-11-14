@@ -14,6 +14,8 @@ import importlib
 import io
 import json
 import os
+import plistlib
+import re
 import signal
 import subprocess
 import sys
@@ -43,6 +45,8 @@ class RunningApp:
     process: subprocess.Popen[bytes]
     shown: dict[str, Any]
     logs_dir: Path
+    command: list[str]
+    env: dict[str, str]
 
     def events(self) -> list[str]:
         """Return the event names of the debug log, in order."""
@@ -77,7 +81,7 @@ def started(command: list[str], tmp_path: Path) -> Generator[RunningApp]:
             assert time.monotonic() < deadline, "The window did not come up in time"
             time.sleep(0.1)
         shown: dict[str, Any] = json.loads(report.read_text(encoding="utf-8"))
-        yield RunningApp(process, shown, tmp_path / "data" / "logs")
+        yield RunningApp(process, shown, tmp_path / "data" / "logs", command, env)
     finally:
         process.kill()
         process.wait()
@@ -225,3 +229,93 @@ def test_started_through_its_bundle_the_app_has_its_menu_bar_and_stops_cleanly(
     assert titles == [CLONE_NAME, "Edit"]
     assert exit_code == 0
     assert bundled_app.events()[-1] == "app.stopping"
+
+
+def _lsappinfo(*arguments: str) -> str:
+    return subprocess.run(
+        ["/usr/bin/lsappinfo", *arguments], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _record_number(text: str) -> str:
+    """Return the number of a Launch Services record from the ways ``lsappinfo`` writes it."""
+    found = re.search(r"ASN:(0x[0-9a-f]+-0x[0-9a-f]+)", text)
+    assert found is not None, f"no Launch Services record in {text!r}"
+    return found.group(1)
+
+
+def _is_in_front(running: RunningApp) -> bool:
+    """Return whether macOS has the app in front, by its record in Launch Services."""
+    mine = _record_number(_lsappinfo("find", f"pid={running.process.pid}"))
+    return _record_number(_lsappinfo("front")) == mine
+
+
+def _skip_when_the_screen_is_locked() -> None:
+    """Skip a test about the front app while the login window covers the screen.
+
+    On a locked screen the login window is the front app, and macOS brings no
+    other app forward until the user unlocks it. The automated checks run on
+    an unlocked screen.
+    """
+    state = subprocess.run(
+        ["/usr/sbin/ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, check=True
+    ).stdout
+    if plistlib.loads(state).get("IOConsoleLocked"):
+        pytest.skip("The screen is locked: macOS brings no app to the front right now")
+
+
+def _put_another_app_in_front(running: RunningApp) -> None:
+    _skip_when_the_screen_is_locked()
+    subprocess.run(["/usr/bin/open", "-a", "Finder"], check=True)
+    deadline = time.monotonic() + QUIT_TIMEOUT_S
+    while _is_in_front(running):
+        assert time.monotonic() < deadline, "The other app did not come to the front"
+        time.sleep(0.1)
+
+
+def _wait_until_in_front(running: RunningApp) -> bool:
+    deadline = time.monotonic() + QUIT_TIMEOUT_S
+    while not _is_in_front(running):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.1)
+    return True
+
+
+def test_a_second_start_starts_no_second_app(bundled_app: RunningApp) -> None:
+    """R-NA-08: only one instance can run. A second start ends and leaves the first alone."""
+    second = subprocess.run(
+        bundled_app.command, env=bundled_app.env, capture_output=True, text=True, timeout=60
+    )
+
+    assert second.returncode == 0
+    assert "already running" in second.stderr
+    assert bundled_app.process.poll() is None
+    assert bundled_app.events().count("app.started") == 1
+
+
+def test_a_second_start_brings_the_first_window_forward(bundled_app: RunningApp) -> None:
+    """R-NA-08: starting the app again focuses the existing window."""
+    _put_another_app_in_front(bundled_app)
+
+    subprocess.run(
+        bundled_app.command, env=bundled_app.env, capture_output=True, text=True, timeout=60
+    )
+
+    assert _wait_until_in_front(bundled_app)
+
+
+def test_opening_the_running_app_again_brings_its_window_forward(bundled_app: RunningApp) -> None:
+    """R-NA-07: the request a click on the Dock icon sends brings the window to the front.
+
+    A click on the Dock icon of a running app and ``open`` on its bundle send
+    the app the same "reopen" request. The click itself is on the manual
+    checklist (docs/TESTING.md section 8).
+    """
+    bundle = Path(bundled_app.command[0]).parents[2]
+    _put_another_app_in_front(bundled_app)
+
+    subprocess.run(["/usr/bin/open", str(bundle)], check=True)
+
+    assert _wait_until_in_front(bundled_app)
+    assert bundled_app.process.poll() is None

@@ -130,6 +130,7 @@ yt-mirror/
         server.py            The HTTP server thread
         window.py            The app window
         signals.py           Turns Ctrl+C and a termination signal into a request to quit
+        single_instance.py   The lock of the data folder, and what a second start does (section 7.10)
         doctor.py            Text of the environment report
         bundle.py            Builds the macOS app bundle (section 7.10, from milestone M1)
         menus.py             The menu bar, defined as data (section 7.10). The app menu and Edit from M1, the rest from M5
@@ -399,7 +400,7 @@ Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-051. The experim
 - The shutdown work is reached from two ends. Closing the window ends the window loop, and the code after it runs. Quit ends the process inside AppKit, and the code after the window loop never runs: there the work hangs on AppKit's "will terminate" notification.
 - A handler of an AppKit notification must return nothing. A returned value makes pyobjc raise inside AppKit, and AppKit then drops the event it was handling. In the experiment a logout hung on exactly this.
 - A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020). This is what AppKit does by itself, also for a minimized window and for a hidden app.
-- One instance per data folder, in every mode (D-050). A running app holds a lock on a file in `data/`. A second start that finds the lock held never loads the window library, so no second Dock icon appears. Started for a window, it asks macOS to open the app bundle again and ends: macOS then brings the running app's window to the front, exactly as a click on the Dock icon does. Started with `--browser` or without a window, it ends with a plain message. When the bundle is opened from Finder or the Dock while the app runs, macOS itself starts no second copy and brings the running app to the front.
+- One instance per data folder, in every mode (D-050). A running app holds a lock on the file `data/instance.lock` and writes its process ID and its bundle into `data/instance.json`. A second start that finds the lock held never loads the window library, so no second Dock icon appears. Started for a window, it asks macOS to open the app bundle again and ends: macOS then brings the running app's window to the front, exactly as a click on the Dock icon does. Started with `--browser` or without a window, it ends with a plain message. When the bundle is opened from Finder or the Dock while the app runs, macOS itself starts no second copy and brings the running app to the front.
 
 **`--browser` and tests.** With `--browser` and in automated tests there is no app window and no menu bar. Everything a menu item does must therefore also be reachable inside the interface (R-UI-13), which the menu design above guarantees.
 

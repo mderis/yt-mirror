@@ -136,3 +136,7 @@ Manual:
 - [ ] Update from the previous release. Data is intact.
 - [ ] Uninstall. Videos remain.
 - [ ] macOS notifications appear.
+- [ ] The app is "yt-mirror" with its icon in the Dock, in the app switcher (Cmd+Tab), in the menu bar and in Activity Monitor. Nothing is called "Python".
+- [ ] With another app in front, a click on the Dock icon brings the yt-mirror window forward. The same with the window minimized.
+- [ ] Undo, Redo, Cut, Copy, Paste and Select All work with their shortcuts in a text field of the app.
+- [ ] Log out of macOS, restart and shut down while the app runs. Each one goes through without the app holding it up, and the last line of the debug log is `app.stopping`.

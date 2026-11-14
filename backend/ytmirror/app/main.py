@@ -46,6 +46,7 @@ from ytmirror.app.logging_setup import (
 )
 from ytmirror.app.menus import menu_bar
 from ytmirror.app.server import BackgroundServer, bind_local_socket
+from ytmirror.app.single_instance import InstanceLock, bring_to_front, bundle_of
 from ytmirror.app.window import open_window
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.identity import app_identity
@@ -56,6 +57,7 @@ from ytmirror.ports.native_app import NativeApp
 _log: FilteringBoundLogger = structlog.get_logger("ytmirror.app.main")
 
 EXIT_OK = 0
+EXIT_ALREADY_RUNNING = 1
 EXIT_USAGE = 2
 _TOKEN_BYTES = 32
 
@@ -64,6 +66,8 @@ UPDATE_NOT_AVAILABLE = (
     "If you run from a clone, update it with: git pull\n"
 )
 BROWSER_HINT = "yt-mirror is open in your browser. Press Ctrl+C here to quit.\n"
+ALREADY_RUNNING = "yt-mirror is already running.\n"
+BROUGHT_TO_FRONT = "yt-mirror is already running. Its window was brought to the front.\n"
 
 type Wait = Callable[[str, Callable[[], None]], None]
 """Shows the app at the given address and returns when the app should stop.
@@ -109,8 +113,48 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     container = build_container(paths)
     if options.doctor:
         return run_doctor(container.diagnostics, sys.stdout)
-    wait = choose_wait(options, container)
-    return run_app(options, paths, container, wait=wait, console=sys.stderr)
+    instance = InstanceLock(paths.data_dir)
+    if not instance.acquire():
+        return leave_it_to_the_running_app(options, instance, sys.stderr)
+    with_window = not options.no_window and not options.browser
+    instance.describe(os.getpid(), bundle_of(Path(sys.executable)) if with_window else None)
+    try:
+        wait = choose_wait(options, container)
+        return run_app(options, paths, container, wait=wait, console=sys.stderr)
+    finally:
+        instance.release()
+
+
+def leave_it_to_the_running_app(
+    options: RunOptions,
+    instance: InstanceLock,
+    console: TextIO,
+    bring_forward: Callable[[Path], bool] = bring_to_front,
+) -> int:
+    """End a second start: only one app runs per data folder.
+
+    Implements R-NA-08. A start for a window brings the window of the running
+    app to the front. A start for the browser or without a window says that
+    yt-mirror runs already. Nothing of macOS is loaded for this, so no second
+    icon appears in the Dock.
+
+    Args:
+        options: The options of this second start.
+        instance: The lock that another process holds.
+        console: Where the message goes.
+        bring_forward: Brings the window of an app bundle forward. For tests.
+
+    Returns:
+        The process exit code: 0 when the running app came forward, otherwise 1.
+    """
+    running = instance.running_instance()
+    wants_window = not options.no_window and not options.browser
+    bundle = running.bundle if wants_window and running is not None else None
+    if bundle is not None and bring_forward(bundle):
+        console.write(BROUGHT_TO_FRONT)
+        return EXIT_OK
+    console.write(ALREADY_RUNNING)
+    return EXIT_ALREADY_RUNNING
 
 
 def choose_wait(options: RunOptions, container: Container) -> Wait:
