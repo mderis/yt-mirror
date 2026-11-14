@@ -90,9 +90,10 @@ watch(
       />
       <FullCheckProgress v-if="fullCheck" :progress="fullCheck" />
     </div>
-    <!-- It can be focused, so that the list can be scrolled with the keyboard (R-UI-13). -->
+    <!-- It can be focused, so that the list can be scrolled with the keyboard (R-UI-13).
+         It is `relative`, so that nothing inside it is placed against the window (R-UI-01). -->
     <div
-      class="min-h-0 flex-1 overflow-y-auto border-t border-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+      class="relative min-h-0 flex-1 overflow-y-auto border-t border-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
       role="region"
       tabindex="0"
       :aria-label="t('channel.list.region')"

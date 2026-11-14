@@ -320,6 +320,69 @@ test('R-CH-31, R-CH-32: a channel is paused, resumed and removed from its menu, 
   expect(((await freshApp.api('/state')) as { channels: unknown[] }).channels).toEqual([])
 })
 
+/** How far the window itself and the video list can be scrolled, and where the last row ends. */
+async function scrollFacts(page: Page): Promise<{
+  windowScrolls: boolean
+  scrollers: string[]
+  gapAfterLastRow: number
+}> {
+  return page.evaluate(() => {
+    const list = document.querySelector('[role="region"]') as HTMLElement
+    list.scrollTop = list.scrollHeight
+    const root = document.scrollingElement as HTMLElement
+    const scrollers = [...document.querySelectorAll<HTMLElement>('*')]
+      .filter((element) => element.scrollHeight > element.clientHeight + 1)
+      .filter((element) => ['auto', 'scroll'].includes(getComputedStyle(element).overflowY))
+      .map((element) => element.getAttribute('role') ?? element.tagName.toLowerCase())
+    const rows = list.querySelectorAll('[role="listitem"]')
+    const last = rows[rows.length - 1] as HTMLElement
+    return {
+      windowScrolls: root.scrollHeight > root.clientHeight + 1,
+      scrollers,
+      gapAfterLastRow: Math.abs(
+        Math.round(list.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom),
+      ),
+    }
+  })
+}
+
+for (const [name, handle, channelId, count] of [
+  ['a long list', '@samplechannelchanging', CHANGING_ID, 45],
+  ['a list of 5,000 videos', '@samplechannellarge', 'UClargechannel0000000003', 5000],
+] as const) {
+  test(`R-UI-01: ${name} ends with its last video, and the window itself does not scroll`, async ({
+    page,
+    freshApp,
+  }) => {
+    await openApp(page, freshApp)
+    await addChannel(freshApp, handle, channelId)
+    await page.reload()
+    await expect(rows(page)).toHaveCount(count, { timeout: 60_000 })
+
+    const facts = await scrollFacts(page)
+
+    expect(facts.windowScrolls).toBe(false)
+    expect(facts.scrollers).toEqual(['region'])
+    expect(facts.gapAfterLastRow).toBe(0)
+  })
+}
+
+test('R-UI-01: a list that fits into the window does not scroll at all', async ({
+  page,
+  freshApp,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 1400 })
+  await openApp(page, freshApp)
+  await addChannel(freshApp, '@samplechannelone', SMALL_ID)
+  await page.reload()
+  await expect(rows(page)).toHaveCount(12)
+
+  const facts = await scrollFacts(page)
+
+  expect(facts.windowScrolls).toBe(false)
+  expect(facts.scrollers).toEqual([])
+})
+
 test('R-UI-13: the channel menu and the dialogs work with the keyboard alone', async ({
   page,
   freshApp,

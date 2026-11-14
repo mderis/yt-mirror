@@ -25,9 +25,11 @@ withDefaults(
 
 <template>
   <span v-if="!approximate" class="text-text-dim" data-date="exact">{{ text }}</span>
+  <!-- `relative` keeps the hidden note inside this label. Without it the note is placed
+       against the window and makes the window itself scrollable. -->
   <span
     v-else
-    class="inline-flex items-center gap-1 text-text-muted"
+    class="relative inline-flex items-center gap-1 text-text-muted"
     data-date="waiting"
     :title="note"
   >

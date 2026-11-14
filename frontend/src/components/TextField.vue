@@ -50,7 +50,8 @@ const noteId = useId()
 </script>
 
 <template>
-  <div class="flex min-w-0 flex-col">
+  <!-- `relative` keeps a hidden label inside the field, not placed against the window. -->
+  <div class="relative flex min-w-0 flex-col">
     <label :for="id" class="mb-1 font-medium text-text" :class="{ 'sr-only': hideLabel }">
       {{ label }}
     </label>
