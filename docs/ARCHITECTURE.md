@@ -23,7 +23,7 @@ Items marked `VERIFY` are assumptions that the implementer must confirm with a s
 |     v                                   v                                           |
 |  Core (pure rules and state machine)    Ports (interfaces)                          |
 |                                             v                                       |
-|                                         Adapters: yt-dlp, YouTube API, feed,        |
+|                                         Adapters: yt-dlp, YouTube API,              |
 |                                         ffmpeg, macOS filesystem, SQLite, GitHub    |
 +-------------------------------------------------------------------------------------+
         |                    |                     |
@@ -45,7 +45,7 @@ One Python process hosts the HTTP server, the worker threads and the window. The
 | Downloads | yt-dlp as a Python library | Never the command line |
 | Media tools | ffmpeg and ffprobe (downloaded binaries) | Called by yt-dlp and by the repair service |
 | JS runtime for yt-dlp | Deno (downloaded binary) | Required by yt-dlp for YouTube since 2025.11.12 |
-| HTTP client | httpx2 | YouTube API, channel feed, GitHub releases, tool downloads. The successor of httpx, also used by the test client (D-041) |
+| HTTP client | httpx2 | YouTube API, GitHub releases, tool downloads, thumbnails. The successor of httpx, also used by the test client (D-041) |
 | Logging | structlog writing JSON lines | See [LOGGING.md](LOGGING.md) |
 | Window | pywebview (WebKit on macOS) | `--browser` flag opens the default browser instead. What it can do is in section 7.8. The native Mac parts (app bundle, menu bar, single instance) are in section 7.10. The version is pinned exactly, because the menu bar relies on how this version behaves (D-049) |
 | Notifications | macOS user notifications through a small adapter | `VERIFY` which mechanism works from an unsigned Python process (Q-07) |
@@ -90,7 +90,6 @@ yt-mirror/
       adapters/
         ytdlp_gateway.py     Listing, metadata and downloads through yt-dlp
         youtube_api.py       Optional Data API client (exact dates)
-        channel_feed.py      Channel feed client (newest videos)
         media_tools.py       ffmpeg and ffprobe operations
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
@@ -315,7 +314,7 @@ Measured in November 2026 on four real channels: a quick check with nothing new 
 6. For each title that changed on a synced video: rename the file (R-FN-06) through `filesystem_mac`, then restore its dates.
 7. Verify that each synced file exists. Missing ones become `file_missing` (R-MI-06), unless the channel folder itself is unavailable (R-QU-11).
 8. Run exclusion rules on new videos (R-EX-06).
-9. Fetch exact dates for the newest videos from the channel feed. Queue the rest in `date_fetch_queue`.
+9. Queue the videos without an exact date in `date_fetch_queue`.
 10. If dates repair is on, compare file dates with `published_at` and fix differences (R-DT-09).
 11. If auto-mirror is on, enqueue eligible videos (R-MI-02, R-MI-03).
 12. Emit the new channel state, write activity entries, send a notification if there are new videos.
@@ -364,8 +363,9 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 
 ### 7.4 Exact dates (`services/dates.py`)
 - With an API key: `videos.list` with `part=snippet,liveStreamingDetails`, 50 IDs per request (1 quota unit per request, default quota 10,000 units per day).
-- Channel feed: `https://www.youtube.com/feeds/videos.xml?channel_id=<id>` gives exact `published` times for the newest entries.
-- Without a key: one metadata extraction per video through yt-dlp, at most one every 2 seconds, paused while downloads are running or after any rate-limit signal (back off 15 minutes, doubling up to 6 hours).
+- Without a key: one metadata lookup per video through yt-dlp, paused while downloads are running or after any rate-limit signal (back off 15 minutes, doubling up to 6 hours), and under the pause of the whole app after a "not a bot" check (R-ER-05).
+- What one lookup costs was measured in milestone M2 on 32 videos from the maintainer's network (D-072). With yt-dlp's default options: 10.3 seconds. With the lightest options that still return the exact time (the `web` client, `player_skip: configs, js`, `skip: hls, dash, translated_subs`, `process=False`): 3.5 seconds. Lookups in parallel with these options: 2.0 seconds per video with two at a time, 1.4 with three, 0.9 with four, without an error in 96 lookups. No longer run was made, so how many lookups YouTube accepts in a row is still open (Q-08). The rate the app uses and the time it tells the user come from what it measures while it runs, never from a fixed number.
+- There is no other source without a key. The channel feed (`feeds/videos.xml`) answered "not found" for every channel from three networks during M2 and is not used. A listing, of the channel or of its uploads playlist, has approximate dates only.
 - Each exact date found updates `published_at`, sets `published_exact`, and emits an update.
 
 ### 7.5 File dates on macOS (`filesystem_mac.py`)
