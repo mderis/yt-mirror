@@ -1,13 +1,17 @@
 /**
  * The app store: whether the window is connected to the backend, and its versions.
  *
- * Server data lives in stores (docs/CODING-STANDARDS.md section 4). This one
- * grows into the `/api/state` snapshot in milestone M2.
+ * Server data lives in stores (docs/CODING-STANDARDS.md section 4). Connecting
+ * also loads the tools and starts the event stream, so the window knows at
+ * once whether the first-run screen is needed. This store grows into the
+ * `/api/state` snapshot in milestone M2.
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { api, ApiError, type ErrorCode, type Health } from '@/api/client'
+
+import { useToolsStore } from './tools'
 
 export type ConnectionStatus = 'connecting' | 'ready' | 'failed'
 
@@ -24,6 +28,9 @@ export const useAppStore = defineStore('app', () => {
     errorCode.value = null
     try {
       health.value = await api.getHealth()
+      const tools = useToolsStore()
+      await tools.load()
+      tools.listen()
       status.value = 'ready'
     } catch (error) {
       health.value = null

@@ -81,14 +81,32 @@ describe('the theme preview page', () => {
     expect(row?.textContent).toContain('With reduced motion: 0ms')
   })
 
-  it('R-TH-08: has a place for shared components and shows the brand icon', () => {
+  it('R-TH-08: shows every shared component in every theme, and the brand icon', () => {
     const container = renderPreview()
-    const dark = container.querySelector('[data-theme="dark"]')
 
-    expect(dark?.querySelector('[data-group="components"]')?.textContent).toContain(
-      'No shared components exist yet',
-    )
-    expect(dark?.querySelectorAll('[data-group="brand"] svg').length).toBe(2)
+    for (const theme of ['dark', 'light']) {
+      const components = container.querySelector(
+        `[data-theme="${theme}"] [data-group="components"]`,
+      )
+      expect(components?.querySelectorAll('button').length, theme).toBe(4)
+      expect(components?.querySelectorAll('[role="progressbar"]').length, theme).toBe(2)
+      expect(components?.querySelector('[role="status"]')?.textContent, theme).toContain(
+        'ffmpeg is missing',
+      )
+      expect(components?.querySelector('[role="alert"]')?.textContent, theme).toContain(
+        'Deno could not be installed',
+      )
+      expect(
+        [...(components?.querySelectorAll('[data-component="icon"] svg') ?? [])].map((icon) =>
+          icon.getAttribute('data-icon'),
+        ),
+        theme,
+      ).toEqual(['check', 'download', 'clock', 'warning', 'retry'])
+    }
+    expect(
+      container.querySelector('[data-theme="dark"]')?.querySelectorAll('[data-group="brand"] svg')
+        .length,
+    ).toBe(2)
   })
 })
 
