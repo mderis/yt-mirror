@@ -1,7 +1,7 @@
 """Domain data types of yt-mirror.
 
-Frozen dataclasses and enums only. Channel, Video and Job are added by the
-milestones that implement them. This module must not read or write anything.
+Frozen dataclasses and enums only. Channels and videos have a module of their
+own, ``channels.py``. This module must not read or write anything.
 
 Tests: backend/tests/unit/core/test_models.py
 """

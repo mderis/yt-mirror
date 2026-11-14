@@ -73,7 +73,10 @@ yt-mirror/
   backend/
     ytmirror/
       core/                  Pure domain code. No I/O, no framework imports.
-        models.py            Dataclasses: Channel, Video, Job, Settings, ...
+        models.py            Dataclasses: Settings, the tools, the menu bar, the events, ...
+        channels.py          Dataclasses: Channel, Video, what a lookup and a listing give
+        channel_input.py     What the user pasted to add a channel (R-CH-01, R-CH-02)
+        catalogue.py         What a quick and a full check change in a catalogue (R-CH-12 to R-CH-15)
         identity.py          Name and bundle identifier of an installed copy and of a clone (R-NA-01)
         icon.py              The app icon as data: colours from the tokens, the macOS icon file format
         status.py            Video and channel status machines
