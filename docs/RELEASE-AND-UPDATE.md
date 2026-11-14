@@ -63,10 +63,10 @@ Environment overrides for advanced users and tests: `YTM_INSTALL_DIR`, `YTM_VERS
 | Python | uv | uv, pinned by `.python-version` | uv managed builds |
 | Python packages except yt-dlp | uv from `uv.lock` | App update | PyPI |
 | yt-dlp | uv | Independently, one click (R-UP-06) | PyPI |
-| ffmpeg and ffprobe | First-run screen | App update (pinned per release) | To be chosen: Q-05 |
+| ffmpeg and ffprobe | First-run screen | App update (pinned per release) | Martin Riedl's build server. Second source: jellyfin-ffmpeg portable builds on GitHub (D-053) |
 | Deno | First-run screen | App update (pinned per release) | Official Deno release binaries |
 
-- Each downloadable tool has, in `backend/ytmirror/services/toolchain_manifest.json`: version, URL per architecture, SHA-256, and the command that proves it works.
+- Each downloadable tool has, in `backend/ytmirror/services/toolchain_manifest.json`: one or two sources, each with its version, its URL per architecture and its SHA-256, and the command that proves the tool works. The second source is tried when the first fails or its file does not match its checksum. The project mirrors no binaries itself.
 - yt-dlp is the exception to locked versions, because it must be updatable within hours when YouTube changes. The app installs the newest yt-dlp into an overlay directory in `tools/` that takes precedence over the locked one, and records the version in the debug report. An app update resets the overlay if the locked version is newer.
 - Before using a new yt-dlp, the app runs a self-check (list one fixture, import the library). If it fails, the previous version stays active.
 
