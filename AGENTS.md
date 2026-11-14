@@ -56,8 +56,10 @@ Run from the repository root. `uv` here means a uv on your PATH. If you have non
 | Run with hot reload of the interface | `./start --dev` |
 | Verbose logs | `./start --debug` |
 | Check the environment | `./start --doctor` |
-| Start a clone without a window and check it | `scripts/smoke_test.sh` |
+| Start a clone and check it (a window appears for a moment) | `scripts/smoke_test.sh` |
+| The same, with the real tool downloads and a moved folder, as CI does | `YTM_SMOKE_TOOLS=1 YTM_SMOKE_MOVE=1 scripts/smoke_test.sh` |
 | Backend tests | `uv run pytest` |
+| Backend tests without the ones that open the app window | `uv run pytest -m "not window"` |
 | Backend tests with the coverage thresholds | `uv run pytest --cov --cov-report=json:coverage.json && uv run python scripts/check_coverage.py coverage.json` |
 | Backend lint, format, types | `uv run ruff check . && uv run ruff format --check . && uv run pyright` |
 | Layer rules | `uv run lint-imports` |

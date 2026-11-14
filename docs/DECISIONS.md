@@ -234,3 +234,18 @@ Format: **Decision**, **Why**, **Consequences**.
 **Why:** The Dock icon is one image and cannot follow the theme. The maintainer chose the light pair.
 **Consequences:** The icon build script reads the two values from the light block of the token file, so a change of the tokens still changes the icon. A dark variant of the icon is not built.
 
+### D-055 When the first-run screen is shown
+**Decision:** The first-run screen is shown until every tool was in order once. That moment is stored in the database (`app_meta`, key `setup_completed_at`). After that, a start at which two or more tools are missing or broken shows the first-run screen again. A single missing or broken tool gets the banner with "Install now" instead.
+**Why:** The spec named a first-run screen (R-IN-03) and a banner for later starts (R-IN-04), but not how the app tells the two apart. Two missing tools mean that the tools folder is gone or was never there, for example after the app folder was copied without it: that is a first run again in everything but name. One missing tool is a repair.
+**Consequences:** Migration 0003 creates `app_meta`. The rule itself is one function in `core/toolchain.py`. The interface keeps the first-run screen open until the user presses "Continue", also after the last tool was installed.
+
+### D-056 Generated icon assets are not committed
+**Decision:** The macOS icon is drawn from the icon source file on the user's Mac, by AppKit, when the app bundle is built. It is not committed and not shipped. Tests draw the real source and compare the picture with it: the two token colours, the area the source gives the rounded square, transparency outside of it, and that macOS reads the icon file with every size. They run on macOS 15 in CI.
+**Why:** A committed asset can go stale without anyone noticing, as with the built interface (D-022). AppKit reads SVG by itself, so the user's Mac needs neither Node.js nor another tool. DESIGN section 5 asked for a test that every asset is newer than its source, but file times do not survive a git checkout. The bundle records what it was built from instead and is rebuilt when the source or the token file changed.
+**Consequences:** The icon build is Python code of the app (`core/icon.py`, `app/bundle.py`), not a script of the frontend. The favicon of M2 and the images of M10 are built from the same source file. An archive install has no `frontend/src`, so milestone M9 must ship the icon source file and the token file with the release archive, or the installer cannot build the bundle.
+
+### D-057 The event stream and yt-dlp arrive in M1
+**Decision:** The event bus, `GET /api/events` and the event stream of the interface are built in milestone M1, with the one event M1 needs (`tool.updated`). yt-dlp becomes a locked package of the app in M1. Both were planned for later milestones.
+**Why:** The first-run screen must show the progress of a download (R-IN-03), and the architecture sends progress over the event stream. Asking the server again and again was not an option the architecture describes. The first-run screen lists yt-dlp and checks it at every start (R-IN-04), so the package has to be there.
+**Consequences:** Milestone M2 adds its events to an existing stream instead of building it. Updating yt-dlp on its own stays in M9 (D-017). The activity log does not exist before M7: until then the source of a downloaded tool is in the debug log (`tool.install.finished`), in `./start --doctor` and in the answer of `/api/tools`. M7 adds the activity entry that R-IN-03 names.
+

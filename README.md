@@ -2,7 +2,7 @@
 
 Keep folders on your Mac in sync with YouTube channels.
 
-> **Status: in development.** The project skeleton exists: the app starts, opens its window and shows a placeholder page. The features below are being built milestone by milestone. See [docs/STATUS.md](docs/STATUS.md).
+> **Status: in development.** The app starts as a native Mac app, installs the tools it needs on first run, and shows a placeholder page. The features below are being built milestone by milestone. See [docs/STATUS.md](docs/STATUS.md).
 
 ## What it will do
 
@@ -25,7 +25,7 @@ cd yt-mirror
 ./start
 ```
 
-You need macOS 15 or newer and [Node.js](https://nodejs.org) 24 or newer (to build the interface). `./start` downloads everything else (uv, Python, the Python packages) into the `tools/` folder of the clone. Nothing is installed system-wide.
+You need macOS 15 or newer and [Node.js](https://nodejs.org) 24 or newer (to build the interface). `./start` downloads everything else (uv, Python, the Python packages) into the `tools/` folder of the clone, and the app's first-run screen adds ffmpeg and Deno there. Nothing is installed system-wide. A clone appears in the Dock as "yt-mirror (dev)".
 
 | Command | What it does |
 |---|---|
