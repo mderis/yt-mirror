@@ -146,8 +146,10 @@ class CatalogueService:
         with self._wake:
             if not self._put_in_line(request):
                 return
+            # Before the worker can take the check: a check that ends at once must not
+            # be told as "checking" after it has ended.
+            self._views.set_checking(channel_id, True)
             self._wake.notify_all()
-        self._views.set_checking(channel_id, True)
 
     def request_check_all(self) -> int:
         """Put a quick check of every channel that is not paused in line (R-CH-23).
@@ -317,6 +319,7 @@ class CatalogueService:
         )
         if not self._repository.apply_check(checked, changes):
             return None
+        self._views.catalogue_read(channel.id)
         if first_listing and request.preview_count not in (None, len(changes.inserted)):
             _log.info(
                 "channel.count_differs",

@@ -14,9 +14,20 @@ const MINUTE = 60
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const KB = 1000
+/** From this many days on, the time of a check is told as its date. */
+const DAYS_TOLD = 14
+
+/** Building a formatter is slow, and a list of thousands of videos asks for the same few. */
+const formatters = new Map<string, Intl.DateTimeFormat>()
 
 function dateText(seconds: number, options: Intl.DateTimeFormatOptions, timeZone?: string): string {
-  return new Intl.DateTimeFormat(DATE_LOCALE, { ...options, timeZone }).format(seconds * 1000)
+  const key = `${JSON.stringify(options)} ${timeZone ?? ''}`
+  let formatter = formatters.get(key)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(DATE_LOCALE, { ...options, timeZone })
+    formatters.set(key, formatter)
+  }
+  return formatter.format(seconds * 1000)
 }
 
 /** An exact date: "11 Nov 2026". */
@@ -57,17 +68,20 @@ export function formatDuration(seconds: number): string {
   return hours > 0 ? `${hours}:${two(minutes)}:${two(rest)}` : `${two(minutes)}:${two(rest)}`
 }
 
+const compactNumber = new Intl.NumberFormat(NUMBER_LOCALE, {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+})
+const fullNumber = new Intl.NumberFormat(NUMBER_LOCALE)
+
 /** A large count in short: "950", "48K", "1.2M". */
 export function formatCount(count: number): string {
-  return new Intl.NumberFormat(NUMBER_LOCALE, {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(count)
+  return compactNumber.format(count)
 }
 
 /** A count in full, with separators: "1,200". */
 export function formatNumber(count: number): string {
-  return new Intl.NumberFormat(NUMBER_LOCALE).format(count)
+  return fullNumber.format(count)
 }
 
 /** A size on disk: "412 MB", "41.2 GB". */
@@ -85,10 +99,11 @@ export type Ago =
   | { key: 'time.justNow' }
   | { key: 'time.minutesAgo'; count: number }
   | { key: 'time.hoursAgo'; count: number }
+  | { key: 'time.daysAgo'; count: number }
   | { key: 'time.onDate'; date: string }
 
 /**
- * How long ago a check was: just now, minutes, hours, and from a day on the date.
+ * How long ago a check was: just now, minutes, hours, days, and from two weeks on the date.
  *
  * @param now The current time in seconds.
  * @param then The moment that is meant, in seconds.
@@ -104,5 +119,55 @@ export function ago(now: number, then: number, timeZone?: string): Ago {
   if (passed < DAY) {
     return { key: 'time.hoursAgo', count: Math.floor(passed / HOUR) }
   }
+  if (passed < DAYS_TOLD * DAY) {
+    return { key: 'time.daysAgo', count: Math.floor(passed / DAY) }
+  }
   return { key: 'time.onDate', date: formatDate(then, timeZone) }
+}
+
+/** The time zone of this Mac, by its name. */
+function systemTimeZone(): string {
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+/** How far a time zone is ahead of UTC at a moment, in seconds. */
+function offsetOf(seconds: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+  }).formatToParts(seconds * 1000)
+  const part = (type: string): number => Number(parts.find((found) => found.type === type)?.value)
+  const shown = Date.UTC(
+    part('year'),
+    part('month') - 1,
+    part('day'),
+    part('hour'),
+    part('minute'),
+    part('second'),
+  )
+  return shown / 1000 - seconds
+}
+
+/**
+ * The moment a day begins in a time zone, in seconds since the epoch.
+ *
+ * @param day The day as a date field gives it: "2026-11-14".
+ * @param timeZone The time zone. Without it, the zone of this Mac.
+ * @returns The moment, or null when the text is no day.
+ */
+export function startOfDay(day: string, timeZone: string = systemTimeZone()): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  if (!match) {
+    return null
+  }
+  const asUtc = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 1000
+  // The offset at the guess can differ from the offset at the answer when the clocks change.
+  const guess = asUtc - offsetOf(asUtc, timeZone)
+  return asUtc - offsetOf(guess, timeZone)
 }

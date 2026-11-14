@@ -22,3 +22,8 @@ export const TOOLS_URL = `http://127.0.0.1:${TOOLS_PORT}`
 export const DATA_DIR = '.data'
 export const TOOLS_FIXTURE_DIR = `${DATA_DIR}/tool-downloads`
 export const SHARED_TOOL_DIR = `${DATA_DIR}/shared-tools`
+
+/** The fake YouTube: a recorded world of channels (docs/TESTING.md section 4). */
+export const FAKE_YOUTUBE_DIR = 'fixtures/youtube'
+/** The library folder of the shared app, so that no test touches `~/Movies/YouTube`. */
+export const SHARED_LIBRARY_DIR = `${DATA_DIR}/shared-library`

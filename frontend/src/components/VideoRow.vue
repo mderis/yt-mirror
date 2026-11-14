@@ -7,11 +7,11 @@
  * In milestone M2 a row is read-only: selecting and the actions of a row
  * arrive with the milestones that build them.
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 import AppBadge from './AppBadge.vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** The title of the video. */
     title: string
@@ -25,21 +25,40 @@ withDefaults(
   { thumbnail: undefined, duration: undefined, newTag: undefined },
 )
 
+const emit = defineEmits<{
+  /** The thumbnail could not be loaded: it is not cached yet (R-CH-16). */
+  pictureMissing: []
+}>()
+
 /** A picture that is not cached yet makes room for the plain block behind it. */
 const pictureFailed = ref(false)
+
+function onPictureError(): void {
+  pictureFailed.value = true
+  emit('pictureMissing')
+}
+
+// Another address is another try: the picture may be cached by now.
+watch(
+  () => props.thumbnail,
+  () => {
+    pictureFailed.value = false
+  },
+)
 </script>
 
 <template>
   <div role="listitem" class="flex items-center gap-3 border-b border-line px-4 py-2">
     <div class="relative h-18 w-32 flex-none overflow-hidden rounded-md bg-track">
+      <!-- `loading` stands before `src`: WebKit loads at once when the address is set first. -->
       <img
         v-if="thumbnail && !pictureFailed"
-        :src="thumbnail"
-        alt=""
         loading="lazy"
         decoding="async"
+        :src="thumbnail"
+        alt=""
         class="size-full object-cover"
-        @error="pictureFailed = true"
+        @error="onPictureError"
       />
       <span
         v-if="duration"

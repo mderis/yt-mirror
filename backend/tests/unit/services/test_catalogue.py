@@ -12,6 +12,7 @@ from ytmirror.core.channels import ChannelStatus, ChannelUpdated, CheckKind, Tas
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import AppEvent
 from ytmirror.services.catalogue import PROGRESS_EVERY, CatalogueService
+from ytmirror.services.channel_views import ChannelViews
 
 BIG = channel_file(BIG_ID, title="Big Channel", handle="@big", videos=95, prefix="big")
 
@@ -667,6 +668,78 @@ def test_the_worker_runs_checks_in_a_thread_until_it_is_stopped(tmp_path: Path) 
 
     assert not threads[0].is_alive()
     assert len(world.ids(SMALL_ID)) == 5
+
+
+def test_every_successful_check_tells_the_interface_that_the_catalogue_was_read_again(
+    tmp_path: Path,
+) -> None:
+    """R-FB-03: the list is told to load again after every check, also two in one second."""
+    world = World(tmp_path, channel_file(checks=[{}, {"fail": "RATE_LIMITED"}]))
+    channel_id = world.add_and_list()
+
+    def version() -> int:
+        view = world.views.of(channel_id)
+        assert view is not None
+        return view.catalogue_version
+
+    versions = [version()]
+    for kind in (CheckKind.QUICK, CheckKind.QUICK, CheckKind.FULL):
+        world.check(channel_id, kind)
+        versions.append(version())
+
+    assert versions[1] == versions[0] + 1
+    assert versions[2] == versions[1]
+    assert versions[3] == versions[2] + 1
+
+
+class _LateToSayChecking:
+    """Channel views that say "checking" only after the worker had time to end the check."""
+
+    def __init__(self, views: ChannelViews) -> None:
+        self._views = views
+        self.ended = threading.Event()
+
+    def set_checking(self, channel_id: str, checking: bool) -> None:
+        if checking:
+            self.ended.wait(0.3)
+        self._views.set_checking(channel_id, checking)
+        if not checking:
+            self.ended.set()
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._views, name)
+
+
+def test_a_check_that_ends_at_once_does_not_leave_the_channel_checking(tmp_path: Path) -> None:
+    """R-FB-01: a channel says "Checking" only while its check waits or runs, however fast it is."""
+    world = World(tmp_path)
+    channel_id = world.add_and_list()
+    views = _LateToSayChecking(world.views)
+    threads: list[threading.Thread] = []
+
+    def in_a_thread(work: object) -> None:
+        thread = threading.Thread(target=work)  # pyright: ignore[reportArgumentType]
+        threads.append(thread)
+        thread.start()
+
+    catalogue = CatalogueService(
+        world.repository,
+        world.youtube,
+        views,  # pyright: ignore[reportArgumentType]
+        world.clock,
+        in_a_thread,
+    )
+    catalogue.start()
+
+    catalogue.request_check(channel_id, CheckKind.QUICK)
+    ended = views.ended.wait(10)
+    catalogue.stop()
+    threads[0].join(10)
+
+    view = world.views.of(channel_id)
+    assert ended
+    assert not world.views.is_checking(channel_id)
+    assert view is not None and view.status is ChannelStatus.UP_TO_DATE
 
 
 def test_a_check_that_reads_while_the_app_stops_ends_and_stores_nothing(tmp_path: Path) -> None:

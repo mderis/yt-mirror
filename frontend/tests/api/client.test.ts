@@ -315,6 +315,7 @@ describe('the API client', () => {
   it('R-CH-16: pictures are loaded from the local server, never from YouTube', () => {
     expect(pictures.avatar(CHANNEL_ID, 3)).toBe(`/api/channels/${CHANNEL_ID}/avatar?v=3`)
     expect(pictures.previewAvatar(CHANNEL_ID)).toBe(`/api/channels/lookup/${CHANNEL_ID}/avatar`)
+    expect(pictures.thumbnail('video000001')).toBe('/api/videos/video000001/thumbnail')
     expect(pictures.thumbnail('video000001', 3)).toBe('/api/videos/video000001/thumbnail?v=3')
   })
 })

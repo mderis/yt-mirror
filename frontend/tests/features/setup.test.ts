@@ -43,7 +43,7 @@ describe('the first-run screen', () => {
     expect(row('python').textContent).toContain('Installed')
     expect(row('ytdlp').textContent).toContain('The YouTube download engine')
     expect(screen.getByText('About 120 MB in total. This only happens once.')).toBeTruthy()
-    expect(screen.queryByText('yt-mirror is running.')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Mirror your first channel' })).toBeNull()
   })
 
   it('R-IN-03: it downloads the first missing tool at once and lets the next one wait', async () => {
@@ -148,7 +148,7 @@ describe('the first-run screen', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Getting yt-mirror ready')
     await fireEvent.click(button)
 
-    expect(await screen.findByText('yt-mirror is running.')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Mirror your first channel' })).toBeTruthy()
     expect(screen.queryByText('Getting yt-mirror ready')).toBeNull()
   })
 
@@ -173,7 +173,7 @@ describe('the first-run screen', () => {
 
     renderWithApp(App)
 
-    expect(await screen.findByText('yt-mirror is running.')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Mirror your first channel' })).toBeTruthy()
     expect(screen.queryByText('Getting yt-mirror ready')).toBeNull()
   })
 })

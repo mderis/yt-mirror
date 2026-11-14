@@ -32,6 +32,8 @@ export function channel(changes: Partial<Channel> = {}): Channel {
     new_videos: 0,
     progress: null,
     pictures: 1,
+    avatar_version: 0,
+    catalogue_version: 1,
     ...changes,
   }
 }

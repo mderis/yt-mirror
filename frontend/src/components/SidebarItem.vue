@@ -75,7 +75,7 @@ const pictureFailed = ref(false)
       </span>
       <span class="flex items-center gap-1 text-label" :class="toneClass" data-status>
         <AppIcon :name="statusIcon" size="sm" />
-        <span class="truncate">{{ status }}</span>
+        <span class="truncate" :title="status">{{ status }}</span>
       </span>
     </span>
     <AppBadge v-if="newVideos">{{ newVideos }}</AppBadge>

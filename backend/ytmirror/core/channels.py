@@ -328,6 +328,9 @@ class ChannelView:
         progress: The first listing or full check that is running, or None.
         folder: The channel folder as an absolute path.
         pictures: A number that grows whenever more pictures of this channel are cached.
+        avatar_version: A number that grows whenever the avatar of this channel was cached anew.
+        catalogue_version: A number that grows with every successful check of this channel:
+            its catalogue may have changed.
     """
 
     channel: Channel
@@ -336,6 +339,8 @@ class ChannelView:
     progress: TaskProgress | None
     folder: str
     pictures: int
+    avatar_version: int = 0
+    catalogue_version: int = 0
 
 
 @dataclass(frozen=True, slots=True)

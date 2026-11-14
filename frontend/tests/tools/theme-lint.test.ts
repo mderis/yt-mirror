@@ -225,7 +225,7 @@ describe('the theme lint on the source tree', () => {
     expect(files).toContain('index.html')
     expect(files).toContain('theme-preview.html')
     expect(files).toContain(join('src', 'App.vue'))
-    expect(files).toContain(join('src', 'features', 'placeholder', 'PlaceholderPage.vue'))
+    expect(files).toContain(join('src', 'features', 'shell', 'AppShell.vue'))
     expect(files).toContain(join('src', 'design', 'theme.css'))
     expect(files.some((file) => file.includes(join('design', 'fonts', 'inter')))).toBe(false)
   })
@@ -233,7 +233,7 @@ describe('the theme lint on the source tree', () => {
   it('R-TH-01: treats only src/design as the theme center', () => {
     expect(scopeOf(join('src', 'design', 'preview', 'ThemePreview.vue'))).toBe('design')
     expect(scopeOf(join('src', 'designer', 'Other.vue'))).toBe('code')
-    expect(scopeOf(join('src', 'features', 'placeholder', 'PlaceholderPage.vue'))).toBe('code')
+    expect(scopeOf(join('src', 'features', 'shell', 'AppShell.vue'))).toBe('code')
     expect(scopeOf('index.html')).toBe('code')
   })
 

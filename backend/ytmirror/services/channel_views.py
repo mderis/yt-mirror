@@ -57,6 +57,8 @@ class ChannelViews:
         self._checking: set[str] = set()
         self._progress: dict[str, TaskProgress] = {}
         self._pictures: dict[str, int] = {}
+        self._avatars: dict[str, int] = {}
+        self._catalogues: dict[str, int] = {}
 
     def folder_of(self, channel: Channel) -> Path:
         """Return the folder of a channel as a real path (R-FI-01).
@@ -155,14 +157,29 @@ class ChannelViews:
             self._progress[progress.channel_id] = progress
         self._events.publish(TaskProgressed(progress))
 
-    def more_pictures(self, channel_id: str) -> None:
-        """Note that more pictures of a channel are cached, and tell the interface (R-CH-16).
+    def catalogue_read(self, channel_id: str) -> None:
+        """Note that a check of a channel was stored: its catalogue may have changed (R-FB-03).
+
+        The interface hears of it with the next ``publish`` of the channel.
+        Times are whole seconds, so they cannot tell two checks apart.
 
         Args:
             channel_id: The channel ID.
         """
         with self._lock:
+            self._catalogues[channel_id] = self._catalogues.get(channel_id, 0) + 1
+
+    def more_pictures(self, channel_id: str, *, avatar: bool = False) -> None:
+        """Note that more pictures of a channel are cached, and tell the interface (R-CH-16).
+
+        Args:
+            channel_id: The channel ID.
+            avatar: Whether the avatar of the channel was among them (R-CH-12).
+        """
+        with self._lock:
             self._pictures[channel_id] = self._pictures.get(channel_id, 0) + 1
+            if avatar:
+                self._avatars[channel_id] = self._avatars.get(channel_id, 0) + 1
         self.publish(channel_id)
 
     def forget(self, channel_id: str) -> None:
@@ -175,12 +192,16 @@ class ChannelViews:
             self._checking.discard(channel_id)
             self._progress.pop(channel_id, None)
             self._pictures.pop(channel_id, None)
+            self._avatars.pop(channel_id, None)
+            self._catalogues.pop(channel_id, None)
 
     def _view(self, channel: Channel, totals: ChannelTotals) -> ChannelView:
         with self._lock:
             checking = channel.id in self._checking
             progress = self._progress.get(channel.id)
             pictures = self._pictures.get(channel.id, 0)
+            avatar_version = self._avatars.get(channel.id, 0)
+            catalogue_version = self._catalogues.get(channel.id, 0)
         return ChannelView(
             channel=channel,
             status=channel_status(channel, checking=checking, new_videos=totals.new),
@@ -188,6 +209,8 @@ class ChannelViews:
             progress=progress,
             folder=str(self.folder_of(channel)),
             pictures=pictures,
+            avatar_version=avatar_version,
+            catalogue_version=catalogue_version,
         )
 
     def _new_since(self) -> int:

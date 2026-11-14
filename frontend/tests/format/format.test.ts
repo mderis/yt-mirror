@@ -9,6 +9,7 @@ import {
   formatDuration,
   formatNumber,
   formatTime,
+  startOfDay,
 } from '@/format'
 
 import { NOW } from '../helpers/catalogue'
@@ -86,15 +87,50 @@ describe('how values are written for the user', () => {
     expect(ago(NOW, NOW - 86_399)).toEqual({ key: 'time.hoursAgo', count: 23 })
   })
 
-  it('R-CH-35: from a day on, the time of a check is told as its date', () => {
-    expect(ago(NOW, NOW - 86_400, 'UTC')).toEqual({ key: 'time.onDate', date: '13 Nov 2026' })
-    expect(ago(NOW, NOW - 3 * 86_400, 'Asia/Tehran')).toEqual({
+  it('R-CH-35: from a day on, the time of a check is told in days, and from two weeks on as its date', () => {
+    expect(ago(NOW, NOW - 86_400, 'UTC')).toEqual({ key: 'time.daysAgo', count: 1 })
+    expect(ago(NOW, NOW - 3 * 86_400, 'UTC')).toEqual({ key: 'time.daysAgo', count: 3 })
+    expect(ago(NOW, NOW - 14 * 86_400 + 1, 'UTC')).toEqual({ key: 'time.daysAgo', count: 13 })
+    expect(ago(NOW, NOW - 14 * 86_400, 'UTC')).toEqual({ key: 'time.onDate', date: '31 Oct 2026' })
+    expect(ago(NOW, NOW - 14 * 86_400 - 6 * 3600, 'Asia/Tehran')).toEqual({
       key: 'time.onDate',
-      date: '11 Nov 2026',
+      date: '31 Oct 2026',
     })
   })
 
   it('R-CH-35: a check whose time lies ahead of the clock of the window was just now', () => {
     expect(ago(NOW, NOW + 5)).toEqual({ key: 'time.justNow' })
+  })
+
+  it('R-MI-03, R-DT-02: the date of "only videos uploaded after" begins with that day in the time zone it is shown in', () => {
+    // 1 Nov 2026, 00:00:00 UTC.
+    const utcMidnight = 1_793_491_200
+
+    expect(startOfDay('2026-11-01', 'UTC')).toBe(utcMidnight)
+    expect(startOfDay('2026-11-01', 'Asia/Tehran')).toBe(utcMidnight - 3.5 * 3600)
+    expect(startOfDay('2026-11-01', 'America/Los_Angeles')).toBe(utcMidnight + 7 * 3600)
+    expect(formatDate(startOfDay('2026-11-01', 'Asia/Tehran') as number, 'Asia/Tehran')).toBe(
+      '1 Nov 2026',
+    )
+  })
+
+  it('R-MI-03, R-DT-02: the day begins at the right moment also on the days the clocks change', () => {
+    // In Los Angeles the clocks go back on 1 Nov 2026 and forward on 8 Mar 2026.
+    const zone = 'America/Los_Angeles'
+
+    expect(startOfDay('2026-11-02', zone)).toBe(Date.UTC(2026, 10, 2, 8) / 1000)
+    expect(startOfDay('2026-03-08', zone)).toBe(Date.UTC(2026, 2, 8, 8) / 1000)
+    expect(startOfDay('2026-03-09', zone)).toBe(Date.UTC(2026, 2, 9, 7) / 1000)
+  })
+
+  it('R-MI-03, R-DT-02: without a time zone the day begins in the zone of the Mac', () => {
+    const here = new Intl.DateTimeFormat().resolvedOptions().timeZone
+
+    expect(startOfDay('2026-11-01')).toBe(startOfDay('2026-11-01', here))
+  })
+
+  it('R-MI-03: what is no day gives no date', () => {
+    expect(startOfDay('')).toBeNull()
+    expect(startOfDay('1 Nov 2026')).toBeNull()
   })
 })

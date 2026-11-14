@@ -80,15 +80,20 @@ describe('the channels store', () => {
     expect(store.channels).toEqual([channel(), other, third])
   })
 
-  it('R-FB-03: a check that ended, other numbers or a first listing say that the catalogue changed', async () => {
+  it('R-FB-03: a channel that was checked since says that its catalogue may have changed', async () => {
     const { store } = await loaded()
 
-    const sameCatalogue = store.apply(channel({ status: 'checking' }))
-    const checked = store.apply(channel({ last_check_at: NOW }))
-    const moreVideos = store.apply(channel({ last_check_at: NOW, videos: 13 }))
-    const listed = store.apply(channel({ last_check_at: NOW, videos: 13, first_listed_at: NOW }))
+    const statusOnly = store.apply(channel({ status: 'checking' }))
+    const picturesOnly = store.apply(channel({ pictures: 9 }))
+    const checked = store.apply(channel({ catalogue_version: 2 }))
+    const checkedAgainInTheSameSecond = store.apply(channel({ catalogue_version: 3 }))
 
-    expect([sameCatalogue, checked, moreVideos, listed]).toEqual([false, true, true, true])
+    expect([statusOnly, picturesOnly, checked, checkedAgainInTheSameSecond]).toEqual([
+      false,
+      false,
+      true,
+      true,
+    ])
   })
 
   it('R-CH-11: the progress of a first listing is kept on its channel', async () => {
@@ -178,7 +183,7 @@ describe('the channels store', () => {
     expect(store.byId.get(CHANNEL_ID)?.status).toBe('up_to_date')
   })
 
-  it('R-CH-23: "Check now" and "Full check" show the channel as being checked at once', async () => {
+  it('R-CH-23: "Check now" and "Full check" ask the backend for a check of that kind', async () => {
     const { store, fetchMock } = await loaded({
       [`POST /api/channels/${CHANNEL_ID}/check`]: jsonResponse(channel({ status: 'checking' })),
     })
@@ -186,11 +191,46 @@ describe('the channels store', () => {
     await store.check(CHANNEL_ID, 'quick')
     await store.check(CHANNEL_ID, 'full')
 
-    expect(store.byId.get(CHANNEL_ID)?.status).toBe('checking')
     expect(fetchMock.mock.calls.slice(-2).map(([, init]) => init?.body)).toEqual([
       JSON.stringify({ kind: 'quick' }),
       JSON.stringify({ kind: 'full' }),
     ])
+  })
+
+  it('R-FB-03: the answer to "Check now" never brings back an older state than the events told', async () => {
+    let answer: (response: Response) => void = () => {}
+    const { store } = await loaded({
+      [`POST /api/channels/${CHANNEL_ID}/check`]: () =>
+        new Promise<Response>((resolve) => (answer = resolve)),
+    })
+
+    const asked = store.check(CHANNEL_ID, 'quick')
+    store.apply(channel({ status: 'checking' }))
+    store.apply(channel({ status: 'new_videos', new_videos: 1, videos: 13, last_check_at: NOW }))
+    answer(jsonResponse(channel({ status: 'checking' })))
+    await asked
+
+    expect(store.byId.get(CHANNEL_ID)).toMatchObject({ status: 'new_videos', videos: 13 })
+  })
+
+  it('R-FB-03: the answer to adding a channel does not replace what the events already told', async () => {
+    const added = channel({
+      id: 'UCthird000000000000000003',
+      status: 'checking',
+      first_listed_at: null,
+    })
+    let answer: (response: Response) => void = () => {}
+    const { store } = await loaded({
+      'POST /api/channels': () => new Promise<Response>((resolve) => (answer = resolve)),
+    })
+
+    const adding = store.add({ channel_id: added.id, auto_mirror: false })
+    store.apply({ ...added, status: 'up_to_date', first_listed_at: NOW, videos: 12 })
+    answer(jsonResponse({ channel: added, existing: false }, 201))
+    await adding
+
+    expect(store.byId.get(added.id)).toMatchObject({ status: 'up_to_date', videos: 12 })
+    expect(store.channels).toHaveLength(3)
   })
 
   it('R-CH-23: "Check all channels now" asks the backend once for all of them', async () => {

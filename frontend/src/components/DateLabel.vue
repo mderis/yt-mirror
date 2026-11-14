@@ -27,7 +27,7 @@ withDefaults(
   <span v-if="!approximate" class="text-text-dim" data-date="exact">{{ text }}</span>
   <span
     v-else
-    class="inline-flex items-center gap-1 text-text-muted opacity-80"
+    class="inline-flex items-center gap-1 text-text-muted"
     data-date="waiting"
     :title="note"
   >

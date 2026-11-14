@@ -19,6 +19,9 @@ export default defineConfig({
     proxy: {
       // The browser talks only to this server. API calls are passed on to the backend.
       '/api': { target: `http://127.0.0.1:${backendPort}`, changeOrigin: true },
+      // The page icon is made by the backend from the icon source file (D-064).
+      '/favicon.svg': { target: `http://127.0.0.1:${backendPort}`, changeOrigin: true },
+      '/favicon.png': { target: `http://127.0.0.1:${backendPort}`, changeOrigin: true },
     },
   },
   build: {

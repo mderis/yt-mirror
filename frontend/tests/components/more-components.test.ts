@@ -431,6 +431,9 @@ describe('the sidebar item', () => {
 
     expect(item.querySelector('img')?.getAttribute('src')).toBe('/api/channels/UCa/avatar')
     expect(status?.textContent).toContain('Up to date · checked 2 min ago')
+    expect(status?.querySelector('[title]')?.getAttribute('title')).toBe(
+      'Up to date · checked 2 min ago',
+    )
     expect(status?.querySelector('svg')?.getAttribute('data-icon')).toBe('check')
     expect(status?.className).toContain('text-ok-text')
     expect(within(item).getByText('3 new')).toBeTruthy()
@@ -526,6 +529,20 @@ describe('the video row', () => {
     expect(row.querySelector('img')).toBeNull()
     expect(row.querySelector('[data-duration]')).toBeNull()
     expect(row.querySelector('[data-badge]')).toBeNull()
+  })
+
+  it('R-CH-10, R-CH-16: a row says when its thumbnail is missing, and another address is another try', async () => {
+    const { emitted, rerender } = render(VideoRow, {
+      props: { title: 'No picture yet', thumbnail: '/api/videos/v1/thumbnail' },
+    })
+    const row = screen.getByRole('listitem')
+
+    await fireEvent.error(row.querySelector('img') as Element)
+    const missing = emitted().pictureMissing
+    await rerender({ thumbnail: '/api/videos/v1/thumbnail?v=2' })
+
+    expect(missing).toHaveLength(1)
+    expect(row.querySelector('img')?.getAttribute('src')).toBe('/api/videos/v1/thumbnail?v=2')
   })
 })
 

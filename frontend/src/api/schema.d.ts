@@ -513,10 +513,16 @@ export interface components {
      *         last_check_error: The error code of the last check when it failed, or None.
      *         progress: The first listing or full check that is running, or None.
      *         pictures: A number that grows when more pictures of the channel are cached.
+     *         avatar_version: A number that grows when the avatar of the channel was cached anew.
+     *         catalogue_version: A number that grows with every successful check of the channel.
      */
     Channel: {
       /** Auto Mirror */
       auto_mirror: boolean
+      /** Avatar Version */
+      avatar_version: number
+      /** Catalogue Version */
+      catalogue_version: number
       /** Excluded */
       excluded: number
       /** First Listed At */

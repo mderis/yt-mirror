@@ -183,7 +183,7 @@ describe('the app store', () => {
     await useAppStore().connect()
     await useVideosStore().open(CHANNEL_ID)
 
-    newestStream().channelUpdated(channel({ last_check_at: NOW, videos: 13, new_videos: 1 }))
+    newestStream().channelUpdated(channel({ catalogue_version: 2, videos: 13, new_videos: 1 }))
     await settled()
 
     expect(useVideosStore().videos).toEqual([video(0), video(1)])
@@ -200,7 +200,7 @@ describe('the app store', () => {
     await useVideosStore().open(CHANNEL_ID)
     const requests = fetchMock.mock.calls.length
 
-    newestStream().channelUpdated({ ...other, last_check_at: NOW })
+    newestStream().channelUpdated({ ...other, catalogue_version: 2 })
     newestStream().channelUpdated(channel({ status: 'checking' }))
     await settled()
 

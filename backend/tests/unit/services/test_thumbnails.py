@@ -120,6 +120,27 @@ def test_a_full_check_fetches_the_avatar_again(tmp_path: Path) -> None:
     assert (world.thumbnails.avatar(channel_id) or b"").startswith(PNG)
 
 
+def test_the_interface_is_told_when_the_avatar_was_cached_anew_and_only_then(
+    tmp_path: Path,
+) -> None:
+    """R-CH-12, R-FB-03: a new avatar is told apart from more thumbnails."""
+    world = World(tmp_path, BIG)
+    channel_id = world.add_and_list("@big")
+    after_listing = world.views.of(channel_id)
+    world.events.clear()
+
+    world.cache.pictures.pop((ImageKind.THUMBNAIL, "big00000001"))
+    world.check(channel_id, CheckKind.QUICK)
+    after_thumbnail = world.views.of(channel_id)
+    world.check(channel_id, CheckKind.FULL)
+    after_avatar = world.views.of(channel_id)
+
+    assert after_listing is not None and after_thumbnail is not None and after_avatar is not None
+    assert after_thumbnail.pictures > after_listing.pictures
+    assert after_thumbnail.avatar_version == after_listing.avatar_version
+    assert after_avatar.avatar_version == after_listing.avatar_version + 1
+
+
 def test_pictures_that_fail_are_left_for_later_and_logged(tmp_path: Path) -> None:
     """R-CH-16: when pictures cannot be fetched the app stops trying this channel for now."""
     world = World(tmp_path, BIG)

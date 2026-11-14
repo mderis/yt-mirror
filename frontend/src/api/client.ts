@@ -203,14 +203,14 @@ export const api = {
 
 /**
  * The addresses of the cached pictures (R-CH-16). A picture is loaded by the
- * browser itself, from the local server, never from YouTube. `version` changes
- * when more pictures of a channel are cached, so that a picture that was
- * missing is asked for again.
+ * browser itself, from the local server, never from YouTube. A version in the
+ * address makes the browser ask again: for an avatar when it was cached anew
+ * (R-CH-12), for a thumbnail that was missing when more pictures are cached.
  */
 export const pictures = {
   avatar: (channelId: string, version: number): string =>
     `${API_PREFIX}/channels/${channelId}/avatar?v=${version}`,
   previewAvatar: (channelId: string): string => `${API_PREFIX}/channels/lookup/${channelId}/avatar`,
-  thumbnail: (videoId: string, version: number): string =>
-    `${API_PREFIX}/videos/${videoId}/thumbnail?v=${version}`,
+  thumbnail: (videoId: string, version?: number): string =>
+    `${API_PREFIX}/videos/${videoId}/thumbnail${version === undefined ? '' : `?v=${version}`}`,
 }

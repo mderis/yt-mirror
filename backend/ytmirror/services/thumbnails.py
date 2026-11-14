@@ -165,7 +165,11 @@ class ThumbnailService:
             stored += fetched
             failed += len(batch) - fetched
             if fetched:
-                self._views.more_pictures(channel_id)
+                avatar = any(
+                    item[0] is ImageKind.AVATAR and outcome is None
+                    for item, outcome in zip(batch, outcomes, strict=True)
+                )
+                self._views.more_pictures(channel_id, avatar=avatar)
             failed_batches = 0 if fetched else failed_batches + 1
             if failed_batches >= GIVE_UP_AFTER_FAILED_BATCHES:
                 break
