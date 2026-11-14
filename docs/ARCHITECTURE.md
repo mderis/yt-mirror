@@ -89,6 +89,7 @@ yt-mirror/
       ports/                 typing.Protocol interfaces, one file per port
       adapters/
         ytdlp_gateway.py     Listing, metadata and downloads through yt-dlp
+        fixture_youtube.py   The fake YouTube, read from files, which the app can start with (section 10)
         youtube_api.py       Optional Data API client (exact dates)
         media_tools.py       ffmpeg and ffprobe operations
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
