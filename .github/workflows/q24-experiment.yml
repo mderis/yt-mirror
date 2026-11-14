@@ -1,0 +1,50 @@
+# Temporary: runs the experiment of open question Q-24 (docs/OPEN-QUESTIONS.md)
+# on macOS 15, which only the hosted runners have. Removed again once it has run.
+name: Q-24 experiment
+
+on:
+  push:
+    branches: [m1-toolchain-and-app-identity]
+    paths:
+      - .github/q24-experiment/**
+      - .github/workflows/q24-experiment.yml
+
+permissions:
+  contents: read
+
+jobs:
+  experiment:
+    name: Q-24 on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.8"
+      - name: Install Python and the app's packages
+        run: uv sync --frozen --no-dev
+      - name: Build the throwaway bundle and run every check
+        env:
+          Q24_SCREENSHOTS: "1"
+          Q24_REAL_KEYS: "1"
+        run: |
+          sw_vers
+          site=$(.venv/bin/python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+          .venv/bin/python .github/q24-experiment/run_checks.py \
+            "$PWD/.venv/bin/python" "$site" \
+            "$PWD/frontend/src/design/brand/icon.svg" "$RUNNER_TEMP/q24"
+      - name: Keep the report, the screenshots and the rendered icon
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: q24-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/q24/*.png
+            ${{ runner.temp }}/q24/report.json
+            ${{ runner.temp }}/q24/data/app.log
+          retention-days: 14
