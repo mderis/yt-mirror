@@ -75,7 +75,10 @@ def do(way: str, pid: int) -> None:
     elif way == "termination signal (SIGTERM)":
         os.kill(pid, signal.SIGTERM)
     elif way in SESSION:
-        control("/send_quit_event", why=SESSION[way])
+        try:
+            control("/send_quit_event", why=SESSION[way])
+        except OSError:
+            pass  # the app ended while it answered: that is the quit
     elif way == "real Cmd+Q key press":
         base.bring_forward()
         run(
@@ -170,6 +173,9 @@ def main() -> int:
         "Quit from the Dock (quit event from outside)",
         "window close button",
         "Cmd+W",
+        "logout",
+        "restart",
+        "shutdown",
         "Ctrl+C (SIGINT)",
         "termination signal (SIGTERM)",
     ]
@@ -190,17 +196,6 @@ def main() -> int:
             scenario(way)
         except Exception as error:  # noqa: BLE001
             record("d", f"{way}: the scenario ran", False, repr(error))
-    if not only:
-        print("--- the quit event of a logout, sent by the app to itself", flush=True)
-        fresh_start()
-        control("/send_quit_event", why="rlgo")
-        time.sleep(1.5)
-        record(
-            "d",
-            "a quit event with the reason 'logout' makes AppKit announce the end of the session (NSWorkspaceWillPowerOffNotification)",
-            any("NSWorkspaceWillPowerOffNotification" in line for line in lines()),
-            "a real logout is tested separately",
-        )
     mine = [result for result in base.results if result[0] == "d"]
     bad = [result for result in mine if not result[2]]
     print(f"POINT (d) quit path: {len(mine) - len(bad)} of {len(mine)} checks passed", flush=True)

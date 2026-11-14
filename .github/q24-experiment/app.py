@@ -579,6 +579,22 @@ class Control(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+# A notification handler must return nothing: a returned value makes pyobjc raise
+# inside AppKit, and AppKit then drops the event that was being handled.
+def on_did_become_active(_note) -> None:
+    activations["count"] += 1
+
+
+def on_will_terminate(_note) -> None:
+    log("NSApplicationWillTerminateNotification received")
+    shutdown("will-terminate notification")
+
+
+def on_will_power_off(_note) -> None:
+    quit_state["session_ending"] = True
+    log("NSWorkspaceWillPowerOffNotification received")
+
+
 def main() -> None:
     bundle_path = str(AppKit.NSBundle.mainBundle().bundlePath())
     (DATA / "instance.json").write_text(json.dumps({"pid": os.getpid(), "bundle": bundle_path}))
@@ -591,25 +607,19 @@ def main() -> None:
         AppKit.NSApplicationDidBecomeActiveNotification,
         None,
         None,
-        lambda _note: activations.__setitem__("count", activations["count"] + 1),
+        on_did_become_active,
     )
     Foundation.NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
         AppKit.NSApplicationWillTerminateNotification,
         None,
         None,
-        lambda _note: (
-            log("NSApplicationWillTerminateNotification received"),
-            shutdown("will-terminate notification"),
-        ),
+        on_will_terminate,
     )
     AppKit.NSWorkspace.sharedWorkspace().notificationCenter().addObserverForName_object_queue_usingBlock_(
         AppKit.NSWorkspaceWillPowerOffNotification,
         None,
         None,
-        lambda _note: (
-            quit_state.__setitem__("session_ending", True),
-            log("NSWorkspaceWillPowerOffNotification received"),
-        ),
+        on_will_power_off,
     )
     start_worker()
     open_window(NAME)
