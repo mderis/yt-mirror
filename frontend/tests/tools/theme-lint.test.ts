@@ -106,12 +106,17 @@ describe('the theme lint rules', () => {
     expect(rulesFor(script, 'src/a.ts')).toEqual([])
   })
 
-  it('R-TH-06: rejects spacing that is not a whole multiple of the step', () => {
+  it('R-TH-06: rejects spacing that is neither half a step nor whole steps', () => {
     expect(rulesFor(template('p-1.5'))).toEqual(['off-scale'])
     expect(rulesFor(template('hover:gap-x-2.5'))).toEqual(['off-scale'])
-    expect(rulesFor(template('-mt-0.5'))).toEqual(['off-scale'])
+    expect(rulesFor(template('-mt-0.25'))).toEqual(['off-scale'])
     expect(rulesFor(template('w-3.5 max-w-7.5'))).toEqual(['off-scale', 'off-scale'])
+    expect(rulesFor(template('gap-0.75 p-10.5'))).toEqual(['off-scale', 'off-scale'])
     expect(rulesFor(template('p-4 gap-2 w-64 -mt-1 inset-0'))).toEqual([])
+  })
+
+  it('R-TH-06: accepts half a step, the 2 px step of the spacing scale', () => {
+    expect(rulesFor(template('gap-0.5 p-0.5 -mt-0.5 hover:gap-x-0.5 inset-0.5'))).toEqual([])
   })
 
   it('R-TH-06: rejects one-off line heights and durations', () => {

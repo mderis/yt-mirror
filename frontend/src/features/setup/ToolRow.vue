@@ -49,7 +49,7 @@ const reason = computed(() => {
 
 <template>
   <li
-    class="flex flex-wrap items-center gap-4 rounded-lg border border-line bg-surface px-4 py-3"
+    class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3"
     :data-tool="tool.name"
     :data-status="tool.status"
   >
