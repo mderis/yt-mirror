@@ -31,7 +31,7 @@ Rule: a feature is not done until its tests exist, pass, and have been reviewed.
 5. No sleeps. Wait on events or use a fake clock.
 6. Tests are independent and can run in any order and in parallel.
 7. A bug fix starts with a test that fails for that bug.
-8. Fakes live in one place and are themselves tested against the same contract tests as the real adapters, so a fake cannot drift from reality.
+8. Fakes live in one place and are themselves tested against the same contract tests as the real adapters, so a fake cannot drift from reality. The one fake that is not in that place is the fake YouTube, which is an adapter of the app because the app itself can start with it (D-062). It passes the same contract test.
 
 ## 3. Coverage thresholds (enforced in CI)
 
@@ -46,21 +46,22 @@ Coverage is a floor, not the goal. The review in section 7 is what establishes t
 
 ## 4. The fake YouTube
 
-`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes. It arrives with the YouTube gateway in milestone M2.
+`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes, one JSON file each. The gateway that reads it is `backend/ytmirror/adapters/fixture_youtube.py`. Channels arrive with the milestone that needs them: `small`, `large`, `tricky-titles`, `changing` and `empty` in M2, the others in M3.
 
 | Fixture channel | Purpose |
 |---|---|
-| `small` | 12 videos, the default for most tests |
+| `small` | 12 videos, the default for most tests. Its preview has a video count. Other channels cover a count request that fails and a count that disagrees with the listing (R-CH-03) |
 | `large` | 5,000 generated videos, for performance (R-UI-07, R-QA-05) |
 | `tricky-titles` | Titles with `/`, `:`, emoji, right-to-left text, very long titles, duplicates, leading dots |
-| `changing` | A script of changes between checks: new video, title change, removed video, video that reappears |
+| `changing` | A script of changes between checks: every listing of this channel serves the next step. New video on top, new video between two older known ones, title change, removed video, video that reappears, a check that fails. It covers both kinds of check: a quick check never marks a video as removed |
+| `empty` | A channel without any regular video |
 | `failures` | One video per error code |
 | `premieres` | Scheduled and premiered videos, for R-DT-03 |
 | `no-subtitles`, `auto-subtitles-only` | Subtitle fallback (R-MD-03) |
 
 The fake gateway produces small real MKV files (a few seconds of generated video and audio) so that file handling, ffprobe verification and dates are tested for real.
 
-Recorded yt-dlp metadata from real videos is stored (with titles and IDs replaced) in `backend/tests/fixtures/ytdlp/` and used to test the gateway's parsing. A script refreshes these recordings on demand.
+Recorded answers of yt-dlp for real channels and videos are stored (with titles, names and IDs replaced) in `backend/tests/fixtures/ytdlp/` and used to test the gateway's parsing. `python -m ytmirror.tools.record_ytdlp` refreshes these recordings on demand.
 
 ## 5. Mandatory test areas
 
@@ -71,7 +72,7 @@ These areas carry the most risk and need exhaustive tests, including property-ba
 - **Status machine**: every allowed transition, and every forbidden one is rejected.
 - **Never lose data**: property-based sequences of operations (check, exclude, restore, rename, crash, restart) never delete or overwrite a user file except by an explicit delete choice.
 - **Crash safety (R-QA-06)**: kill the process at each step of a download, a folder move, an adoption fix and an update, restart, and verify a consistent state.
-- **Catalogue checks (R-CH-12 to R-CH-15)**: an empty or failed listing changes nothing. Removal needs two misses.
+- **Catalogue checks (R-CH-12 to R-CH-15)**: an empty, failed or cancelled listing changes nothing. Removal needs two misses in full checks. A quick check never marks a video as removed, whatever it reads.
 - **Queue (R-QU-*)**: parallelism limit, ordering, pause and resume, retry policy by error kind, disk guard, unavailable folder.
 - **Exclusion (R-EX-*)**: excluded videos are never queued by any path. Rules, preview, exceptions.
 - **Adoption (R-AD-*)**: certain, proposed and ambiguous matches. Fix in place never re-encodes.
