@@ -866,3 +866,19 @@ def test_the_worker_goes_on_after_an_unexpected_error(world: World) -> None:
 
     assert log_lines(logs, "download.failed")[0]["error_code"] == "INTERNAL"
     assert not worker.is_alive()
+
+
+def test_quitting_stops_the_tools_so_a_running_download_ends_at_once(world: World) -> None:
+    """R-PL-13, R-QA-06: the ffmpeg of a running job is stopped, and the job is cleaned up."""
+    world.downloader.mirror([FIRST])
+    held, go = held_at_audio(world)
+    world.stop_tools = go.set
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.downloader.stop(wait_s=10)
+    worker.join(10)
+
+    assert go.is_set()
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+    assert world.files.file_names(folder_of(world)) == []

@@ -95,6 +95,7 @@ yt-mirror/
         youtube_api.py       Optional Data API client (exact dates)
         media_tools.py       Reads a finished file with ffprobe (the MediaTools port)
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
+        child_processes_mac.py  Stops the tools the app started, at quit (the ChildProcesses port)
         notifier_mac.py      macOS notifications
         folder_picker_webview.py  The folder dialog of the app window (section 7.8)
         tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
@@ -566,6 +567,7 @@ Every external dependency is behind a port, and each port has a fake in `backend
 | ExactDateSource | Returns dates from fixtures, simulates quota errors |
 | MediaTools | Creates tiny real MKV files with ffmpeg in integration tests, a pure fake in unit tests |
 | FileSystem | Real temp directories on macOS runners, an in-memory fake in unit tests |
+| ChildProcesses | No fake: the downloader is given a function to call at quit, which unit tests replace. The adapter is tested with processes the test starts itself |
 | Releases | Serves fake release archives for updater tests |
 | Notifier, Clock, Random | Recorders and controllable values |
 
@@ -583,7 +585,7 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
 | `YTM_FAKE_YOUTUBE` | app | A folder with a recorded world of channels (`e2e/fixtures/youtube/`). The app then never talks to the real YouTube. For tests and for reproducing a problem |
 | `YTM_LIBRARY_DIR` | app | The default of the library folder instead of `~/Movies/YouTube`. For tests, so that no test creates a folder in the user's own library |
-| `YTM_TRASH_DIR` | app | A folder that stands for the Trash of macOS: files that "Delete the files" moves to the Trash go there. For tests, so that no test fills the Trash of the person who runs it |
+| `YTM_TRASH_DIR` | app | A folder that stands for the Trash of macOS: files that "Delete the files" moves to the Trash go there. For tests, so that no test fills the Trash of the person who runs it. It counts only together with `YTM_FAKE_YOUTUBE`: an app on the real YouTube always uses the Trash of macOS |
 | `YTM_YOUTUBE_API_KEY` | live tests, probes | A YouTube API key for measurements and, from M4, live tests. The app does not use it: its key is a setting (R-DT-12). Its value is a secret of the logs, so the app removes it from every line (R-LG-07). Never written to a file, a fixture or a commit |
 | `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
 | `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |

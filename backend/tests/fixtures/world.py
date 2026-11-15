@@ -340,6 +340,8 @@ class World:
             self.views, self.settings, self.files, self.picker, self.meta, self.youtube
         )
         self.media = FakeMediaTools()
+        self.stop_tools: Callable[[], None] = lambda: None
+        """What stopping the tools at quit does in a test."""
         self.job_numbers = itertools.count(1)
         self.download = FakeDownload(self.files)
         self.gateway.download_with = self.download
@@ -357,6 +359,7 @@ class World:
             new_job_id=lambda: job_id(next(self.job_numbers)),
             job_logs=folder / "logs" / "jobs",
             run_in_background=self.background.append,
+            stop_tools=lambda: self.stop_tools(),
         )
 
     def _after_check(self, channel_id: str, kind: CheckKind) -> None:

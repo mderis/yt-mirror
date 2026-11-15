@@ -174,3 +174,14 @@ def test_tests_can_move_the_library_and_replace_youtube(tmp_path: Path) -> None:
 
     assert paths.default_library == tmp_path / "library"
     assert paths.fake_youtube == tmp_path / "world"
+
+
+def test_a_trash_of_its_own_is_only_for_an_app_on_the_fake_youtube(tmp_path: Path) -> None:
+    """R-CH-32: YTM_TRASH_DIR is for tests; a real app always uses the Trash of macOS."""
+    trash = str(tmp_path / "trash")
+
+    real = resolve_paths({"YTM_TRASH_DIR": trash})
+    tested = resolve_paths({"YTM_TRASH_DIR": trash, "YTM_FAKE_YOUTUBE": str(tmp_path / "world")})
+
+    assert real.trash_dir is None
+    assert tested.trash_dir == tmp_path / "trash"

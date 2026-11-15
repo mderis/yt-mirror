@@ -16,6 +16,7 @@ from pathlib import Path
 from ulid import ULID
 
 from ytmirror import __version__
+from ytmirror.adapters.child_processes_mac import MacChildProcesses
 from ytmirror.adapters.db.app_meta_repository import SqlAppMetaRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
 from ytmirror.adapters.db.engine import create_db_engine
@@ -37,6 +38,7 @@ from ytmirror.app.config import AppPaths, detect_install_kind
 from ytmirror.core.channels import CheckKind
 from ytmirror.core.models import AppInfo, ToolName
 from ytmirror.core.toolchain import parse_manifest
+from ytmirror.ports.child_processes import ChildProcesses
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.file_system import JOB_LOG_FOLDER, FileSystem
 from ytmirror.ports.folder_picker import FolderPicker
@@ -180,6 +182,7 @@ def build_container(
     settings = SettingsService(SqlSettingsRepository(engine, used_clock), paths.default_library)
     repository = SqlCatalogueRepository(engine, used_clock)
     used_files = files if files is not None else _file_system(paths)
+    used_children = MacChildProcesses()
     used_picker = picker if picker is not None else WebviewFolderPicker()
     youtube = YouTubeAccess(
         _gateway(paths, used_clock, gateway, used_tool_box), used_clock, events, _later
@@ -225,6 +228,7 @@ def build_container(
         new_job_id=lambda: str(ULID()),
         job_logs=paths.logs_dir / JOB_LOG_FOLDER,
         run_in_background=_in_a_thread,
+        stop_tools=lambda: _stop_tools(used_children, used_tool_box),
     )
     channels = ChannelsService(
         repository,
@@ -264,6 +268,22 @@ def build_container(
         job_logs=JobLogsService(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),
+    )
+
+
+TOOL_STOP_WAIT_S = 1.0
+"""How long a tool the app started may take to end at quit before it is killed."""
+
+
+def _stop_tools(children: ChildProcesses, tools: ToolBox) -> None:
+    """Stop the ffmpeg, ffprobe and Deno the app started, when it quits (R-PL-13)."""
+    children.stop(
+        [
+            tools.program_path(ToolName.FFMPEG, "ffmpeg"),
+            tools.program_path(ToolName.FFMPEG, "ffprobe"),
+            tools.program_path(ToolName.DENO, "deno"),
+        ],
+        wait_s=TOOL_STOP_WAIT_S,
     )
 
 

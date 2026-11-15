@@ -107,7 +107,7 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
             defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST``, ``YTM_TOOL_SOURCE``,
             ``YTM_LIBRARY_DIR`` and ``YTM_TRASH_DIR`` are for tests. ``YTM_FAKE_YOUTUBE``
             names a folder with a recorded world of channels to use in place of the
-            real YouTube.
+            real YouTube. ``YTM_TRASH_DIR`` counts only together with ``YTM_FAKE_YOUTUBE``.
 
     Returns:
         The paths. Nothing is created.
@@ -133,7 +133,11 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
         if env.get(ENV_LIBRARY_DIR)
         else Path.home() / "Movies" / "YouTube",
         fake_youtube=Path(env[ENV_FAKE_YOUTUBE]) if env.get(ENV_FAKE_YOUTUBE) else None,
-        trash_dir=Path(env[ENV_TRASH_DIR]) if env.get(ENV_TRASH_DIR) else None,
+        # A Trash of its own is for tests only: an app on the real YouTube uses
+        # the Trash of macOS whatever the environment says (R-CH-32).
+        trash_dir=Path(env[ENV_TRASH_DIR])
+        if env.get(ENV_TRASH_DIR) and env.get(ENV_FAKE_YOUTUBE)
+        else None,
     )
 
 

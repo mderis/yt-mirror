@@ -126,6 +126,7 @@ class DownloaderService:
         job_logs: Path,
         run_in_background: Callable[[Callable[[], None]], None],
         workers: int = 1,
+        stop_tools: Callable[[], None] = lambda: None,
     ) -> None:
         """Create the downloader. Nothing runs before ``start``.
 
@@ -144,6 +145,8 @@ class DownloaderService:
             job_logs: The folder of the logs of jobs.
             run_in_background: Runs a worker without blocking.
             workers: How many downloads run at once. One in milestone M3.
+            stop_tools: Stops the ffmpeg and the other tools the app started,
+                when the app quits (R-PL-13).
         """
         self._repository = repository
         self._jobs = jobs
@@ -158,6 +161,7 @@ class DownloaderService:
         self._new_job_id = new_job_id
         self._job_logs = job_logs
         self._run_in_background = run_in_background
+        self._stop_tools = stop_tools
         self._workers = workers
         self._wake = threading.Condition()
         self._running: dict[str, str] = {}
@@ -204,14 +208,18 @@ class DownloaderService:
         """Stop: a running download is cancelled and cleaned up before this returns.
 
         Args:
-            wait_s: How long to wait for a running download to end. A running
-                ffmpeg step is not interrupted. The wait is short, so a logout is
+            wait_s: How long to wait for a running download to end. The ffmpeg
+                and the other tools the app started are stopped first, so that
+                the job ends at once. The wait is short, so a logout is
                 never held (D-052); a job that has not ended by then is cleaned up
                 at the next start.
         """
         with self._wake:
             self._stopped = True
             self._wake.notify_all()
+        # A running ffmpeg step is stopped, so that its job ends and cleans up now.
+        self._stop_tools()
+        with self._wake:
             self._wake.wait_for(lambda: not self._running, timeout=wait_s)
 
     def _work_until_stopped(self) -> None:
