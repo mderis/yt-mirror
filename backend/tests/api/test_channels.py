@@ -510,7 +510,11 @@ def test_the_files_to_trash_are_counted_and_moved_on_request(
 
     assert counted.json() == {"files": 1, "size_bytes": 5}
     assert removed.status_code == 204
-    assert world.files.trashed == [folder / "Video 1.mkv"]
+    assert world.files.trashed == [
+        folder / ".yt-mirror" / "channel.json",
+        folder / "Video 1.mkv",
+        folder / ".yt-mirror",
+    ]
     assert world.files.exists(folder / "mine.txt")
 
 
@@ -521,4 +525,6 @@ def test_removing_keeps_the_files_unless_told_otherwise(client: TestClient, worl
 
     client.delete(f"/api/channels/{SMALL_ID}")
 
-    assert world.files.trashed == []
+    folder = world.library / "Small Channel"
+    assert world.files.trashed == [folder / ".yt-mirror" / "channel.json"]
+    assert world.files.exists(folder / "Video 1.mkv")

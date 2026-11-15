@@ -51,10 +51,15 @@ def visible(world: World) -> list[str]:
 
 
 def everything(world: World) -> list[str]:
-    """Return every file under the channel folder, hidden ones too, relative to it."""
+    """Return every file under the channel folder, hidden ones too, relative to it.
+
+    The channel file belongs to the channel, not to a download (R-FI-05), so it is left out.
+    """
     folder = folder_of(world)
     return sorted(
-        str(path.relative_to(folder)) for path in world.files.files if path.is_relative_to(folder)
+        str(path.relative_to(folder))
+        for path in world.files.files
+        if path.is_relative_to(folder) and path != folder / ".yt-mirror" / "channel.json"
     )
 
 

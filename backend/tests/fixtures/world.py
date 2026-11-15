@@ -312,9 +312,7 @@ class World:
             self.views,
             self.clock,
             self.background.append,
-            after_check=lambda channel_id, kind: self.thumbnails.fill(
-                channel_id, renew_avatar=kind is CheckKind.FULL
-            ),
+            after_check=self._after_check,
             choose_delay=lambda least, most: (least + most) / 2,
             wait=self._wait,
         )
@@ -353,6 +351,11 @@ class World:
             job_logs=folder / "logs" / "jobs",
             run_in_background=self.background.append,
         )
+
+    def _after_check(self, channel_id: str, kind: CheckKind) -> None:
+        """What the container does after a check: the pictures and the channel file."""
+        self.thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
+        self.channels.write_channel_file(channel_id)
 
     def download_all(self) -> None:
         """Let every waiting download run, one after another."""

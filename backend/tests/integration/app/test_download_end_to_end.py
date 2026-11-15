@@ -115,6 +115,7 @@ def test_a_mirrored_video_is_a_valid_mkv_with_metadata_cover_subtitles_and_dates
     assert (folder / ".yt-mirror" / "fail0000ok0.jpg").read_bytes().startswith(b"\xff\xd8")
     assert sorted(entry.name for entry in folder.iterdir()) == [".yt-mirror", file.name]
     assert sorted(entry.name for entry in (folder / ".yt-mirror").iterdir()) == [
+        "channel.json",
         "fail0000ok0.info.json",
         "fail0000ok0.jpg",
         "tmp",

@@ -15,6 +15,7 @@ from pathlib import Path
 import structlog
 from structlog.typing import FilteringBoundLogger
 
+from ytmirror.core.channel_file import CHANNEL_FILE, channel_file_with, channel_file_without
 from ytmirror.core.channel_input import parse_channel_input
 from ytmirror.core.channels import (
     Channel,
@@ -308,6 +309,7 @@ class ChannelsService:
             position=1 + max((other.position for other in self._repository.channels()), default=-1),
         )
         self._repository.add_channel(channel)
+        self.write_channel_file(channel.id)
         _log.info(
             "channel.added",
             msg="Channel added",
@@ -354,12 +356,71 @@ class ChannelsService:
             self._views.publish(channel_id)
         return self._view(channel_id)
 
+    def write_channel_file(self, channel_id: str) -> None:
+        """Add or update the entry of a channel in the channel file of its folder (R-FI-05).
+
+        It is written when the channel folder is created and whenever the
+        title or the handle of the channel changed. Two channels can share a
+        folder: the entries of the others stay. The write is atomic, so a
+        crash never leaves a broken file. Nothing is written while the folder
+        is not there: that would create it again.
+
+        Args:
+            channel_id: The channel ID. An unknown one writes nothing.
+        """
+        channel = self._repository.channel(channel_id)
+        if channel is None:
+            return
+        folder = self._views.folder_of(channel)
+        if not self._files.folder_exists(folder):
+            return
+        path = folder / HIDDEN_DIR / CHANNEL_FILE
+        existing = self._files.read_bytes(path)
+        content = channel_file_with(existing, channel)
+        if content != existing:
+            self._write_channel_file(channel_id, path, content)
+
+    def _forget_in_channel_file(self, channel_id: str, folder: Path) -> None:
+        """Remove the entry of a removed channel; the file goes when no entry is left (R-FI-05)."""
+        path = folder / HIDDEN_DIR / CHANNEL_FILE
+        existing = self._files.read_bytes(path)
+        if existing is None:
+            return
+        content = channel_file_without(existing, channel_id)
+        if content is None:
+            try:
+                self._files.trash(path)
+            except AppError as error:
+                _log.warning(
+                    "channel.file_failed",
+                    msg="The channel file could not be moved to the Trash",
+                    channel_id=channel_id,
+                    error_code=error.code.value,
+                )
+            return
+        if content != existing:
+            self._write_channel_file(channel_id, path, content)
+
+    def _write_channel_file(self, channel_id: str, path: Path, content: bytes) -> None:
+        try:
+            self._files.write_file(path, content, overwrite=True)
+        except AppError as error:
+            _log.warning(
+                "channel.file_failed",
+                msg="The channel file could not be written",
+                channel_id=channel_id,
+                error_code=error.code.value,
+            )
+            return
+        _log.info("channel.file_written", msg="Channel file written", channel_id=channel_id)
+
     def files_to_trash(self, channel_id: str) -> FilesToTrash:
         """Return what "Delete the files" would move to the Trash (R-CH-32).
 
         That is every file the app tracks for the channel: the video files,
         a thumbnail next to a video that is the app's own copy, and the
-        metadata and thumbnails of its videos in the hidden folder. A file of
+        metadata and thumbnails of its videos in the hidden folder. Its entry
+        in the channel file goes in any case (R-FI-05). A file of
         the user's own stays, and so does anything a symlink leads to outside
         the folder. Two channels can share a custom folder, so only what
         belongs to this channel is taken from the hidden folder.
@@ -421,6 +482,7 @@ class ChannelsService:
         channel = self._known(channel_id)
         folder = self._views.folder_of(channel)
         self._cancel_downloads(channel_id)
+        self._forget_in_channel_file(channel_id, folder)
         trashed = 0 if keep_files else self._trash_files(channel_id, folder)
         self._catalogue.forget(channel_id)
         video_ids = self._repository.video_ids(channel_id)

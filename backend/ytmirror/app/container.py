@@ -202,10 +202,14 @@ def build_container(
         views,
         used_clock,
         _in_a_thread,
-        after_check=lambda channel_id, kind: thumbnails.fill(
-            channel_id, renew_avatar=kind is CheckKind.FULL
-        ),
+        after_check=lambda channel_id, kind: _after_check(channel_id, kind),
     )
+
+    def _after_check(channel_id: str, kind: CheckKind) -> None:
+        thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
+        # A check takes over the title and the handle of the channel (R-CH-12, R-FI-05).
+        channels.write_channel_file(channel_id)
+
     jobs = SqlJobRepository(engine, used_clock)
     downloader = DownloaderService(
         repository=repository,

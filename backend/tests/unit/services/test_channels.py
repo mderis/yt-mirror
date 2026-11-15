@@ -7,6 +7,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines
+from ytmirror.core.channel_file import channel_entries
 from ytmirror.core.channels import ChannelStatus, CheckKind, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import Job, JobKind, JobState
@@ -496,6 +497,7 @@ def test_delete_the_files_moves_tracked_files_to_the_trash_and_keeps_the_users_o
     assert found.files == 2
     hidden = folder / ".yt-mirror"
     assert set(world.files.trashed) == {
+        hidden / "channel.json",
         folder / "Video 1.mkv",
         folder / "Video 2.mkv",
         *(
@@ -580,7 +582,7 @@ def test_keep_the_files_leaves_everything_in_place(tmp_path: Path) -> None:
 
     world.channels.remove(SMALL_ID)
 
-    assert world.files.trashed == []
+    assert world.files.trashed == [folder / ".yt-mirror" / "channel.json"]
     assert world.files.exists(folder / "Video 1.mkv")
 
 
@@ -608,3 +610,59 @@ def test_an_unknown_channel_is_not_found(tmp_path: Path, action: str) -> None:
     }
 
     assert failure_of(calls[action]).code is ErrorCode.NOT_FOUND
+
+
+# --- one channel folder inside another
+
+
+def nested(tmp_path: Path) -> tuple[World, Path]:
+    """The small channel in its folder in the library; the big one has the library as its folder."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list()
+    world.picker.answer = world.library
+    world.channels.choose_folder()
+    world.add_and_list("@big", folder=str(world.library))
+    synced_files(world, {"sm000000001": "Video 1.mkv"})
+    return world, world.library / "Small Channel"
+
+
+def test_a_channel_folder_inside_another_keeps_its_own_channel_file(tmp_path: Path) -> None:
+    """R-FI-05: each folder lists its own channel; a nested folder is not the outer one's."""
+    world, inner = nested(tmp_path)
+
+    outer = channel_entries(world.files.read_bytes(world.library / ".yt-mirror" / "channel.json"))
+    own = channel_entries(world.files.read_bytes(inner / ".yt-mirror" / "channel.json"))
+
+    assert [entry["id"] for entry in outer] == [BIG_ID]
+    assert [entry["id"] for entry in own] == [SMALL_ID]
+
+
+def test_deleting_the_outer_channel_leaves_the_inner_channel_and_its_files(tmp_path: Path) -> None:
+    """R-CH-32: the files of a channel whose folder lies inside are never the outer channel's."""
+    world, inner = nested(tmp_path)
+
+    world.channels.remove(BIG_ID, keep_files=False)
+
+    assert world.files.exists(inner / "Video 1.mkv")
+    assert world.files.exists(inner / ".yt-mirror" / "channel.json")
+    assert world.files.folder_exists(world.library)
+    assert all(not path.is_relative_to(inner) for path in world.files.trashed)
+
+
+def test_deleting_the_inner_channel_leaves_the_outer_one(tmp_path: Path) -> None:
+    """R-CH-32: the inner folder goes when it is empty, the outer channel stays as it was."""
+    world, inner = nested(tmp_path)
+
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.files.folder_exists(inner) is False
+    assert world.files.exists(world.library / ".yt-mirror" / "channel.json")
+
+
+def test_the_video_files_of_a_nested_channel_do_not_count_for_the_outer_folder(
+    tmp_path: Path,
+) -> None:
+    """R-CH-06: only the video files directly in a folder count, not those of a nested one."""
+    world, _inner = nested(tmp_path)
+
+    assert world.files.count_video_files(world.library) == 0

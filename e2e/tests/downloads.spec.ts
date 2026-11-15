@@ -115,7 +115,15 @@ test('R-CH-32: "Delete the files" moves the files of a channel to the Trash and 
   await expect(dialog).toHaveCount(0)
   await expect
     .poll(() => readdirSync(freshApp.trashDir).sort())
-    .toEqual(['.yt-mirror', `${FIRST}.info.json`, `${FIRST}.jpg`, `${FIRST_TITLE}.mkv`].sort())
+    .toEqual(
+      [
+        '.yt-mirror',
+        'channel.json',
+        `${FIRST}.info.json`,
+        `${FIRST}.jpg`,
+        `${FIRST_TITLE}.mkv`,
+      ].sort(),
+    )
   expect(readdirSync(folder)).toEqual(['my notes.txt'])
   expect(readFileSync(join(folder, 'my notes.txt'), 'utf8')).toBe('the user wrote this')
 })
