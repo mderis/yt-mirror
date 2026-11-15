@@ -216,6 +216,8 @@ class Channel:
         last_check_error: The error code of the last check when it failed, or None.
         last_check_error_at: When that check failed, or None.
         position: The place in the sidebar, from 0.
+        folder_created: Whether the app created the channel folder. Only such a folder
+            may go to the Trash when a removal leaves it empty (R-CH-32).
     """
 
     id: str
@@ -235,6 +237,7 @@ class Channel:
     last_check_error: ErrorCode | None = None
     last_check_error_at: int | None = None
     position: int = 0
+    folder_created: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +274,8 @@ class Video:
         last_error_code: The code of the last failure, or None.
         last_error_at: When the last failure happened, or None.
         attempts: Automatic attempts since the last success.
+        placing_file: The file a running download is moving into the channel folder, or
+            None. Set before the move, cleared when the job ends (R-QA-06).
     """
 
     id: str
@@ -302,6 +307,7 @@ class Video:
     last_error_code: ErrorCode | None = None
     last_error_at: int | None = None
     attempts: int = 0
+    placing_file: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

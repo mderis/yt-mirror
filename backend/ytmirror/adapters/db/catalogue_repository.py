@@ -302,6 +302,7 @@ def _channel_of(row: ChannelRow) -> Channel:
         last_check_error=None if row.last_check_error is None else ErrorCode(row.last_check_error),
         last_check_error_at=row.last_check_error_at,
         position=row.position,
+        folder_created=row.folder_created,
     )
 
 
@@ -338,4 +339,5 @@ def _video_of(row: VideoRow) -> Video:
         last_error_code=None if error is None else ErrorCode(error),
         last_error_at=row.last_error_at,
         attempts=row.attempts,
+        placing_file=row.placing_file,
     )

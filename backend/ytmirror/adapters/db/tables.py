@@ -7,7 +7,7 @@ in ``backend/ytmirror/migrations/versions/`` in the same commit.
 Tests: backend/tests/migrations/test_schema_matches_tables.py
 """
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, Text, false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -59,6 +59,7 @@ class ChannelRow(Base):
     last_check_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_check_error_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    folder_created: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -104,6 +105,7 @@ class VideoRow(Base):
     last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    placing_file: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 

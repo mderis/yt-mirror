@@ -36,6 +36,7 @@ DOWNLOAD_FIELDS = (
     "published_at",
     "published_exact",
     "published_precision",
+    "placing_file",
 )
 """The columns of a video that a download writes. A check writes the others."""
 
