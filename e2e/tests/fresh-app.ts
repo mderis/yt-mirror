@@ -22,6 +22,8 @@ export interface FreshApp {
   toolDir: string
   /** The library folder of this app. Channels get their folders in it. */
   libraryDir: string
+  /** The folder that stands for the Trash of this app. */
+  trashDir: string
   /** Make the next downloads of a file fail, for this app only. */
   failDownload: (file: string, times?: number) => Promise<void>
   /** Ask the API of this app. */
@@ -97,6 +99,8 @@ export const test = base.extend<{ freshApp: FreshApp }>({
       // The fake YouTube and a library of its own: nothing leaves this Mac or touches ~/Movies.
       YTM_FAKE_YOUTUBE: resolve(FAKE_YOUTUBE_DIR),
       YTM_LIBRARY_DIR: join(folder, 'library'),
+      // Files that a test deletes go here, never into the Trash of the person who runs it.
+      YTM_TRASH_DIR: join(folder, 'trash'),
     }
     const headers = { Authorization: `Bearer ${TOKEN}` }
     const send = async (method: string, path: string, body?: unknown): Promise<unknown> => {
@@ -118,6 +122,7 @@ export const test = base.extend<{ freshApp: FreshApp }>({
       firstUrl: `${url}/?token=${TOKEN}`,
       toolDir: join(folder, 'tools'),
       libraryDir: join(folder, 'library'),
+      trashDir: join(folder, 'trash'),
       failDownload: async (file, times = 1) => {
         await fetch(`${TOOLS_URL}/control/${name}/fail?file=${file}&times=${times}`, {
           method: 'POST',

@@ -166,7 +166,20 @@ jobs:
       - name: Install browsers
         working-directory: e2e
         run: npx playwright install webkit chromium
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      # The fake YouTube writes real video files: ffmpeg from its first source, installed
+      # by the app's own code (D-053, docs/TESTING.md rule 10).
+      - name: Install ffmpeg, as the app does
+        run: |
+          uv sync --frozen
+          uv run python -m ytmirror.tools.install_tool ffmpeg "$RUNNER_TEMP/ffmpeg-first" --source martin-riedl
       - name: End-to-end tests
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
         run: npm --prefix e2e test
       - name: Keep the report and the screenshots when a test failed
         if: failure()

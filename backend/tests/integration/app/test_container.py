@@ -109,3 +109,15 @@ def test_the_outside_world_of_the_catalogue_can_be_replaced_by_fakes(paths: AppP
     assert files.folder_exists(paths.home_dir / "Chosen") is True
     assert not (paths.home_dir / "Chosen").exists()
     assert container.state.snapshot().can_choose_folder is True
+
+
+def test_a_test_can_give_the_app_a_trash_of_its_own(paths: AppPaths) -> None:
+    """infra: YTM_TRASH_DIR keeps the files a test deletes out of the real Trash."""
+    trash = paths.home_dir / "trash"
+    container = build_container(dataclasses.replace(paths, trash_dir=trash))
+    files = container.channels._files  # pyright: ignore[reportPrivateUsage]
+    for number in (1, 2):
+        (paths.home_dir / "Video.mkv").write_bytes(str(number).encode())
+        files.trash(paths.home_dir / "Video.mkv")
+
+    assert sorted(path.name for path in trash.iterdir()) == ["Video.mkv", "Video.mkv 2"]

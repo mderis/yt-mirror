@@ -116,7 +116,6 @@ async function remove(): Promise<void> {
       class="break-all"
       :legend="t('removeChannel.files')"
       :options="options"
-      data-folder
     />
     <p v-if="failureTexts" class="text-err-text" role="alert">
       {{ failureTexts.happened }} {{ failureTexts.action }}

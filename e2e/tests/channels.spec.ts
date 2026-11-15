@@ -556,7 +556,8 @@ for (const theme of ['light', 'dark'] as const) {
 
       await expect(page).toHaveScreenshot(`add-channel-2-${theme}.png`, {
         // The place of the library differs from machine to machine.
-        mask: [page.locator('[data-free-space]'), dialog(page).locator('[data-folder]')],
+        // The folder of a fresh app is a temp folder of its own: only its line is masked.
+        mask: [page.locator('[data-free-space]'), dialog(page).getByText(/^They stay in /)],
       })
       const second = await new AxeBuilder({ page }).analyze()
       expect(first.violations.map((violation) => violation.id)).toEqual([])
@@ -606,7 +607,8 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('menuitem', { name: 'Remove channel' }).click()
       await expect(dialog(page)).toBeVisible()
       await expect(page).toHaveScreenshot(`remove-channel-${theme}.png`, {
-        mask: [page.locator('[data-free-space]'), dialog(page).locator('[data-folder]')],
+        // The folder of a fresh app is a temp folder of its own: only its line is masked.
+        mask: [page.locator('[data-free-space]'), dialog(page).getByText(/^They stay in /)],
       })
       const removing = await new AxeBuilder({ page }).analyze()
 

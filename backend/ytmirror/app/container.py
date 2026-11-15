@@ -11,6 +11,7 @@ import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from ulid import ULID
 
@@ -178,7 +179,7 @@ def build_container(
     )
     settings = SettingsService(SqlSettingsRepository(engine, used_clock), paths.default_library)
     repository = SqlCatalogueRepository(engine, used_clock)
-    used_files = files if files is not None else MacFileSystem()
+    used_files = files if files is not None else _file_system(paths)
     used_picker = picker if picker is not None else WebviewFolderPicker()
     youtube = YouTubeAccess(
         _gateway(paths, used_clock, gateway, used_tool_box), used_clock, events, _later
@@ -260,6 +261,24 @@ def build_container(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),
     )
+
+
+def _file_system(paths: AppPaths) -> FileSystem:
+    """Return the file system of macOS, with a folder of its own as the Trash when tests ask."""
+    trash_dir = paths.trash_dir
+    if trash_dir is None:
+        return MacFileSystem()
+
+    def to_folder(path: Path) -> None:
+        trash_dir.mkdir(parents=True, exist_ok=True)
+        target = trash_dir / path.name
+        number = 1
+        while target.exists():
+            number += 1
+            target = trash_dir / f"{path.name} {number}"
+        path.rename(target)
+
+    return MacFileSystem(trash=to_folder)
 
 
 def _gateway(

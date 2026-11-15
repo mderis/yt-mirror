@@ -88,5 +88,8 @@
       "title": "Workshop update",
       "view_count": 950
     }
-  ]
+  ],
+  "download": {
+    "step_delay_ms": 150
+  }
 }

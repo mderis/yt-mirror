@@ -75,6 +75,8 @@ export default defineConfig({
         // No test asks the real YouTube or writes into the real library.
         YTM_FAKE_YOUTUBE: resolve(FAKE_YOUTUBE_DIR),
         YTM_LIBRARY_DIR: resolve(SHARED_LIBRARY_DIR),
+        // Files that a test deletes go here, never into the Trash of the person who runs it.
+        YTM_TRASH_DIR: resolve(`${DATA_DIR}/shared-trash`),
       },
       reuseExistingServer: false,
       // The first start downloads uv, Python and packages, and builds the interface.
