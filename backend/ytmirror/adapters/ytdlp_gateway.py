@@ -10,9 +10,11 @@ must not decide anything about the catalogue, and it must not set a proxy:
 yt-dlp and the HTTP client honour the proxy settings of the environment by
 themselves (R-PL-08).
 
-Tests: backend/tests/integration/test_ytdlp_gateway.py and
-backend/tests/integration/test_youtube_gateway_contract.py. The one call
-that reaches the network is tested by backend/tests/live/test_youtube_live.py.
+Tests: backend/tests/integration/test_ytdlp_gateway.py,
+backend/tests/integration/test_youtube_gateway_contract.py,
+backend/tests/integration/test_ytdlp_download.py and, with the real yt-dlp
+against a server on this Mac, backend/tests/integration/test_ytdlp_real_download.py.
+The calls that reach YouTube are tested by backend/tests/live/.
 """
 
 import datetime
@@ -131,6 +133,10 @@ DOWNLOAD_OPTIONS: Mapping[str, Any] = {
 }
 """The download of one video, verified in milestone M3 (Q-04, ARCHITECTURE section 7.3).
 The thumbnail is kept as JPEG next to the file, for the hidden folder (R-MD-05)."""
+
+TAGS_STEP = "_AddTags"
+"""The step that adds the tags of the app (``download_with_ytdlp``). It runs before the
+download, and yt-dlp calls the post-processor hook for it too: it is not processing."""
 
 _SUBTITLE_STEP = "EmbedSubtitle"
 _SUBTITLE_FAILURE = "unable to download video subtitles"
@@ -567,9 +573,18 @@ class _Steps:
         )
 
     def processing(self, report: Mapping[str, Any]) -> None:
-        """The post-processor hook: called before and after each processing step."""
+        """The post-processor hook: called before and after each processing step.
+
+        It is also called for the step that adds the tags, which runs before
+        the download: a cancel ends the download there, but it is no processing.
+        """
+        step = str(report.get("postprocessor"))
+        if step == TAGS_STEP:
+            if self._is_cancelled():
+                raise DownloadCancelledError(f"cancelled at {step}")
+            return
         if report.get("status") == "started":
-            self.current = str(report.get("postprocessor"))
+            self.current = step
         if self._is_cancelled():
             raise DownloadCancelledError(f"cancelled at {self.current}")
         if report.get("status") == "started":
@@ -700,7 +715,7 @@ def checked_image(url: str, status: int, content: bytes) -> bytes:
 
 def download_with_ytdlp(
     address: str, options: Mapping[str, Any], tags: Mapping[str, str]
-) -> Mapping[str, Any]:  # pragma: no cover  (the network. Tested live)
+) -> Mapping[str, Any]:
     """Download with the real yt-dlp, adding tags of our own to the file.
 
     A post-processor that runs before the download sets ``meta_<name>``
@@ -709,14 +724,15 @@ def download_with_ytdlp(
     yt_dlp = importlib.import_module("yt_dlp")
     base: Any = importlib.import_module("yt_dlp.postprocessor.common").PostProcessor
 
-    class _AddTags(base):  # type: ignore[misc, valid-type]
+    # yt-dlp names a step after its class, without the last two letters.
+    class _AddTagsPP(base):  # type: ignore[misc, valid-type]
         def run(self, information: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
             for name, value in tags.items():
                 information[f"meta_{name}"] = value
             return [], information
 
     with yt_dlp.YoutubeDL(dict(options)) as ydl:
-        ydl.add_post_processor(_AddTags(), when="pre_process")
+        ydl.add_post_processor(_AddTagsPP(), when="pre_process")
         answer = ydl.extract_info(address, download=True)
         clean = ydl.sanitize_info(answer)
     if not isinstance(clean, dict):

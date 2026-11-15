@@ -13,7 +13,7 @@ import pytest
 
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.ytdlp_replay import VIDEO_ID, Replay
-from ytmirror.adapters.ytdlp_gateway import GatewayTools, YtDlpGateway
+from ytmirror.adapters.ytdlp_gateway import TAGS_STEP, GatewayTools, YtDlpGateway
 from ytmirror.core.channels import Quality
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import (
@@ -57,6 +57,10 @@ class FakeYtDlp:
         progress: Callable[[Mapping[str, Any]], None] = options["progress_hooks"][0]
         processing: Callable[[Mapping[str, Any]], None] = options["postprocessor_hooks"][0]
         options["logger"].info(f"[youtube] Extracting URL: {address}")
+        # The step that adds the tags of the app runs before the download, and
+        # yt-dlp calls the hook for it too (test_ytdlp_real_download.py).
+        processing({"status": "started", "postprocessor": TAGS_STEP})
+        processing({"status": "finished", "postprocessor": TAGS_STEP})
         (folder / f"{VIDEO_ID}.jpg").write_bytes(b"jpeg")
         video = {"vcodec": "av01", "height": 480, "format_id": "397"}
         audio = {"vcodec": "none", "acodec": "opus", "format_id": "251"}
@@ -247,7 +251,10 @@ def test_with_subtitles_switched_off_none_are_embedded(
 def test_progress_tells_the_stage_percent_speed_and_time_left(
     tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
 ) -> None:
-    """R-QU-04: video, then audio, then processing, with how far each is."""
+    """R-QU-04: video, then audio, then processing, with how far each is.
+
+    The step that adds the tags runs before the bytes arrive: it is not processing.
+    """
     told: list[DownloadProgress] = []
 
     gateway(replay, ytdlp).download(request(tmp_path), told.append, never)
