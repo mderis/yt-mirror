@@ -1,0 +1,55 @@
+{
+ "_type": "video",
+ "duration": 19,
+ "timestamp": 1114313512,
+ "release_timestamp": null,
+ "upload_date": "20050424",
+ "live_status": "not_live",
+ "availability": "public",
+ "id": "recvideo001",
+ "title": "A recorded video",
+ "description": "The description of a recorded video.",
+ "channel": "Recorded Channel",
+ "channel_id": "UCrecordedchannel0000001",
+ "subtitles": {
+  "de": [
+   {
+    "ext": "vtt"
+   }
+  ],
+  "en": [
+   {
+    "ext": "vtt"
+   }
+  ]
+ },
+ "automatic_captions": {
+  "de": [
+   {
+    "ext": "vtt"
+   }
+  ],
+  "en": [
+   {
+    "ext": "vtt"
+   }
+  ]
+ },
+ "chapters": [
+  {
+   "start_time": 0,
+   "end_time": 5,
+   "title": "Chapter 1"
+  },
+  {
+   "start_time": 5,
+   "end_time": 17,
+   "title": "Chapter 2"
+  },
+  {
+   "start_time": 17,
+   "end_time": 19,
+   "title": "Chapter 3"
+  }
+ ]
+}

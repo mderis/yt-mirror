@@ -32,6 +32,7 @@ from ytmirror.core.channels import (
     YouTubePauseChanged,
 )
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import DownloadProgress, DownloadRequest, DownloadResult
 from ytmirror.core.models import AppEvent
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
@@ -43,6 +44,11 @@ from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.youtube_access import YouTubeAccess
 
 LISTED_AT = "2026-11-14T06:42:00Z"
+type Download = Callable[
+    [DownloadRequest, Callable[[DownloadProgress], None], Callable[[], bool]], DownloadResult
+]
+"""Downloads a video like the gateway: the request, where progress goes, and whether to stop."""
+
 SMALL_ID = "UCsmallsmallsmallsmall01"
 BIG_ID = "UCbigbigbigbigbigbigbi02"
 
@@ -95,7 +101,7 @@ class RefusingGateway:
     """Passes everything on to the fake YouTube, and can refuse like the real one.
 
     Attributes:
-        refuse: Kinds of request ("lookup", "listing", "count", "image") with the
+        refuse: Kinds of request ("lookup", "listing", "count", "image", "download") with the
             error code to answer them with.
         asked: Every request that reached the gateway, by kind.
     """
@@ -106,6 +112,8 @@ class RefusingGateway:
         self.refuse: dict[str, ErrorCode] = {}
         self.asked: list[str] = []
         self.refuse_listing_after: int | None = None
+        self.download_with: Download | None = None
+        """A stand-in for the downloads, when a test needs no real video file."""
 
     def _maybe_refuse(self, kind: str) -> None:
         self.asked.append(kind)
@@ -143,6 +151,18 @@ class RefusingGateway:
         """Fetch a picture, unless pictures are refused."""
         self._maybe_refuse("image")
         return self._youtube.fetch_image(url)
+
+    def download(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+    ) -> DownloadResult:
+        """Download, unless downloads are refused, with the stand-in when there is one."""
+        self._maybe_refuse("download")
+        if self.download_with is not None:
+            return self.download_with(request, on_progress, is_cancelled)
+        return self._youtube.download(request, on_progress, is_cancelled)
 
 
 class World:

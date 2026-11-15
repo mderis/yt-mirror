@@ -15,9 +15,13 @@ backend/tests/integration/test_youtube_gateway_contract.py. The one call
 that reaches the network is tested by backend/tests/live/test_youtube_live.py.
 """
 
+import datetime
 import importlib
+import json
 import logging
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -30,7 +34,19 @@ from ytmirror.core.channels import (
     ChannelReference,
     ListedVideo,
 )
+from ytmirror.core.dates import published_time
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import (
+    Chapter,
+    DownloadCancelledError,
+    DownloadProgress,
+    DownloadRequest,
+    DownloadResult,
+    Stage,
+    SubtitleKind,
+    SubtitlesFailedError,
+)
+from ytmirror.core.quality import format_selector
 from ytmirror.ports.clock import Clock
 
 type Extract = Callable[[str, Mapping[str, Any], bool], Mapping[str, Any]]
@@ -40,6 +56,10 @@ off, the entries of a listing are fetched page by page while they are read."""
 
 type HttpGet = Callable[[str], bytes]
 """Fetches the bytes behind an address, or raises ``AppError``."""
+
+type Download = Callable[[str, Mapping[str, Any], Mapping[str, str]], Mapping[str, Any]]
+"""Downloads a video with yt-dlp: the address, the options, and tags to add to the
+file. Returns the processed answer of yt-dlp, ready to be written as JSON."""
 
 VIDEOS_TAB = "/videos"
 UPLOADS_OF_LONG_VIDEOS = "https://www.youtube.com/playlist?list=UULF"
@@ -78,6 +98,43 @@ COUNT_OPTIONS: Mapping[str, Any] = {
     "playlist_items": "0",
 }
 _NO_VIDEOS_TAB = "does not have a videos tab"
+METADATA_OPTIONS: Mapping[str, Any] = {
+    **_COMMON_OPTIONS,
+    "extract_flat": False,
+    "socket_timeout": 20,
+    "extractor_retries": 2,
+}
+"""The full metadata of one video, read before its download (ARCHITECTURE section 7.3)."""
+
+DOWNLOAD_OPTIONS: Mapping[str, Any] = {
+    "quiet": True,
+    "noprogress": True,
+    "cachedir": False,
+    "socket_timeout": 20,
+    "retries": 3,
+    "fragment_retries": 3,
+    "extractor_retries": 2,
+    "merge_output_format": "mkv",
+    "writethumbnail": True,
+    "overwrites": True,
+    "postprocessors": [
+        {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"},
+        {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
+        {
+            "key": "FFmpegMetadata",
+            "add_chapters": True,
+            "add_metadata": True,
+            "add_infojson": True,
+        },
+        {"key": "EmbedThumbnail", "already_have_thumbnail": True},
+    ],
+}
+"""The download of one video, verified in milestone M3 (Q-04, ARCHITECTURE section 7.3).
+The thumbnail is kept as JPEG next to the file, for the hidden folder (R-MD-05)."""
+
+_SUBTITLE_STEP = "EmbedSubtitle"
+_SUBTITLE_FAILURE = "unable to download video subtitles"
+
 _NOT_REGULAR = frozenset({"is_live", "was_live"})
 _IMAGE_HOSTS = ("ytimg.com", "ggpht.com", "googleusercontent.com")
 _IMAGE_TIMEOUT_S = 15.0
@@ -121,7 +178,40 @@ _CODES: tuple[tuple[ErrorCode, tuple[str, ...]], ...] = (
 )
 
 
-def code_of(error_text: str) -> ErrorCode:
+# Errors about one video, looked for before the others when a video is downloaded.
+_VIDEO_CODES: tuple[tuple[ErrorCode, tuple[str, ...]], ...] = (
+    (ErrorCode.BOT_CHECK, ("confirm you\u2019re not a bot", "confirm you're not a bot")),
+    (ErrorCode.MEMBERS_ONLY, ("members-only", "members only", "join this channel")),
+    (ErrorCode.AGE_RESTRICTED, ("confirm your age", "age-restricted", "age restricted")),
+    (ErrorCode.VIDEO_PRIVATE, ("private video", "video is private")),
+    (
+        ErrorCode.GEO_BLOCKED,
+        ("available in your country", "blocked it in your country", "geo restrict"),
+    ),
+    (
+        ErrorCode.NOT_YET_AVAILABLE,
+        ("premieres in", "premiere will begin", "live event will begin", "is upcoming"),
+    ),
+    (
+        ErrorCode.VIDEO_REMOVED,
+        (
+            "video unavailable",
+            "has been removed",
+            "no longer available",
+            "account associated with this video has been terminated",
+            "http error 404",
+        ),
+    ),
+    (
+        ErrorCode.NO_FORMATS,
+        ("requested format is not available", "no video formats found"),
+    ),
+    (ErrorCode.DISK_FULL, ("no space left on device",)),
+    (ErrorCode.FFMPEG_FAILED, ("postprocessing:", "ffmpeg", "conversion failed")),
+)
+
+
+def code_of(error_text: str, *, video: bool = False) -> ErrorCode:
     """Return the error code for an error text of yt-dlp.
 
     A text that is not known becomes ``YOUTUBE_CHANGED``: most likely YouTube
@@ -129,9 +219,11 @@ def code_of(error_text: str) -> ErrorCode:
 
     Args:
         error_text: The text of the error.
+        video: Whether the error is about one video: then the errors of a
+            video come first, and "not found" means the video is gone.
     """
     text = error_text.lower()
-    for code, signs in _CODES:
+    for code, signs in (*_VIDEO_CODES, *_CODES) if video else _CODES:
         if any(sign in text for sign in signs):
             return code
     return ErrorCode.YOUTUBE_CHANGED
@@ -141,18 +233,138 @@ class YtDlpGateway:
     """Asks the real YouTube through yt-dlp."""
 
     def __init__(
-        self, clock: Clock, *, extract: Extract | None = None, http_get: HttpGet | None = None
+        self,
+        clock: Clock,
+        *,
+        tools: GatewayTools | None = None,
+        extract: Extract | None = None,
+        http_get: HttpGet | None = None,
+        download: Download | None = None,
     ) -> None:
         """Create the gateway.
 
         Args:
             clock: Says when a listed video was read.
+            tools: Where ffmpeg and Deno are, given to yt-dlp (ARCHITECTURE section 7.3).
             extract: A stand-in for yt-dlp. For tests.
             http_get: A stand-in for the HTTP client. For tests.
+            download: A stand-in for a download with yt-dlp. For tests.
         """
         self._clock = clock
+        self._tools = tools
         self._extract = extract if extract is not None else extract_with_ytdlp
         self._http_get = http_get if http_get is not None else _get_with_httpx
+        self._download = download if download is not None else download_with_ytdlp
+
+    def download(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+    ) -> DownloadResult:
+        """Download one video into the temp folder of its job (ARCHITECTURE section 7.3).
+
+        The full metadata is read first, to choose the subtitles (R-MD-03).
+        Then yt-dlp downloads the streams, merges them into MKV and embeds the
+        subtitles, the metadata with chapters, the info JSON and the cover.
+
+        Args:
+            request: What to download, and where to.
+            on_progress: Told how far the download is.
+            is_cancelled: Asked while the download runs. When it says yes, the
+                download ends with ``DownloadCancelledError`` at the next step.
+
+        Raises:
+            AppError: With the code of what went wrong.
+            DownloadCancelledError: When it was cancelled.
+            SubtitlesFailedError: When only the subtitles failed (R-MD-04).
+        """
+        address = f"https://www.youtube.com/watch?v={request.video_id}"
+        info = self._ask_about_video(address, {**METADATA_OPTIONS, **self._runtime()})
+        if info.get("live_status") == "is_upcoming":
+            raise AppError(
+                ErrorCode.NOT_YET_AVAILABLE,
+                {"message": "The video is not public yet", "video": request.video_id},
+            )
+        subtitles, languages = _subtitles_for(info, request)
+        steps = _Steps(on_progress, is_cancelled)
+        options: dict[str, Any] = {
+            **DOWNLOAD_OPTIONS,
+            **self._runtime(),
+            "format": format_selector(request.quality),
+            "outtmpl": {"default": str(request.work_folder / "%(id)s.%(ext)s")},
+            "writesubtitles": subtitles is SubtitleKind.MANUAL,
+            "writeautomaticsub": subtitles is SubtitleKind.AUTO,
+            "subtitleslangs": languages,
+            "progress_hooks": [steps.downloading],
+            "postprocessor_hooks": [steps.processing],
+            "logger": _JobLog(request.log_file),
+        }
+        if subtitles is None:
+            options["postprocessors"] = [
+                step
+                for step in DOWNLOAD_OPTIONS["postprocessors"]
+                if step["key"] != "FFmpegEmbedSubtitle"
+            ]
+        published = published_time(_int(info.get("release_timestamp")), _int(info.get("timestamp")))
+        tags = {"video_id": request.video_id}
+        if published is not None:
+            tags["published_at"] = _iso(published)
+        try:
+            answer = self._download(address, options, tags)
+        except DownloadCancelledError, AppError:
+            raise
+        except Exception as error:
+            text = f"{type(error).__name__}: {error}"
+            if steps.current == _SUBTITLE_STEP or _SUBTITLE_FAILURE in text.lower():
+                raise SubtitlesFailedError(text) from error
+            raise AppError(code_of(text, video=True), {"message": str(error)}) from error
+        file = request.work_folder / f"{request.video_id}.mkv"
+        if not file.is_file():
+            raise AppError(
+                ErrorCode.FFMPEG_FAILED,
+                {"message": "yt-dlp ended without an MKV file", "video": request.video_id},
+            )
+        thumbnail = request.work_folder / f"{request.video_id}.jpg"
+        return DownloadResult(
+            file=file,
+            thumbnail=thumbnail if thumbnail.is_file() else None,
+            info_json=json.dumps(answer, ensure_ascii=False, default=str),
+            title=str(answer.get("title") or info.get("title") or ""),
+            description=str(answer.get("description") or info.get("description") or ""),
+            duration_s=_int(answer.get("duration") or info.get("duration")),
+            release_time=_int(info.get("release_timestamp")),
+            upload_time=_int(info.get("timestamp")),
+            subtitles=subtitles,
+            chapters=tuple(
+                Chapter(
+                    start_s=float(chapter.get("start_time") or 0),
+                    title=str(chapter.get("title") or ""),
+                )
+                for chapter in info.get("chapters") or ()
+            ),
+        )
+
+    def _runtime(self) -> dict[str, Any]:
+        """Return the options that point yt-dlp at the tools of the app folder."""
+        if self._tools is None:
+            return {}
+        return {
+            "ffmpeg_location": str(self._tools.ffmpeg_folder),
+            "js_runtimes": {"deno": {"path": str(self._tools.deno)}},
+        }
+
+    def _ask_about_video(self, address: str, options: Mapping[str, Any]) -> Mapping[str, Any]:
+        try:
+            return self._extract(address, options, True)
+        except AppError as error:
+            raise AppError(
+                code_of(error.details.get("message", ""), video=True), error.details
+            ) from error
+        except Exception as error:
+            raise AppError(
+                code_of(f"{type(error).__name__}: {error}", video=True), {"message": str(error)}
+            ) from error
 
     def lookup_channel(self, reference: ChannelReference) -> ChannelFacts:
         """Return what YouTube says about a channel, without reading its videos (R-CH-03).
@@ -311,6 +523,118 @@ def _thumbnail_of(pictures: Any) -> str | None:
     return str(min(usable, key=lambda picture: picture.get("width") or 0)["url"])
 
 
+@dataclass(frozen=True, slots=True)
+class GatewayTools:
+    """Where yt-dlp finds the programs it needs, inside the app folder (R-PL-15).
+
+    Attributes:
+        ffmpeg_folder: The folder with ffmpeg and ffprobe.
+        deno: The Deno program.
+    """
+
+    ffmpeg_folder: Path
+    deno: Path
+
+
+class _Steps:
+    """Turns the hooks of yt-dlp into progress, and ends the download when it is cancelled."""
+
+    def __init__(
+        self, on_progress: Callable[[DownloadProgress], None], is_cancelled: Callable[[], bool]
+    ) -> None:
+        self._on_progress = on_progress
+        self._is_cancelled = is_cancelled
+        self.current: str | None = None
+
+    def downloading(self, report: Mapping[str, Any]) -> None:
+        """The progress hook: called while the bytes of a stream arrive."""
+        if self._is_cancelled():
+            raise DownloadCancelledError("cancelled while downloading")
+        if report.get("status") != "downloading":
+            return
+        stream = _mapping(report.get("info_dict"))
+        has_video = stream.get("vcodec") not in (None, "none")
+        done = report.get("downloaded_bytes")
+        total = report.get("total_bytes") or report.get("total_bytes_estimate")
+        self._on_progress(
+            DownloadProgress(
+                stage=Stage.VIDEO if has_video else Stage.AUDIO,
+                fraction=min(1.0, done / total) if done is not None and total else None,
+                speed_bps=report.get("speed"),
+                left_s=_int(report.get("eta")),
+                height=_int(stream.get("height")) if has_video else None,
+            )
+        )
+
+    def processing(self, report: Mapping[str, Any]) -> None:
+        """The post-processor hook: called before and after each processing step."""
+        if report.get("status") == "started":
+            self.current = str(report.get("postprocessor"))
+        if self._is_cancelled():
+            raise DownloadCancelledError(f"cancelled at {self.current}")
+        if report.get("status") == "started":
+            self._on_progress(DownloadProgress(stage=Stage.PROCESSING))
+
+
+def _subtitles_for(
+    info: Mapping[str, Any], request: DownloadRequest
+) -> tuple[SubtitleKind | None, list[str]]:
+    """Choose the English subtitles to embed: the creator's, else the automatic ones (R-MD-03)."""
+    manual = sorted(_english(info.get("subtitles")))
+    if request.manual_subtitles and manual:
+        return SubtitleKind.MANUAL, ["en"] if "en" in manual else manual[:1]
+    automatic = sorted(_english(info.get("automatic_captions")))
+    if request.manual_subtitles and request.auto_subtitles and automatic:
+        return SubtitleKind.AUTO, ["en"] if "en" in automatic else automatic[:1]
+    return None, []
+
+
+def _english(tracks: object) -> list[str]:
+    if not isinstance(tracks, dict):
+        return []
+    return [
+        str(language)
+        for language in cast(dict[str, Any], tracks)
+        if str(language) == "en" or str(language).startswith("en-")
+    ]
+
+
+def _mapping(value: object) -> dict[str, Any]:
+    return cast(dict[str, Any], value) if isinstance(value, dict) else {}
+
+
+def _int(value: object) -> int | None:
+    return int(value) if isinstance(value, int | float) else None
+
+
+def _iso(moment: int) -> str:
+    return datetime.datetime.fromtimestamp(moment, datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class _JobLog:
+    """Writes all that yt-dlp and ffmpeg say in one download into the log of its job (R-LG-02)."""
+
+    def __init__(self, file: Path) -> None:
+        self._file = file
+        file.parent.mkdir(parents=True, exist_ok=True)
+
+    def _write(self, level: str, message: str) -> None:
+        with self._file.open("a", encoding="utf-8") as log:
+            log.write(f"{level} {message}\n")
+
+    def debug(self, message: str) -> None:
+        self._write("debug", message)
+
+    def info(self, message: str) -> None:
+        self._write("info", message)
+
+    def warning(self, message: str) -> None:
+        self._write("warning", message)
+
+    def error(self, message: str) -> None:
+        self._write("error", message)
+
+
 class _YtDlpLog:
     """Passes what yt-dlp says on to the debug log, as lines of a library."""
 
@@ -372,3 +696,29 @@ def checked_image(url: str, status: int, content: bytes) -> bytes:
     if status >= 400 or len(content) > _MAX_IMAGE_BYTES or not content:
         raise AppError(ErrorCode.YOUTUBE_CHANGED, {"url": url, "status": str(status)})
     return content
+
+
+def download_with_ytdlp(
+    address: str, options: Mapping[str, Any], tags: Mapping[str, str]
+) -> Mapping[str, Any]:  # pragma: no cover  (the network. Tested live)
+    """Download with the real yt-dlp, adding tags of our own to the file.
+
+    A post-processor that runs before the download sets ``meta_<name>``
+    fields, which the metadata step of yt-dlp writes as tags (R-MD-01, R-DT-08).
+    """
+    yt_dlp = importlib.import_module("yt_dlp")
+    base: Any = importlib.import_module("yt_dlp.postprocessor.common").PostProcessor
+
+    class _AddTags(base):  # type: ignore[misc, valid-type]
+        def run(self, information: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+            for name, value in tags.items():
+                information[f"meta_{name}"] = value
+            return [], information
+
+    with yt_dlp.YoutubeDL(dict(options)) as ydl:
+        ydl.add_post_processor(_AddTags(), when="pre_process")
+        answer = ydl.extract_info(address, download=True)
+        clean = ydl.sanitize_info(answer)
+    if not isinstance(clean, dict):
+        raise AppError(ErrorCode.YOUTUBE_CHANGED, {"message": "yt-dlp gave no answer"})
+    return cast(dict[str, Any], clean)

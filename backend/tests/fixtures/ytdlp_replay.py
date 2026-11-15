@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 RECORDINGS_FILE = Path(__file__).resolve().parent / "ytdlp" / "recordings.json"
+VIDEO_FILE = Path(__file__).resolve().parent / "ytdlp" / "video.json"
+VIDEO_ID = "recvideo001"
 CHANNEL_ID = "UCrecordedchannel0000001"
 HANDLE = "@recordedchannel"
 EMPTY_CHANNEL_ID = "UCrecordednovideos000002"
@@ -38,9 +40,20 @@ class Replay:
         fail_after: Raise this error text after so many entries of a listing, or None.
     """
 
-    def __init__(self, recorded: Mapping[str, Any] | None = None) -> None:
-        """Play back the given recordings, or the stored ones."""
+    def __init__(
+        self, recorded: Mapping[str, Any] | None = None, video: Mapping[str, Any] | None = None
+    ) -> None:
+        """Play back the given recordings, or the stored ones.
+
+        Args:
+            recorded: The recordings of channels. Default: the stored ones.
+            video: The full metadata of the recorded video. Default: the stored one.
+        """
         self.recorded = dict(recorded) if recorded is not None else recordings()
+        self.video = (
+            dict(video) if video is not None else json.loads(VIDEO_FILE.read_text(encoding="utf-8"))
+        )
+        self.video_error: str | None = None
         self.asked: list[tuple[str, Mapping[str, Any], bool]] = []
         self.entries_read = 0
         self.fail_after: tuple[int, str] | None = None
@@ -50,6 +63,10 @@ class Replay:
     ) -> Mapping[str, Any]:
         """Return the recorded answer for an address, or raise the recorded error."""
         self.asked.append((address, options, process))
+        if "watch?v=" in address:
+            if self.video_error is not None:
+                raise DownloadError(self.video_error)
+            return copy.deepcopy(self.video)
         recording = self.recorded[self._name_of(address, options)]
         if "error" in recording:
             kind, _, text = str(recording["error"]).partition(": ")
