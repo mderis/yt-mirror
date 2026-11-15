@@ -230,6 +230,7 @@ def build_container(
         job_logs=paths.logs_dir / JOB_LOG_FOLDER,
         run_in_background=_in_a_thread,
         stop_tools=lambda: _stop_tools(used_children, used_tool_box),
+        stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
     )
     channels = ChannelsService(
         repository,
@@ -280,16 +281,23 @@ TOOL_STOP_WAIT_S = 1.0
 """How long a tool the app started may take to end at quit before it is killed."""
 
 
-def _stop_tools(children: ChildProcesses, tools: ToolBox) -> None:
-    """Stop the ffmpeg, ffprobe and Deno the app started, when it quits (R-PL-13)."""
-    children.stop(
-        [
-            tools.program_path(ToolName.FFMPEG, "ffmpeg"),
-            tools.program_path(ToolName.FFMPEG, "ffprobe"),
-            tools.program_path(ToolName.DENO, "deno"),
-        ],
-        wait_s=TOOL_STOP_WAIT_S,
-    )
+def _stop_tools(children: ChildProcesses, tools: ToolBox, job: Path | None = None) -> None:
+    """Stop the tools the app started: all of them at quit (R-PL-13), or one job's ffmpeg.
+
+    Args:
+        children: The child processes of the app.
+        tools: Where the tools are.
+        job: The temp folder of a cancelled job, or None at quit. Only an ffmpeg
+            or ffprobe that names it is stopped; a check's Deno is never touched.
+    """
+    ffmpeg = [
+        tools.program_path(ToolName.FFMPEG, "ffmpeg"),
+        tools.program_path(ToolName.FFMPEG, "ffprobe"),
+    ]
+    if job is None:
+        children.stop([*ffmpeg, tools.program_path(ToolName.DENO, "deno")], wait_s=TOOL_STOP_WAIT_S)
+    else:
+        children.stop(ffmpeg, wait_s=TOOL_STOP_WAIT_S, mentioning=job)
 
 
 def _file_system(paths: AppPaths) -> FileSystem:

@@ -569,7 +569,9 @@ class ChannelsService:
 
         Raises:
             AppError: ``NOT_FOUND`` for an unknown channel, ``INVALID_REQUEST``
-                while the channel is being removed already.
+                while the channel is being removed already, ``CHANNEL_BUSY`` when
+                a check or a download of the channel did not stop in time: then
+                nothing was removed.
         """
         channel = self._known(channel_id)
         folder = self._views.folder_of(channel)
@@ -580,7 +582,12 @@ class ChannelsService:
                 )
             self._removing.add(channel_id)
         try:
-            self._catalogue.forget(channel_id, wait_s=STOP_WAIT_S)
+            if not self._catalogue.forget(channel_id, wait_s=STOP_WAIT_S):
+                # Nothing is touched while a check may still write (R-CH-32).
+                raise AppError(
+                    ErrorCode.CHANNEL_BUSY,
+                    {"channel": channel_id, "reason": "a check did not stop in time"},
+                )
             with self._close_downloads(channel_id):
                 left = self._forget_in_channel_file(channel_id, folder)
                 trashed = 0

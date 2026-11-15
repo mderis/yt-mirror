@@ -989,3 +989,21 @@ def test_quitting_while_ffmpeg_runs_cancels_and_never_fails_or_retries(
     assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
     assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
     assert len(world.download.calls) == 1
+
+
+# --- Cancel stops the ffmpeg of its job (second review of M3, M3)
+
+
+def test_cancel_stops_the_ffmpeg_of_its_own_job(world: World) -> None:
+    """R-QU-02, R-CH-32: a step that copies a large file is not left writing after a cancel."""
+    [job] = world.downloader.mirror([FIRST])
+    held, go = held_at_audio(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.downloader.cancel(job.id)
+    go.set()
+    worker.join(10)
+
+    work = folder_of(world) / ".yt-mirror" / "tmp" / job.id
+    assert world.stopped_job_tools == [work]

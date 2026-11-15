@@ -113,6 +113,23 @@ describe('the remove channel dialog', () => {
     expect(app.requests()).not.toContain(REMOVE)
   })
 
+  it('R-CH-32: a removal refused because a download is still finishing says so and keeps the channel', async () => {
+    const { dialog } = await askToRemove({
+      channels: [channel()],
+      answers: { [REMOVE_AND_TRASH]: jsonResponse(errorBody('CHANNEL_BUSY'), 409) },
+    })
+
+    await fireEvent.click(within(dialog).getByRole('radio', { name: /Delete the files/ }))
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove channel' }))
+
+    const alert = await within(dialog).findByRole('alert')
+    expect(alert.textContent).toContain(
+      'The channel was not removed: a download or a check of it is still finishing.',
+    )
+    expect(alert.textContent).toContain('Try again in a minute.')
+    expect(screen.getByRole('heading', { level: 1, name: 'Sample Channel' })).toBeTruthy()
+  })
+
   it('R-ER-02: a removal that fails says why, and the channel and the dialog stay', async () => {
     const { dialog } = await askToRemove({
       channels: [channel()],

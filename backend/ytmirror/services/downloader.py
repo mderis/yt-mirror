@@ -127,6 +127,7 @@ class DownloaderService:
         run_in_background: Callable[[Callable[[], None]], None],
         workers: int = 1,
         stop_tools: Callable[[], None] = lambda: None,
+        stop_job_tools: Callable[[Path], None] = lambda _folder: None,
     ) -> None:
         """Create the downloader. Nothing runs before ``start``.
 
@@ -147,6 +148,8 @@ class DownloaderService:
             workers: How many downloads run at once. One in milestone M3.
             stop_tools: Stops the ffmpeg and the other tools the app started,
                 when the app quits (R-PL-13).
+            stop_job_tools: Stops the ffmpeg of one job, by its temp folder,
+                when that job is cancelled (R-QU-02).
         """
         self._repository = repository
         self._jobs = jobs
@@ -162,6 +165,8 @@ class DownloaderService:
         self._job_logs = job_logs
         self._run_in_background = run_in_background
         self._stop_tools = stop_tools
+        self._stop_job_tools = stop_job_tools
+        self._work_of: dict[str, Path] = {}
         self._workers = workers
         self._wake = threading.Condition()
         self._running: dict[str, str] = {}
@@ -274,6 +279,7 @@ class DownloaderService:
             with self._wake:
                 self._running.pop(job.id, None)
                 self._videos.pop(job.id, None)
+                self._work_of.pop(job.id, None)
                 self._last_told.pop(job.id, None)
                 self._cancelled.discard(job.id)
                 self._wake.notify_all()
@@ -338,13 +344,22 @@ class DownloaderService:
         Returns:
             Whether there was such a job.
         """
+        work: Path | None = None
         with self._wake:
             job = self._jobs.job(job_id)
             if job is None or job.state not in ACTIVE_STATES:
                 return False
-            if job.id in self._running:
+            running = job.id in self._running
+            if running:
                 self._cancelled.add(job.id)
-                return True
+                work = self._work_of.get(job.id)
+        if running:
+            # Its ffmpeg may copy a large file for a long time: it is stopped, so the job
+            # ends at once and writes nothing more (R-QU-02, R-CH-32).
+            if work is not None:
+                self._stop_job_tools(work)
+            return True
+        with self._wake:
             video = self._repository.video(job.video_id)
             self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled")
         _log.info(
@@ -355,19 +370,22 @@ class DownloaderService:
         )
         return True
 
-    def cancel_channel(self, channel_id: str, wait_s: float = 30.0) -> None:
+    def cancel_channel(self, channel_id: str, wait_s: float = 30.0) -> bool:
         """Cancel every download of a channel, and wait until none of them runs (R-CH-32).
 
         Args:
             channel_id: The channel.
             wait_s: How long to wait for a running download to end.
+
+        Returns:
+            Whether no download of the channel runs any more.
         """
         for job in self._jobs.jobs(ACTIVE_STATES):
             video = self._repository.video(job.video_id)
             if video is not None and video.channel_id == channel_id:
                 self.cancel(job.id)
         with self._wake:
-            self._wake.wait_for(
+            return self._wake.wait_for(
                 lambda: (
                     channel_id not in self._running.values()
                     and self._writing_side_files_of != channel_id
@@ -386,11 +404,19 @@ class DownloaderService:
         Args:
             channel_id: The channel.
             wait_s: How long to wait for a running download to end.
+
+        Raises:
+            AppError: ``CHANNEL_BUSY`` when a download did not end in time.
         """
         with self._wake:
             self._closed.add(channel_id)
         try:
-            self.cancel_channel(channel_id, wait_s)
+            if not self.cancel_channel(channel_id, wait_s):
+                # Never remove while a tool may still write in the folder.
+                raise AppError(
+                    ErrorCode.CHANNEL_BUSY,
+                    {"channel": channel_id, "reason": "a download did not stop in time"},
+                )
             yield
         finally:
             with self._wake:
@@ -473,6 +499,8 @@ class DownloaderService:
             return
         log = log.bind(channel_id=channel.id)
         place = self._place_of(channel, job)
+        with self._wake:
+            self._work_of[job.id] = place.work
         started = self._clock.monotonic()
         log.info("download.started", msg="Download started", quality=job.quality.value)
         running = replace(job, state=JobState.RUNNING, stage=Stage.VIDEO, started_at=self._now())

@@ -8,6 +8,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines, own_file
+from tests.unit.services.test_downloader import held_at_audio
 from ytmirror.core.channel_file import channel_entries
 from ytmirror.core.channels import ChannelStatus, CheckKind, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
@@ -962,3 +963,59 @@ def test_delete_the_files_keeps_a_file_whose_inside_is_another_video(tmp_path: P
     assert world.files.exists(shared / "Q and A.mkv")
     assert shared / "Q and A.mkv" not in world.files.trashed
     assert log_lines(logs, "file.kept")[0]["video_id"] == "sm000000001"
+
+
+# --- second review of M3, M3: a removal never goes on while something may write
+
+
+def test_a_removal_whose_download_does_not_stop_changes_nothing(tmp_path: Path) -> None:
+    """R-CH-32: when a download has not ended after the wait, nothing is removed or trashed."""
+    world = World(tmp_path)
+    world.add_and_list()
+    world.close_wait_s = 0.3
+    world.downloader.mirror(["sm000000005"])
+    held, go = held_at_audio(world)
+    worker = threading.Thread(target=world.downloader.work_once, daemon=True)
+    worker.start()
+    assert held.wait(10)
+    folder = world.library / "Small Channel"
+    channel_file_before = world.files.read_bytes(folder / ".yt-mirror" / "channel.json")
+
+    with pytest.raises(AppError) as busy:
+        world.channels.remove(SMALL_ID, keep_files=False)
+    go.set()
+    worker.join(10)
+
+    assert busy.value.code is ErrorCode.CHANNEL_BUSY
+    assert [channel.id for channel in world.repository.channels()] == [SMALL_ID]
+    assert world.files.trashed == []
+    assert world.files.read_bytes(folder / ".yt-mirror" / "channel.json") == channel_file_before
+
+
+def test_a_removal_whose_check_does_not_stop_changes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-CH-32: when a check of the channel still runs after the wait, nothing is removed."""
+    monkeypatch.setattr("ytmirror.services.channels.STOP_WAIT_S", 0.3)
+    world = World(tmp_path, BIG)
+    channel_id = world.add("@big")
+    world.run_background()
+    held, go = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        held.set()
+        go.wait(10)
+
+    world.at_progress(30, hold)
+    checking = threading.Thread(target=world.catalogue.work_once, daemon=True)
+    checking.start()
+    assert held.wait(10)
+
+    with pytest.raises(AppError) as busy:
+        world.channels.remove(channel_id, keep_files=False)
+    go.set()
+    checking.join(10)
+
+    assert busy.value.code is ErrorCode.CHANNEL_BUSY
+    assert [channel.id for channel in world.repository.channels()] == [channel_id]
+    assert world.files.trashed == []

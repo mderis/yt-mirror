@@ -41,6 +41,7 @@ EXPECTED_STATUS = {
     ErrorCode.VERIFY_FAILED: 500,
     ErrorCode.DATES_NOT_APPLIED: 500,
     ErrorCode.DB_UPGRADE_FAILED: 500,
+    ErrorCode.CHANNEL_BUSY: 409,
     ErrorCode.INTERNAL: 500,
 }
 

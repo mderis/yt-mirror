@@ -16,6 +16,11 @@ export const en = {
    * Milestone M7 adds the texts of the remaining codes.
    */
   errors: {
+    channel_busy: {
+      happened: 'The channel was not removed: a download or a check of it is still finishing.',
+      doing: 'Its downloads were cancelled. Nothing else was changed.',
+      action: 'Try again in a minute.',
+    },
     local_server_unreachable: {
       happened: 'The window cannot reach yt-mirror.',
       doing: 'yt-mirror does not try again by itself here.',

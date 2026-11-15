@@ -16,7 +16,9 @@ from typing import Protocol
 class ChildProcesses(Protocol):
     """Stops programs that this app started."""
 
-    def stop(self, programs: Collection[Path], wait_s: float) -> list[int]:
+    def stop(
+        self, programs: Collection[Path], wait_s: float, *, mentioning: Path | None = None
+    ) -> list[int]:
         """Stop the child processes of this app that run one of these programs.
 
         Each is asked to end, and killed when it has not ended after ``wait_s``.
@@ -25,6 +27,8 @@ class ChildProcesses(Protocol):
         Args:
             programs: The programs, for example the ffmpeg of the app folder.
             wait_s: How long a process may take to end before it is killed.
+            mentioning: When given, only a child whose arguments name this
+                folder, for example the temp folder of one job, is stopped.
 
         Returns:
             The process IDs that were stopped.

@@ -293,6 +293,10 @@ class World:
         self.later: list[tuple[float, Callable[[], None]]] = []
         self.files = FakeFileSystem()
         self.media = FakeMediaTools(self.files)
+        self.close_wait_s = 30.0
+        """How long a removal waits for the downloads of its channel."""
+        self.stopped_job_tools: list[Path] = []
+        """The temp folders of the jobs whose ffmpeg a cancel stopped."""
         self.picker = FakeFolderPicker()
         self.cache = InMemoryImageCache()
         self.meta = InMemoryAppMetaRepository()
@@ -344,7 +348,9 @@ class World:
             self.thumbnails,
             self.clock,
             self.background.append,
-            close_downloads=lambda channel_id: self.downloader.channel_closed(channel_id),
+            close_downloads=lambda channel_id: self.downloader.channel_closed(
+                channel_id, self.close_wait_s
+            ),
             media=self.media,
         )
         self.state = StateService(
@@ -370,6 +376,7 @@ class World:
             job_logs=folder / "logs" / "jobs",
             run_in_background=self.background.append,
             stop_tools=lambda: self.stop_tools(),
+            stop_job_tools=self.stopped_job_tools.append,
         )
 
     def _after_check(self, channel_id: str, kind: CheckKind) -> None:

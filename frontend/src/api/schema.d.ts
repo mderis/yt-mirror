@@ -929,6 +929,7 @@ export interface components {
       | 'VERIFY_FAILED'
       | 'DATES_NOT_APPLIED'
       | 'DB_UPGRADE_FAILED'
+      | 'CHANNEL_BUSY'
       | 'INTERNAL'
     /**
      * ErrorResponse
