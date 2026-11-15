@@ -366,7 +366,7 @@ An element whose target a later milestone builds is not shown before that milest
 | Element | What the app does, and how it differs from the mockups |
 |---|---|
 | Rows (`Main.html`) | Every status chip of `States.html`. The actions of a row follow its status: Mirror, Cancel, Retry, or Play and Show in Finder. Selecting several rows, the bulk bar, the queue footer and "More actions" of a video arrive with M5 (D-066) |
-| Cancel while processing | Offered on a row that is processed, although `Main.html` shows no Cancel there: the maintainer asked for Cancel during the merge (D-080) |
+| Cancel while processing | Offered on a row that is processed, as on a queued or downloading one: Cancel works until the file is moved into the folder (D-080). `Main.html` and `ListLight.html` show it since M3 |
 | The title of a row | A button that opens the details panel. `Main.html` draws plain text; there is no other way to the panel before the keyboard shortcuts of M5 |
 | The details panel (`Details.html`) | The chapters are a list under the description; the mockup shows only "6 chapters". Copy link, Re-download, Repair metadata and Exclude forever are not shown before their milestones (D-066). A video that is not downloaded shows Mirror in the place of Play |
 | The remove dialog (`RemoveChannel.html`) | The group of choices has the visible legend "The files of the channel". The hint of "Delete the files" says how many files and how much room go to the Trash, and that the other files of the folder stay |
