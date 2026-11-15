@@ -556,8 +556,7 @@ for (const theme of ['light', 'dark'] as const) {
 
       await expect(page).toHaveScreenshot(`add-channel-2-${theme}.png`, {
         // The place of the library differs from machine to machine.
-        // The folder of a fresh app is a temp folder of its own: only its line is masked.
-        mask: [page.locator('[data-free-space]'), dialog(page).getByText(/^They stay in /)],
+        mask: [page.locator('[data-free-space]'), dialog(page).locator('[data-folder]')],
       })
       const second = await new AxeBuilder({ page }).analyze()
       expect(first.violations.map((violation) => violation.id)).toEqual([])
