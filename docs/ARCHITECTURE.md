@@ -350,17 +350,19 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 
 ### 7.3 yt-dlp configuration (in `ytdlp_gateway.py` only)
 
-- Format selector for height H: `bv*[height<=H]+ba/b[height<=H]/wv*+ba/w`. For "Best available": `bv*+ba/b`.
-- `merge_output_format: mkv`. No re-encoding post-processors.
-- Subtitles: request English creator subtitles. Request auto-generated English only if no creator subtitles exist (two-step: inspect metadata first, then set `writeautomaticsub`). A subtitle error triggers one retry of the job without subtitles (R-MD-04).
-- Post-processors, in this order: embed subtitles, metadata with chapters and attached info JSON, embed thumbnail.
-- `updatetime` is not used. yt-dlp no longer sets file times by default (since 2025.07.21), and yt-mirror sets dates itself in step 8 from `release_timestamp` or `timestamp`.
-- Template fields are never used for the final name. yt-dlp writes to a temp name (`<video id>.<ext>`), and yt-mirror renames. This keeps naming rules in one tested place.
-- A logger object forwards all yt-dlp output to the per-job log file.
-- Cancellation: progress hooks raise `DownloadCancelled` when the job is cancelled or the queue is paused.
-- JavaScript runtime: the path of the bundled Deno binary is passed explicitly.
+Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D-078):
 
-`VERIFY` each option name against the pinned yt-dlp version when implementing (Q-04).
+- Format selector for height H (`format`): `bv*[height<=H]+ba/b[height<=H]/wv*+ba/w`. For "Best available": `bv*+ba/b` (`core/quality.py`).
+- `merge_output_format: mkv`. No re-encoding post-processors: the merger copies the streams (for example AV1 and Opus).
+- `outtmpl` writes `<video id>.<ext>` into the temp folder of the job. Template fields are never used for the final name: yt-mirror renames, so the naming rules stay in one tested place.
+- `ffmpeg_location` is the folder of the ffmpeg tool, and `js_runtimes` is `{"deno": {"path": <the Deno program of the app folder>}}`. Deno runs with `DENO_DIR` inside the app folder, because Deno otherwise keeps its cache in `~/Library/Caches/deno` (R-PL-15).
+- The JavaScript challenge solver is the Python package `yt-dlp-ejs`, locked in the version that yt-dlp pins. `remote_components` is never set, so no solver is fetched from GitHub or npm (D-078). Without the package, yt-dlp warns that solving the challenge failed and offers fewer formats.
+- Subtitles: `writesubtitles` with `subtitleslangs: ["en"]` when the metadata has creator subtitles in English, else `writeautomaticsub` when it has auto-generated English ones (two steps: the metadata is read first). A subtitle error triggers one retry of the job without subtitles (R-MD-04).
+- `writethumbnail: true`. Post-processors, in this order: `FFmpegEmbedSubtitle`, `FFmpegMetadata` with `add_chapters`, `add_metadata` and `add_infojson`, `EmbedThumbnail`. The thumbnail of YouTube is WebP: it is converted to JPEG for the hidden folder (R-MD-05). `FFmpegMetadata` writes the title, the channel as `ARTIST`, the description, the day (not the time) as `DATE`, and the address as `PURL` and `COMMENT`; the gateway adds the exact published time and the video ID as tags of their own (R-MD-01, R-DT-08).
+- `updatetime` is not used. yt-dlp no longer sets file times by default (since 2025.07.21), and yt-mirror sets dates itself in step 8 from `release_timestamp` or `timestamp`.
+- A logger object forwards all yt-dlp output to the per-job log file.
+- Cancellation: an exception raised in a `progress_hooks` function (while bytes arrive) or a `postprocessor_hooks` function (between post-processing steps; the step names in the hook are `Merger`, `EmbedSubtitle`, `Metadata`, `EmbedThumbnail`, `MoveFiles`) ends the download at once and reaches the caller unchanged. A running ffmpeg step is not interrupted: the next hook ends the job. Everything left behind is inside the temp folder of the job, which is then deleted (R-FI-03).
+- yt-dlp warns that no impersonation target is available (it would need `curl_cffi`). Downloads work without it, so it is not installed.
 
 **Listing and channel lookup (verified in milestone M2 against yt-dlp 2026.10.26, D-059, D-061).**
 

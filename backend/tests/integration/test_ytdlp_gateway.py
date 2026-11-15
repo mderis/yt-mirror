@@ -1,8 +1,10 @@
 """Tests of the real gateway on recorded answers of yt-dlp: what only it does."""
 
+import importlib.util
 import itertools
 from collections.abc import Callable
 from datetime import UTC, datetime
+from importlib import metadata
 from typing import Any
 
 import pytest
@@ -483,3 +485,16 @@ def test_a_fetched_picture_is_returned_as_it_came() -> None:
     assert (
         checked_image("https://i.ytimg.com/vi/abc/a.jpg", 200, b"\xff\xd8jpeg") == b"\xff\xd8jpeg"
     )
+
+
+def test_the_challenge_solver_is_the_version_this_yt_dlp_pins() -> None:
+    """infra: yt-dlp-ejs has the version yt-dlp pins (D-078), so no solver is ever fetched."""
+    requirements = metadata.requires("yt-dlp") or []
+    pinned = {
+        requirement.split(";")[0].strip()
+        for requirement in requirements
+        if requirement.startswith("yt-dlp-ejs") and "pin" in requirement
+    }
+
+    assert pinned == {f"yt-dlp-ejs=={metadata.version('yt-dlp-ejs')}"}
+    assert importlib.util.find_spec("yt_dlp_ejs") is not None

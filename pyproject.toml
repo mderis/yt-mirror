@@ -21,6 +21,7 @@ dependencies = [
     "uvicorn>=0.40",
     # The download engine (D-002). Locked here. Updating it on its own arrives in M9 (D-017).
     "yt-dlp>=2026.10.26",
+    "yt-dlp-ejs==0.8.0",
 ]
 
 [dependency-groups]
