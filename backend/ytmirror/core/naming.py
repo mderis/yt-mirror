@@ -70,7 +70,7 @@ def channel_folder_name(title: str, channel_id: str, taken: Collection[str]) -> 
     name = _shortened(safe_name(title), MAX_NAME_BYTES - len(suffix.encode()))
     if not name:
         return channel_id
-    if name.casefold() in {other.casefold() for other in taken}:
+    if same_name_key(name) in {same_name_key(other) for other in taken}:
         return name + suffix
     return name
 
@@ -107,11 +107,23 @@ def video_file_name(title: str, video_id: str, taken: Collection[str]) -> str:
     if not printable.strip(_HIDDEN_PREFIX + " "):
         title_part = video_id
     whole = title_part + VIDEO_EXTENSION
-    taken_names = {other.casefold() for other in taken}
-    if len(whole.encode()) <= MAX_NAME_BYTES and whole.casefold() not in taken_names:
+    taken_names = {same_name_key(other) for other in taken}
+    if len(whole.encode()) <= MAX_NAME_BYTES and same_name_key(whole) not in taken_names:
         return whole
     room = MAX_NAME_BYTES - len((suffix + VIDEO_EXTENSION).encode())
     return _shortened(title_part, room) + suffix + VIDEO_EXTENSION
+
+
+def same_name_key(name: str) -> str:
+    """Return the form in which macOS compares two names: NFC and without case (R-FN-05).
+
+    APFS treats the NFC and NFD forms of a name as the same file, and a
+    default volume ignores case. Two names with the same key are one file.
+
+    Args:
+        name: A file or folder name.
+    """
+    return unicodedata.normalize("NFC", name).casefold()
 
 
 def _shortened(name: str, most_bytes: int) -> str:

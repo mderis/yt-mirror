@@ -7,7 +7,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.fakes.media_tools import GOOD
-from tests.fixtures.world import SMALL_ID, World, log_lines
+from tests.fixtures.world import SMALL_ID, World, job_id, log_lines
 from ytmirror.core.channels import ChannelStatus, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import (
@@ -23,6 +23,10 @@ PUBLISHED = 1_793_379_761
 FIRST = "sm000000005"
 """The newest video of the small channel."""
 SECOND = "sm000000004"
+JOB1 = job_id(1)
+"""The first job a test puts in line."""
+CRASHED = job_id(98)
+"""A job that a crash left running."""
 
 
 @pytest.fixture
@@ -241,7 +245,7 @@ def test_subtitles_that_fail_never_fail_the_video(world: World) -> None:
     assert video.status is VideoStatus.SYNCED
     assert video.has_subtitles is None
     assert [request.manual_subtitles for request in world.download.calls] == [True, False]
-    assert log_lines(logs, "download.retry")[0]["job_id"] == "01JOB00001"
+    assert log_lines(logs, "download.retry")[0]["job_id"] == JOB1
 
 
 def test_the_subtitle_settings_are_passed_on(world: World) -> None:
@@ -268,8 +272,8 @@ def test_every_log_line_of_a_download_has_its_job_id(world: World) -> None:
         "download.finished",
         "dates.applied",
     }
-    assert {line["job_id"] for line in lines} == {"01JOB00001"}
-    assert world.download.calls[0].log_file.name == "01JOB00001.log"
+    assert {line["job_id"] for line in lines} == {JOB1}
+    assert world.download.calls[0].log_file.name == f"{JOB1}.log"
 
 
 def test_progress_is_told_and_the_channel_says_mirroring(world: World) -> None:
@@ -330,7 +334,7 @@ def test_only_a_failed_video_can_be_retried(world: World) -> None:
 
 def test_a_file_that_fails_verification_is_never_put_in_place(world: World) -> None:
     """R-QA-06: a file without audio fails verification and never looks finished."""
-    work = folder_of(world) / ".yt-mirror" / "tmp" / "01JOB00001" / f"{FIRST}.mkv"
+    work = folder_of(world) / ".yt-mirror" / "tmp" / JOB1 / f"{FIRST}.mkv"
     world.media.facts[work] = dataclasses.replace(GOOD, acodec=None)
     world.downloader.mirror([FIRST])
 
@@ -343,7 +347,7 @@ def test_a_file_that_fails_verification_is_never_put_in_place(world: World) -> N
 
 def test_a_file_whose_dates_cannot_be_set_never_reaches_the_folder(world: World) -> None:
     """R-DT-07, R-QA-06: the dates are set in the temp folder; a refusal fails the job there."""
-    work = folder_of(world) / ".yt-mirror" / "tmp" / "01JOB00001" / f"{FIRST}.mkv"
+    work = folder_of(world) / ".yt-mirror" / "tmp" / JOB1 / f"{FIRST}.mkv"
     world.files.refuse_dates.add(work)
     world.downloader.mirror([FIRST])
 
@@ -476,15 +480,15 @@ def test_a_start_cleans_up_what_a_crash_left(world: World) -> None:
     """R-QA-06: jobs a crash left running or waiting are cleaned up at the next start."""
     video = world.repository.video(FIRST)
     assert video is not None
-    job = Job("01JOBCRASH", FIRST, JobKind.DOWNLOAD, JobState.RUNNING, 1, Quality.BEST, world.now())
+    job = Job(CRASHED, FIRST, JobKind.DOWNLOAD, JobState.RUNNING, 1, Quality.BEST, world.now())
     world.jobs.record(job, dataclasses.replace(video, status=VideoStatus.DOWNLOADING))
-    work = folder_of(world) / ".yt-mirror" / "tmp" / "01JOBCRASH"
+    work = folder_of(world) / ".yt-mirror" / "tmp" / CRASHED
     world.files.add_files(work, [f"{FIRST}.f397.mp4.part"])
 
     world.downloader.start()
 
     assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
-    assert world.jobs.job("01JOBCRASH").state is JobState.CANCELLED  # pyright: ignore[reportOptionalMemberAccess]
+    assert world.jobs.job(CRASHED).state is JobState.CANCELLED  # pyright: ignore[reportOptionalMemberAccess]
     assert world.files.exists(work) is False
 
 
@@ -559,7 +563,7 @@ def test_a_crash_between_the_move_and_the_end_of_the_job_leaves_no_unknown_file(
 def test_two_jobs_for_one_video_do_not_stop_the_queue(world: World) -> None:
     """R-ER-03: a job that cannot run ends, and the jobs behind it still run."""
     first = world.downloader.mirror([FIRST])[0]
-    duplicate = dataclasses.replace(first, id="01JOBDUPLICATE", priority=first.priority + 1)
+    duplicate = dataclasses.replace(first, id=job_id(99), priority=first.priority + 1)
     world.jobs.record(duplicate)
     world.downloader.mirror([SECOND])
 

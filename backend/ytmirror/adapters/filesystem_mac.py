@@ -27,6 +27,7 @@ from typing import Any
 
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.ports.file_system import (
+    JOB_ID,
     JOB_LOG_FOLDER,
     JOB_LOG_NAME,
     TEMP_FOLDER_PARTS,
@@ -346,7 +347,11 @@ class MacFileSystem:
         Raises:
             ValueError: When the folder is not the temp folder of a job.
         """
-        if folder.parent.parts[-2:] != TEMP_FOLDER_PARTS or folder.is_symlink():
+        if (
+            not JOB_ID.fullmatch(folder.name)
+            or folder.parent.parts[-2:] != TEMP_FOLDER_PARTS
+            or folder.is_symlink()
+        ):
             raise ValueError(f"not the temp folder of a job: {folder}")
         shutil.rmtree(folder, ignore_errors=True)
 

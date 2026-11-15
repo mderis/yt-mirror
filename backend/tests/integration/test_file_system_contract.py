@@ -264,7 +264,7 @@ def test_a_file_goes_to_the_trash_and_not_away_for_good(subject: Subject, tmp_pa
 def test_only_the_temp_folder_of_a_job_is_ever_deleted(subject: Subject, tmp_path: Path) -> None:
     """R-FI-03: the temp folder of a job is deleted with what is in it, and nothing else ever is."""
     channel = tmp_path / "Sample Channel"
-    job_folder = channel / ".yt-mirror" / "tmp" / "01JOB"
+    job_folder = channel / ".yt-mirror" / "tmp" / "01JD0000000000000000000001"
     put_files(subject, job_folder, ["a1B2c3D4e5F.mkv.part"])
     put_files(subject, channel, ["Trailer.mkv"])
 
@@ -322,10 +322,10 @@ def test_the_temp_folder_of_a_job_is_not_followed_through_a_symlink(tmp_path: Pa
     (elsewhere / "precious.mkv").write_bytes(b"x")
     temp = tmp_path / "Sample Channel" / ".yt-mirror" / "tmp"
     temp.mkdir(parents=True)
-    (temp / "01JOB").symlink_to(elsewhere)
+    (temp / "01JD0000000000000000000001").symlink_to(elsewhere)
 
     with pytest.raises(ValueError, match="not the temp folder of a job"):
-        MacFileSystem().remove_temp_folder(temp / "01JOB")
+        MacFileSystem().remove_temp_folder(temp / "01JD0000000000000000000001")
 
     assert (elsewhere / "precious.mkv").exists()
 
@@ -416,3 +416,15 @@ def test_only_the_log_of_a_job_is_ever_deleted_from_the_log_folder(
 
     assert subject.files.file_names(logs) == ["notes.txt"]
     assert subject.files.file_names(tmp_path / "logs") == [job_log, "jobs"]
+
+
+def test_a_temp_folder_whose_name_is_no_job_id_is_refused(subject: Subject, tmp_path: Path) -> None:
+    """R-FI-03: only a folder named by a job ID is a temp folder; ".." or another name never is."""
+    temp = tmp_path / "Sample Channel" / ".yt-mirror" / "tmp"
+    put_files(subject, temp / "not-a-job", ["x.part"])
+
+    for not_a_job in (temp / "not-a-job", temp / ".."):
+        with pytest.raises(ValueError, match="not the temp folder of a job"):
+            subject.files.remove_temp_folder(not_a_job)
+
+    assert subject.files.exists(temp / "not-a-job" / "x.part")

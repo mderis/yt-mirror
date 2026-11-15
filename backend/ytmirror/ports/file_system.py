@@ -37,6 +37,8 @@ class Disk:
 TEMP_FOLDER_PARTS = (HIDDEN_DIR, TEMP_DIR)
 JOB_LOG_FOLDER = "jobs"
 """The folder of the logs of jobs, inside the logs folder (docs/LOGGING.md section 3)."""
+JOB_ID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+"""A job ID: a ULID. The temp folder of a job is named by it, and nothing else is."""
 JOB_LOG_NAME = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}\.log$")
 """The name of the log of a job: its ULID and ``.log``. No other file is ever deleted there."""
 """Where the temp folders of jobs are, inside a channel folder (R-FI-03)."""

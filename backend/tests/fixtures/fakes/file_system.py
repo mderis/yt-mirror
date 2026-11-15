@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.ports.file_system import (
+    JOB_ID,
     JOB_LOG_FOLDER,
     JOB_LOG_NAME,
     TEMP_FOLDER_PARTS,
@@ -162,7 +163,7 @@ class FakeFileSystem:
 
     def remove_temp_folder(self, folder: Path) -> None:
         """Take the temp folder of a job away, or refuse any other folder."""
-        if folder.parent.parts[-2:] != TEMP_FOLDER_PARTS:
+        if not JOB_ID.fullmatch(folder.name) or folder.parent.parts[-2:] != TEMP_FOLDER_PARTS:
             raise ValueError(f"not the temp folder of a job: {folder}")
         self._take_away(folder)
 

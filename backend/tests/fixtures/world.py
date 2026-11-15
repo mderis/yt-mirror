@@ -63,6 +63,13 @@ type Download = Callable[
 """Downloads a video like the gateway: the request, where progress goes, and whether to stop."""
 
 SMALL_ID = "UCsmallsmallsmallsmall01"
+
+
+def job_id(number: int) -> str:
+    """Return a job ID in the shape of a ULID, as the app gives them."""
+    return f"01JD{number:022d}"
+
+
 BIG_ID = "UCbigbigbigbigbigbigbi02"
 
 
@@ -347,7 +354,7 @@ class World:
             state=self.downloads,
             events=self.bus,
             clock=self.clock,
-            new_job_id=lambda: f"01JOB{next(self.job_numbers):05d}",
+            new_job_id=lambda: job_id(next(self.job_numbers)),
             job_logs=folder / "logs" / "jobs",
             run_in_background=self.background.append,
         )

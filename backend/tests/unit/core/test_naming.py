@@ -241,3 +241,22 @@ def test_a_title_of_underscores_keeps_its_name() -> None:
     """R-FN-01: only dots and spaces leave nothing; underscores are a name."""
     assert video_file_name("___", VIDEO_ID, taken=()) == "___.mkv"
     assert video_file_name("_.", VIDEO_ID, taken=()) == "_..mkv"
+
+
+def test_a_taken_name_in_decomposed_unicode_is_still_taken() -> None:
+    """R-FN-05, R-FN-03: macOS treats NFC and NFD forms as one name, and so does the rule."""
+    decomposed = unicodedata.normalize("NFD", "Café.mkv")
+
+    name = video_file_name("Café", VIDEO_ID, taken=[decomposed])
+    upper = video_file_name("CAFÉ", VIDEO_ID, taken=[decomposed])
+
+    assert name == f"Café [{VIDEO_ID}].mkv"
+    assert upper == f"CAFÉ [{VIDEO_ID}].mkv"
+    assert name == unicodedata.normalize("NFC", name)
+
+
+def test_a_channel_folder_name_in_decomposed_unicode_is_still_taken() -> None:
+    """R-FI-01: the folder of another channel is compared in NFC too."""
+    taken = [unicodedata.normalize("NFD", "Café Channel")]
+
+    assert channel_folder_name("Café Channel", CHANNEL_ID, taken) == f"Café Channel [{CHANNEL_ID}]"
