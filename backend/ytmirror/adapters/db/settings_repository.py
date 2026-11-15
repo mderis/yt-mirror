@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.tables import SettingRow
 from ytmirror.core.channels import Quality
 from ytmirror.core.models import LogDetail, Settings
@@ -30,11 +31,12 @@ class SqlSettingsRepository:
             clock: The source of the ``created_at`` and ``updated_at`` times.
         """
         self._engine = engine
+        self._reader = for_reading(engine)
         self._clock = clock
 
     def load(self) -> Settings:
         """Return the stored settings. A setting that was never stored has its default."""
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(select(SettingRow)).all()
             stored: dict[str, object] = {row.key: json.loads(row.value) for row in rows}
         return _settings_from(stored)

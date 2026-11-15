@@ -48,7 +48,7 @@ from ytmirror.app.menus import menu_bar
 from ytmirror.app.server import BackgroundServer, bind_local_socket
 from ytmirror.app.single_instance import InstanceLock, bring_to_front, bundle_of
 from ytmirror.app.window import open_window
-from ytmirror.core.errors import ErrorCode
+from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.icon import icon_with_colours
 from ytmirror.core.identity import app_identity
 from ytmirror.core.models import LogDetail
@@ -60,6 +60,7 @@ _log: FilteringBoundLogger = structlog.get_logger("ytmirror.app.main")
 EXIT_OK = 0
 EXIT_ALREADY_RUNNING = 1
 EXIT_USAGE = 2
+EXIT_DB_UPGRADE_FAILED = 3
 _TOKEN_BYTES = 32
 WINDOW_WAIT_S = 20.0
 """How long a second start waits for the window of a first one that is still starting."""
@@ -256,7 +257,15 @@ def run_app(
     )
     try:
         remove_old_logs(paths.logs_dir, container.clock.now().date())
-        container.schema.bring_up_to_date()
+        try:
+            container.schema.bring_up_to_date()
+        except AppError as error:
+            if error.code is not ErrorCode.DB_UPGRADE_FAILED:
+                raise
+            # Nothing starts on a database this version cannot use (R-QA-07).
+            title, text = upgrade_failed_message(error.details.get("backup", ""), paths.logs_dir)
+            container.native.show_alert(title, text)
+            return EXIT_DB_UPGRADE_FAILED
         container.toolchain.verify()
         # The checks and the pictures are background work: it starts with the app.
         container.catalogue.start()
@@ -289,6 +298,28 @@ def run_app(
     finally:
         writer.close()
     return EXIT_OK
+
+
+def upgrade_failed_message(backup: str, logs: Path) -> tuple[str, str]:
+    """Return the title and the text that say a database update failed (R-QA-07).
+
+    Args:
+        backup: The copy made before the update, or empty when there was no database yet.
+        logs: The folder of the logs, for a report.
+    """
+    if not backup:
+        return (
+            "yt-mirror could not create its database",
+            f"yt-mirror cannot start. Please report this problem, with the log from {logs}.",
+        )
+    return (
+        "yt-mirror could not update its database",
+        "This version of yt-mirror needs an update of its database, and the update "
+        "failed. Your data is safe: the database was left as it was, and a copy of it "
+        f"made just before the update is at\n{backup}\n\n"
+        "yt-mirror does not start with this version. Start the previous version again, "
+        f"or report this problem with the log from {logs}.",
+    )
 
 
 def _stop(server: BackgroundServer, container: Container) -> None:

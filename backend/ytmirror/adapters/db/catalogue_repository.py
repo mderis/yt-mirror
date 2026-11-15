@@ -13,6 +13,7 @@ from typing import Any, cast
 from sqlalchemy import Engine, Table, bindparam, case, delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
+from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.job_repository import DOWNLOAD_FIELDS
 from ytmirror.adapters.db.tables import ChannelRow, VideoRow
 from ytmirror.core.catalogue import CheckChanges
@@ -42,11 +43,12 @@ class SqlCatalogueRepository:
             clock: The source of the ``created_at`` and ``updated_at`` times.
         """
         self._engine = engine
+        self._reader = for_reading(engine)
         self._clock = clock
 
     def channels(self) -> tuple[Channel, ...]:
         """Return every channel, in the order of the sidebar."""
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(select(ChannelRow).order_by(ChannelRow.position, ChannelRow.id))
             return tuple(_channel_of(row) for row in rows)
 
@@ -56,7 +58,7 @@ class SqlCatalogueRepository:
         Args:
             channel_id: The channel ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             row = session.get(ChannelRow, channel_id)
             return None if row is None else _channel_of(row)
 
@@ -95,7 +97,7 @@ class SqlCatalogueRepository:
         Args:
             channel_id: The channel ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(
                 select(VideoRow)
                 .where(VideoRow.channel_id == channel_id)
@@ -109,7 +111,7 @@ class SqlCatalogueRepository:
         Args:
             channel_id: The channel ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             ids = session.scalars(select(VideoRow.id).where(VideoRow.channel_id == channel_id))
             return frozenset(ids)
 
@@ -119,7 +121,7 @@ class SqlCatalogueRepository:
         Args:
             video_id: The video ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             row = session.get(VideoRow, video_id)
             return None if row is None else _video_of(row)
 
@@ -131,7 +133,7 @@ class SqlCatalogueRepository:
             other_than: The channel that asks. Its own videos are left out.
         """
         owners: dict[str, str] = {}
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             for start in range(0, len(video_ids), _CHUNK):
                 rows = session.execute(
                     select(VideoRow.id, VideoRow.channel_id).where(
@@ -219,7 +221,7 @@ class SqlCatalogueRepository:
             func.sum(case((synced, func.coalesce(VideoRow.file_size, 0)), else_=0)),
             func.sum(case((new, 1), else_=0)),
         ).group_by(VideoRow.channel_id)
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             return {
                 channel_id: ChannelTotals(
                     videos=videos,

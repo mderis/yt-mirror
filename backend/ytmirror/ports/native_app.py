@@ -58,3 +58,15 @@ class NativeApp(Protocol):
     def request_quit(self) -> None:
         """Ask the app to quit, exactly as "Quit" in its menu does. Main thread only."""
         ...
+
+    def show_alert(self, title: str, text: str) -> None:
+        """Show a message in a window of its own, and return when the user closed it.
+
+        For a start that cannot go on, before the window of the app exists
+        (R-QA-07). Main thread only.
+
+        Args:
+            title: What happened, in one sentence.
+            text: What it means for the user's data, and what to do.
+        """
+        ...

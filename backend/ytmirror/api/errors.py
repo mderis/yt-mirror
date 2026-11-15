@@ -48,6 +48,7 @@ _STATUS: dict[ErrorCode, int] = {
     ErrorCode.FFMPEG_FAILED: 500,
     ErrorCode.VERIFY_FAILED: 500,
     ErrorCode.DATES_NOT_APPLIED: 500,
+    ErrorCode.DB_UPGRADE_FAILED: 500,
     ErrorCode.INTERNAL: 500,
 }
 
@@ -78,6 +79,7 @@ _MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.FFMPEG_FAILED: "Merging the streams or embedding the metadata failed.",
     ErrorCode.VERIFY_FAILED: "The finished file did not pass its verification.",
     ErrorCode.DATES_NOT_APPLIED: "The file dates could not be set or did not read back.",
+    ErrorCode.DB_UPGRADE_FAILED: "The database could not be updated to this version of yt-mirror.",
     ErrorCode.INTERNAL: "yt-mirror hit an unexpected problem.",
 }
 

@@ -252,7 +252,7 @@ def build_container(
         probe=used_probe,
         native=native if native is not None else MacNativeApp(),
         images=images if images is not None else MacImageRenderer(),
-        schema=SchemaService(schema, used_clock),
+        schema=SchemaService(schema, used_clock, paths.data_dir / BACKUP_FOLDER),
         settings=settings,
         diagnostics=DiagnosticsService(info, schema, used_probe, toolchain),
         events=events,
@@ -270,6 +270,9 @@ def build_container(
         ),
     )
 
+
+BACKUP_FOLDER = "backups"
+"""The folder in ``data/`` of the copies of the database made before migrations."""
 
 TOOL_STOP_WAIT_S = 1.0
 """How long a tool the app started may take to end at quit before it is killed."""

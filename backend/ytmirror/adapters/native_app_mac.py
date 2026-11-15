@@ -151,6 +151,24 @@ class MacNativeApp:
         """
         _appkit().NSApplication.sharedApplication().terminate_(None)
 
+    def show_alert(self, title: str, text: str) -> None:
+        """Show a message in a window of its own, and return when the user closed it.
+
+        Args:
+            title: What happened, in one sentence.
+            text: What it means for the user's data, and what to do.
+        """
+        appkit = _appkit()
+        app: Any = appkit.NSApplication.sharedApplication()
+        app.setActivationPolicy_(appkit.NSApplicationActivationPolicyRegular)
+        alert: Any = appkit.NSAlert.alloc().init()
+        alert.setAlertStyle_(appkit.NSAlertStyleCritical)
+        alert.setMessageText_(title)
+        alert.setInformativeText_(text)
+        alert.addButtonWithTitle_("Quit")
+        app.activateIgnoringOtherApps_(True)
+        alert.runModal()
+
 
 def _native_item(appkit: Any, item: MenuItem) -> Any:
     native: Any = appkit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(

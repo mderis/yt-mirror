@@ -44,7 +44,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A side file of a downloaded video (its metadata or a thumbnail) that cannot be written no longer fails the video: it is written later. A failure after the file is in the channel folder takes it out again, so nothing unfinished is left there.
 - A start after a crash moves a half-placed file to the Trash only when the video ID inside it is that download, and a Trash that refuses no longer stops the app from starting.
 - Quitting stops the ffmpeg that a download started, so the download is cleaned up before the app ends.
-- A database update that fails changes nothing; before, part of it could stay and the next start failed.
+- A database update that fails changes nothing; before, part of it could stay and the next start failed. Before every database update the app now keeps a copy of the database in `data/backups/` (the five newest). If an update fails, yt-mirror says so, names the copy, and does not start.
+- A check and a download that store their results at the same moment no longer fail with "database is locked": one waits for the other.
 - Quitting with Cmd+Q, from the Dock, with Ctrl+C or with a termination signal now shuts the app down cleanly. Before, only closing the window did: the other ways ended the app without stopping its server and without the last log line.
 
 ### Added in milestone M0

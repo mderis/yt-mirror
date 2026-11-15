@@ -68,7 +68,7 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 | exclude | `exclude.manual`, `exclude.rule`, `exclude.restored` |
 | adopt | `adopt.scan`, `adopt.matched`, `adopt.ambiguous`, `adopt.fixed`, `adopt.failed` |
 | update | `update.available`, `update.started`, `update.backup`, `update.migrated`, `update.finished`, `update.rolled_back` |
-| db | `db.migration.started`, `db.migration.finished`, `db.backup` |
+| db | `db.backup` (the database was copied before its migrations, with `file` and `version`, R-QA-07), `db.migration.started`, `db.migration.finished`, `db.migration.failed` (with its `error_code`, the `backup`, and `restored` when the copy had to be put back; the app does not start) |
 | api | `api.request` (debug), `api.error` |
 | ui | `ui.error` (forwarded from the frontend) |
 
@@ -96,6 +96,7 @@ Defined once in `backend/ytmirror/core/errors.py`. Each code has: a name, whethe
 | `FFMPEG_FAILED` | transient | Merge or embed step failed |
 | `VERIFY_FAILED` | transient | The finished file did not pass verification |
 | `DATES_NOT_APPLIED` | transient | File dates could not be set or verified |
+| `DB_UPGRADE_FAILED` | permanent | A migration failed at start. The database is left as it was, a backup was made before, and the app does not start (R-QA-07) |
 | `TOOL_MISSING` | transient | ffmpeg, Deno or yt-dlp is not usable |
 | `CHANNEL_NOT_FOUND` | permanent | |
 | `INVALID_CHANNEL_INPUT` | permanent | What the user pasted is not a channel |

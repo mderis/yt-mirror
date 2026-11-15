@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import Engine, delete, func, select, update
 from sqlalchemy.orm import Session
 
+from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.tables import JobRow, PendingSideFileRow, VideoEventRow, VideoRow
 from ytmirror.core.channels import Quality, Video
 from ytmirror.core.errors import ErrorCode
@@ -60,6 +61,7 @@ class SqlJobRepository:
             clock: The source of the ``created_at`` and ``updated_at`` times.
         """
         self._engine = engine
+        self._reader = for_reading(engine)
         self._clock = clock
 
     def record(
@@ -108,7 +110,7 @@ class SqlJobRepository:
         Args:
             job_id: The job ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             row = session.get(JobRow, job_id)
             return None if row is None else _job_of(row)
 
@@ -118,7 +120,7 @@ class SqlJobRepository:
         Args:
             states: The states.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(
                 select(JobRow)
                 .where(JobRow.state.in_([state.value for state in states]))
@@ -132,7 +134,7 @@ class SqlJobRepository:
         Args:
             video_id: The video.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             row = session.scalars(
                 select(JobRow).where(
                     JobRow.video_id == video_id,
@@ -143,7 +145,7 @@ class SqlJobRepository:
 
     def next_priority(self) -> int:
         """Return a priority behind every job that waits or runs."""
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             highest = session.scalar(
                 select(func.max(JobRow.priority)).where(
                     JobRow.state.in_([state.value for state in ACTIVE_STATES])
@@ -157,7 +159,7 @@ class SqlJobRepository:
         Args:
             video_id: The video.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(
                 select(VideoEventRow)
                 .where(VideoEventRow.video_id == video_id)
@@ -193,7 +195,7 @@ class SqlJobRepository:
 
     def pending_side_files(self) -> tuple[PendingSideFile, ...]:
         """Return the side files still to be written, oldest first."""
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(select(PendingSideFileRow).order_by(PendingSideFileRow.id))
             return tuple(
                 PendingSideFile(id=row.id, video_id=row.video_id, path=row.path, data=row.data)
@@ -215,7 +217,7 @@ class SqlJobRepository:
         Args:
             channel_id: The channel.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             names = session.scalars(
                 select(VideoRow.file_name).where(
                     VideoRow.channel_id == channel_id, VideoRow.file_name.is_not(None)

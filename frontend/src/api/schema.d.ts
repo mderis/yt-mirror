@@ -928,6 +928,7 @@ export interface components {
       | 'FFMPEG_FAILED'
       | 'VERIFY_FAILED'
       | 'DATES_NOT_APPLIED'
+      | 'DB_UPGRADE_FAILED'
       | 'INTERNAL'
     /**
      * ErrorResponse

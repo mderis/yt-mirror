@@ -27,6 +27,7 @@ from sqlalchemy.types import (
 )
 
 from tests.migrations.helpers import new_database, upgrade_to
+from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.schema import alembic_config
 
 ROWS = 3
@@ -50,7 +51,7 @@ def upgrades() -> Iterator[tuple[str, str]]:
 
 def in_order(engine: Engine) -> list[str]:
     """Return the tables, each after the tables it points at."""
-    schema = inspect(engine)
+    schema = inspect(for_reading(engine))
     tables = [name for name in schema.get_table_names() if name != "alembic_version"]
     parents = {
         name: {link["referred_table"] for link in schema.get_foreign_keys(name)} - {name}
@@ -77,16 +78,23 @@ def value_for(kind: TypeEngine[Any], table: str, column: str, number: int) -> ob
 
 def fill(engine: Engine) -> None:
     """Put rows in every table, with the links between tables pointing at real rows."""
-    schema = inspect(engine)
-    keys: dict[str, list[object]] = {}
-    with engine.begin() as connection:
-        for table in in_order(engine):
-            columns = schema.get_columns(table)
-            primary = schema.get_pk_constraint(table)["constrained_columns"]
-            links = {
+    schema = inspect(for_reading(engine))
+    # The schema is read before the transaction that writes holds the database.
+    plan = [
+        (
+            table,
+            schema.get_columns(table),
+            schema.get_pk_constraint(table)["constrained_columns"],
+            {
                 link["constrained_columns"][0]: link["referred_table"]
                 for link in schema.get_foreign_keys(table)
-            }
+            },
+        )
+        for table in in_order(engine)
+    ]
+    keys: dict[str, list[object]] = {}
+    with engine.begin() as connection:
+        for table, columns, primary, links in plan:
             keys[table] = []
             for number in range(1, ROWS + 1):
                 row: dict[str, object] = {}
@@ -107,9 +115,9 @@ def fill(engine: Engine) -> None:
 
 def contents(engine: Engine) -> dict[str, tuple[int, list[tuple[object, ...]]]]:
     """Return, for every table, how many rows it has and their keys."""
-    schema = inspect(engine)
+    schema = inspect(for_reading(engine))
     found: dict[str, tuple[int, list[tuple[object, ...]]]] = {}
-    with engine.connect() as connection:
+    with for_reading(engine).connect() as connection:
         for table in in_order(engine):
             primary = schema.get_pk_constraint(table)["constrained_columns"] or ["rowid"]
             columns = ", ".join(f'"{name}"' for name in primary)

@@ -50,6 +50,7 @@ class ErrorCode(StrEnum):
     FFMPEG_FAILED = "FFMPEG_FAILED"
     VERIFY_FAILED = "VERIFY_FAILED"
     DATES_NOT_APPLIED = "DATES_NOT_APPLIED"
+    DB_UPGRADE_FAILED = "DB_UPGRADE_FAILED"
     INTERNAL = "INTERNAL"
 
     @property
@@ -91,6 +92,7 @@ _KINDS: dict[ErrorCode, ErrorKind] = {
     ErrorCode.FFMPEG_FAILED: ErrorKind.TRANSIENT,
     ErrorCode.VERIFY_FAILED: ErrorKind.TRANSIENT,
     ErrorCode.DATES_NOT_APPLIED: ErrorKind.TRANSIENT,
+    ErrorCode.DB_UPGRADE_FAILED: ErrorKind.PERMANENT,
     ErrorCode.INTERNAL: ErrorKind.TRANSIENT,
 }
 
