@@ -261,7 +261,10 @@ describe('the channel page', () => {
     expect(part('[data-check]').textContent).toContain('Last check failed')
     await fireEvent.click(within(banner).getByRole('button', { name: 'Try again' }))
     await waitFor(() =>
-      expect(app.lastBody(`/api/channels/${CHANNEL_ID}/check`)).toEqual({ kind: 'quick' }),
+      expect(app.lastBody(`/api/channels/${CHANNEL_ID}/check`)).toEqual({
+        kind: 'quick',
+        trigger: 'retry',
+      }),
     )
     expect(rows()).toHaveLength(2)
   })
@@ -469,7 +472,10 @@ describe('the channel page', () => {
     app.stream().channelUpdated(channel({ status: 'checking' }))
 
     await waitFor(() => expect(button.getAttribute('aria-busy')).toBe('true'))
-    expect(app.lastBody(`/api/channels/${CHANNEL_ID}/check`)).toEqual({ kind: 'quick' })
+    expect(app.lastBody(`/api/channels/${CHANNEL_ID}/check`)).toEqual({
+      kind: 'quick',
+      trigger: 'button',
+    })
     expect(part('[data-check]').textContent).toContain('Checking for new videos...')
   })
 
@@ -557,7 +563,7 @@ describe('the kind of check each control asks for', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Check now' }))
 
-    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'quick' }]))
+    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'quick', trigger: 'button' }]))
   })
 
   it('R-CH-23: "Check now" in the channel menu asks for a quick check', async () => {
@@ -566,7 +572,7 @@ describe('the kind of check each control asks for', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Check now' }))
 
-    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'quick' }]))
+    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'quick', trigger: 'menu' }]))
   })
 
   it('R-CH-23: only "Full check" in the channel menu asks for a full check', async () => {
@@ -575,7 +581,7 @@ describe('the kind of check each control asks for', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Full check' }))
 
-    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'full' }]))
+    await waitFor(() => expect(checkBodies(app)).toEqual([{ kind: 'full', trigger: 'menu' }]))
   })
 
   it('R-CH-23: "Check all channels now" asks for the check of all channels and no check of one', async () => {

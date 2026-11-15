@@ -781,11 +781,30 @@ export interface components {
      *
      *     Attributes:
      *         kind: A quick check ("Check now") or a full check (R-CH-23).
+     *         trigger: What the user pressed: the button, the menu, or "Try again". It is
+     *             logged with the check, so the log alone tells why it ran.
      */
     CheckRequest: {
       /** @default quick */
       kind: components['schemas']['CheckKind']
+      /** @default api */
+      trigger: components['schemas']['CheckTrigger']
     }
+    /**
+     * CheckTrigger
+     * @description What started a check. Logged with every check, so the log alone tells why it ran.
+     * @enum {string}
+     */
+    CheckTrigger:
+      | 'button'
+      | 'menu'
+      | 'check_all'
+      | 'retry'
+      | 'add'
+      | 'app_start'
+      | 'resume'
+      | 'schedule'
+      | 'api'
     /**
      * ChosenFolderResponse
      * @description The answer of ``POST /api/folders/choose``.

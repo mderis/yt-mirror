@@ -502,7 +502,7 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | POST `/folders/choose` | Show the folder dialog of macOS and return the chosen folder (R-CH-05) |
 | POST `/channels` | Add a channel |
 | GET, PATCH, DELETE `/channels/{id}` | Read, change settings (from M2: pause and resume), remove (`keep_files` flag from M3) |
-| POST `/channels/{id}/check` | Check now (`kind`: `quick` or `full`) |
+| POST `/channels/{id}/check` | Check now (`kind`: `quick` or `full`; `trigger`: what the user pressed, `button`, `menu` or `retry`, logged with the check; `api` when it names none) |
 | POST `/channels/{id}/check/cancel` | Cancel a full check (R-CH-27) |
 | POST `/channels/check-all` | Check all channels |
 | POST `/channels/{id}/mirror-missing` | Queue everything eligible once |

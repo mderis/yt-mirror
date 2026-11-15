@@ -34,6 +34,8 @@ export type QueuedJob = components['schemas']['QueuedJob']
 export type FilesToTrash = components['schemas']['FilesToTrashResponse']
 export type DatePrecision = components['schemas']['DatePrecision']
 export type CheckKind = components['schemas']['CheckKind']
+/** What the user pressed to start a check, logged with it. */
+export type CheckTrigger = components['schemas']['CheckTrigger']
 export type Quality = components['schemas']['Quality']
 /** How far a first listing or a full check has come. */
 export type Progress = components['schemas']['Progress']
@@ -204,9 +206,9 @@ export const api = {
   /** Ask how many files and how much room "Delete the files" moves to the Trash (R-CH-32). */
   getFilesToTrash: (channelId: string): Promise<FilesToTrash> =>
     request<FilesToTrash>(`/channels/${channelId}/files-to-trash`),
-  /** Start a quick or a full check of a channel (R-CH-23). */
-  checkChannel: (channelId: string, kind: CheckKind): Promise<Channel> =>
-    send<Channel>('POST', `/channels/${channelId}/check`, { kind }),
+  /** Start a quick or a full check of a channel, saying what started it (R-CH-23). */
+  checkChannel: (channelId: string, kind: CheckKind, trigger: CheckTrigger): Promise<Channel> =>
+    send<Channel>('POST', `/channels/${channelId}/check`, { kind, trigger }),
   /** Cancel the full check of a channel (R-CH-27). */
   cancelCheck: (channelId: string): Promise<{ cancelled: boolean }> =>
     send<{ cancelled: boolean }>('POST', `/channels/${channelId}/check/cancel`),

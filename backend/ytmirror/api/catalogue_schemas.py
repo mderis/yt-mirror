@@ -14,6 +14,7 @@ from ytmirror.core.channels import (
     ChannelStatus,
     ChannelView,
     CheckKind,
+    CheckTrigger,
     DatePrecision,
     Quality,
     TaskKind,
@@ -613,9 +614,12 @@ class CheckRequest(BaseModel):
 
     Attributes:
         kind: A quick check ("Check now") or a full check (R-CH-23).
+        trigger: What the user pressed: the button, the menu, or "Try again". It is
+            logged with the check, so the log alone tells why it ran.
     """
 
     kind: CheckKind = CheckKind.QUICK
+    trigger: CheckTrigger = CheckTrigger.API
 
 
 class CheckAllResponse(BaseModel):

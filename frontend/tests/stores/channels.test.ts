@@ -193,12 +193,12 @@ describe('the channels store', () => {
       [`POST /api/channels/${CHANNEL_ID}/check`]: jsonResponse(channel({ status: 'checking' })),
     })
 
-    await store.check(CHANNEL_ID, 'quick')
-    await store.check(CHANNEL_ID, 'full')
+    await store.check(CHANNEL_ID, 'quick', 'button')
+    await store.check(CHANNEL_ID, 'full', 'menu')
 
     expect(fetchMock.mock.calls.slice(-2).map(([, init]) => init?.body)).toEqual([
-      JSON.stringify({ kind: 'quick' }),
-      JSON.stringify({ kind: 'full' }),
+      JSON.stringify({ kind: 'quick', trigger: 'button' }),
+      JSON.stringify({ kind: 'full', trigger: 'menu' }),
     ])
   })
 
@@ -209,7 +209,7 @@ describe('the channels store', () => {
         new Promise<Response>((resolve) => (answer = resolve)),
     })
 
-    const asked = store.check(CHANNEL_ID, 'quick')
+    const asked = store.check(CHANNEL_ID, 'quick', 'button')
     store.apply(channel({ status: 'checking' }))
     store.apply(channel({ status: 'new_videos', new_videos: 1, videos: 13, last_check_at: NOW }))
     answer(jsonResponse(channel({ status: 'checking' })))

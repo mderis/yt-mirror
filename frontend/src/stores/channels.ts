@@ -17,6 +17,7 @@ import {
   type Channel,
   type ChannelLookup,
   type CheckKind,
+  type CheckTrigger,
   type ChosenFolder,
   type NewChannel,
   type Pause,
@@ -136,8 +137,8 @@ export const useChannelsStore = defineStore('channels', () => {
    * being checked, and what the check found, arrives with the events: the
    * answer of this call can be older than they are.
    */
-  async function check(channelId: string, kind: CheckKind): Promise<void> {
-    await api.checkChannel(channelId, kind)
+  async function check(channelId: string, kind: CheckKind, trigger: CheckTrigger): Promise<void> {
+    await api.checkChannel(channelId, kind, trigger)
   }
 
   /** Cancel the full check of a channel (R-CH-27). */

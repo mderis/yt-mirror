@@ -125,7 +125,7 @@ const fullCheck = computed(() =>
       v-if="!listing && !channel.paused"
       icon="retry"
       :busy="channel.status === 'checking'"
-      @press="ui.run(channels.check(channel.id, 'quick'))"
+      @press="ui.run(channels.check(channel.id, 'quick', 'button'))"
     >
       {{ t('channel.checkNow') }}
     </AppButton>

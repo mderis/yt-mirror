@@ -22,6 +22,7 @@ from ytmirror.core.channels import (
     ChannelFacts,
     ChannelView,
     CheckKind,
+    CheckTrigger,
     Quality,
     ReferenceKind,
 )
@@ -323,7 +324,10 @@ class ChannelsService:
         if avatar is not None:
             self._thumbnails.keep_avatar(channel.id, avatar)
         self._catalogue.request_check(
-            channel.id, CheckKind.FULL, preview_count=self._finished_count(channel.id)
+            channel.id,
+            CheckKind.FULL,
+            trigger=CheckTrigger.ADD,
+            preview_count=self._finished_count(channel.id),
         )
         self._thumbnails.fill(channel.id)
         return AddedChannel(self._view(channel.id), existing=False)
@@ -352,7 +356,9 @@ class ChannelsService:
             if paused:
                 self._catalogue.forget(channel_id)
             elif channel.first_listed_at is None:
-                self._catalogue.request_check(channel_id, CheckKind.FULL)
+                self._catalogue.request_check(
+                    channel_id, CheckKind.FULL, trigger=CheckTrigger.RESUME
+                )
             self._views.publish(channel_id)
         return self._view(channel_id)
 

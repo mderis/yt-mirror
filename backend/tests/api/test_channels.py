@@ -528,3 +528,48 @@ def test_removing_keeps_the_files_unless_told_otherwise(client: TestClient, worl
     folder = world.library / "Small Channel"
     assert world.files.trashed == [folder / ".yt-mirror" / "channel.json"]
     assert world.files.exists(folder / "Video 1.mkv")
+
+
+@pytest.mark.parametrize(
+    ("body", "logged"),
+    [
+        ({"kind": "quick", "trigger": "button"}, ("quick", "button")),
+        ({"kind": "quick", "trigger": "menu"}, ("quick", "menu")),
+        ({"kind": "full", "trigger": "menu"}, ("full", "menu")),
+        ({"kind": "quick", "trigger": "retry"}, ("quick", "retry")),
+        (None, ("quick", "api")),
+    ],
+)
+def test_the_log_says_what_started_a_check(
+    client: TestClient, world: World, body: dict[str, str] | None, logged: tuple[str, str]
+) -> None:
+    """R-CH-23, R-LG-01: the control that asked for a check is in its check.started line."""
+    added(client, world)
+
+    with capture_logs() as logs:
+        client.post(f"/api/channels/{SMALL_ID}/check", json=body)
+        world.work()
+
+    assert [(line["kind"], line["trigger"]) for line in log_lines(logs, "check.started")] == [
+        logged
+    ]
+
+
+def test_check_all_is_logged_as_check_all(client: TestClient, world: World) -> None:
+    """R-CH-23, R-LG-01: "Check all channels now" is named in the log of each check."""
+    added(client, world)
+
+    with capture_logs() as logs:
+        client.post("/api/channels/check-all")
+        world.work()
+
+    assert [line["trigger"] for line in log_lines(logs, "check.started")] == ["check_all"]
+
+
+def test_an_unknown_trigger_is_refused(client: TestClient, world: World) -> None:
+    """R-ER-02: a trigger the app does not know is an invalid request."""
+    added(client, world)
+
+    answer = client.post(f"/api/channels/{SMALL_ID}/check", json={"trigger": "telepathy"})
+
+    assert answer.status_code == 422

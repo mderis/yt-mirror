@@ -232,15 +232,15 @@ describe('the API client', () => {
       'POST /api/channels/check-all': jsonResponse({ channels: 2 }),
     })
 
-    const checking = await api.checkChannel(CHANNEL_ID, 'quick')
-    await api.checkChannel(CHANNEL_ID, 'full')
+    const checking = await api.checkChannel(CHANNEL_ID, 'quick', 'button')
+    await api.checkChannel(CHANNEL_ID, 'full', 'menu')
     const all = await api.checkAllChannels()
 
     expect(checking.status).toBe('checking')
     expect(all).toEqual({ channels: 2 })
     expect(fetchMock.mock.calls.map(([path, init]) => [path, init?.body])).toEqual([
-      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'quick' })],
-      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'full' })],
+      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'quick', trigger: 'button' })],
+      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'full', trigger: 'menu' })],
       ['/api/channels/check-all', undefined],
     ])
   })

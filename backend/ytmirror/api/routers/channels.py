@@ -111,7 +111,8 @@ def build_router(
 
     def check_channel(channel_id: str, body: CheckRequest | None = None) -> Channel:
         """Start a quick or a full check of a channel (R-CH-23)."""
-        catalogue.request_check(channel_id, (body or CheckRequest()).kind)
+        asked = body or CheckRequest()
+        catalogue.request_check(channel_id, asked.kind, trigger=asked.trigger)
         return view_of(channel_id)
 
     def cancel_check(channel_id: str) -> CancelCheckResponse:

@@ -1,14 +1,22 @@
 """Tests of ``ytmirror.services.catalogue``: checks against the fake YouTube."""
 
 import threading
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.catalogue import make_channel
 from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines, new_video
-from ytmirror.core.channels import ChannelStatus, ChannelUpdated, CheckKind, TaskKind
+from ytmirror.core.channels import (
+    ChannelStatus,
+    ChannelUpdated,
+    CheckKind,
+    CheckTrigger,
+    TaskKind,
+)
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import AppEvent
 from ytmirror.services.catalogue import PROGRESS_EVERY, CatalogueService
@@ -1008,3 +1016,83 @@ def test_when_the_first_channel_is_removed_the_other_takes_the_video(tmp_path: P
 
     assert "sm000000005" in world.ids(other["id"])
     assert len(world.ids(other["id"])) == 4
+
+
+# --- what started a check, in its log line
+
+
+def triggers(logs: Sequence[Mapping[str, Any]]) -> list[tuple[Any, Any]]:
+    """Return the kind and the trigger of every check that started."""
+    return [(line["kind"], line["trigger"]) for line in log_lines(logs, "check.started")]
+
+
+def test_the_first_listing_of_a_new_channel_says_it_came_from_adding(tmp_path: Path) -> None:
+    """R-CH-11, R-LG-01: the log tells that adding a channel started its first listing."""
+    world = World(tmp_path)
+
+    with capture_logs() as logs:
+        world.add_and_list()
+
+    assert triggers(logs) == [("full", "add")]
+
+
+def test_a_first_listing_taken_up_at_start_says_so(tmp_path: Path) -> None:
+    """R-CH-11, R-LG-01: a first listing a quit interrupted is logged as started by the app."""
+    world = World(tmp_path)
+    channel_id = world.add()
+    world.catalogue.forget(channel_id)
+    world.run_background()
+
+    with capture_logs() as logs:
+        world.catalogue.start()
+        world.background.clear()
+        world.work()
+
+    assert triggers(logs) == [("full", "app_start")]
+
+
+def test_a_first_listing_taken_up_after_the_pause_of_youtube_is_a_retry(tmp_path: Path) -> None:
+    """R-ER-05, R-LG-01: work that waited for YouTube is logged as a retry when it goes on."""
+    world = World(tmp_path)
+    world.catalogue.start()
+    world.background.clear()
+    world.gateway.refuse["listing"] = ErrorCode.BOT_CHECK
+    world.add()
+    world.work()
+    world.gateway.refuse.clear()
+
+    with capture_logs() as logs:
+        world.youtube.try_now()
+        world.work()
+
+    assert triggers(logs) == [("full", "retry")]
+
+
+def test_resuming_a_channel_that_was_never_listed_says_so(tmp_path: Path) -> None:
+    """R-CH-31, R-LG-01: the first listing after a resume is logged as started by the resume."""
+    world = World(tmp_path)
+    channel_id = world.add()
+    world.channels.set_paused(channel_id, True)
+    world.work()
+
+    with capture_logs() as logs:
+        world.channels.set_paused(channel_id, False)
+        world.work()
+
+    assert triggers(logs) == [("full", "resume")]
+
+
+def test_check_all_and_a_full_check_that_takes_its_place_keep_their_own_triggers(
+    tmp_path: Path,
+) -> None:
+    """R-CH-24, R-LG-01: a full check that replaces a waiting quick one keeps its trigger."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list()
+    world.add_and_list("@big")
+
+    with capture_logs() as logs:
+        world.catalogue.request_check_all()
+        world.catalogue.request_check(BIG_ID, CheckKind.FULL, trigger=CheckTrigger.MENU)
+        world.work()
+
+    assert sorted(triggers(logs)) == [("full", "menu"), ("quick", "check_all")]

@@ -76,6 +76,29 @@ class ChannelStatus(StrEnum):
     UP_TO_DATE = "up_to_date"
 
 
+class CheckTrigger(StrEnum):
+    """What started a check. Logged with every check, so the log alone tells why it ran."""
+
+    BUTTON = "button"
+    """The "Check now" button of the channel page."""
+    MENU = "menu"
+    """An item of the channel menu: "Check now" or "Full check"."""
+    CHECK_ALL = "check_all"
+    """"Check all channels now" in the sidebar."""
+    RETRY = "retry"
+    """"Try again" after a failed check, or work taken up when YouTube is asked again."""
+    ADD = "add"
+    """The first listing of a channel that was just added."""
+    APP_START = "app_start"
+    """A first listing that a quit interrupted, taken up at the next start."""
+    RESUME = "resume"
+    """A paused channel that was never listed was resumed."""
+    SCHEDULE = "schedule"
+    """An automatic check (milestone M4)."""
+    API = "api"
+    """A request to the API that does not say, for example from a script or a test."""
+
+
 class ReferenceKind(StrEnum):
     """The forms in which a user can name a channel (R-CH-01)."""
 
