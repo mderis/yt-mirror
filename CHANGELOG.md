@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Downloads (milestone M3): "Mirror" on a video downloads it as an MKV file named after its title, in the folder of its channel. Pressing Mirror on several videos puts them in line, and they download one after another. The file has the title, the channel, the description, the exact published time, the address and ID of the video, its chapters, English subtitles (the creator's, else the auto-generated ones, labelled as such) and the thumbnail as its cover inside. The complete metadata and the original thumbnail are also kept in the hidden `.yt-mirror` folder.
+- Both dates of every downloaded file, created and modified, are the moment the video became public on YouTube (for a premiere, when it was shown), and are read back to make sure. Finder sorts the folder in the order of the channel.
+- A download shows its progress in its row: the stage, the percent, the quality, the speed and the time left. The channel says "Mirroring 2 of 3". A synced video shows its quality and size, and has Play (in your own video player) and Show in Finder.
+- Cancel stops a download that waits, downloads or is being processed, and leaves nothing behind. A failed download says why in its row and offers Retry. If only the subtitles fail, the video is saved without them.
+- The details panel of a video: its file, formats, dates, description and chapters, with Play, Show in Finder and Open on YouTube.
+- When the exact date of a video arrives, it replaces the approximate one with a short highlight.
+- Removing a channel offers "Keep the files" or "Delete the files". Deleting moves only the files yt-mirror made to the Trash, says how many and how much room, and leaves your own files in the folder.
+- The JavaScript challenge solver of yt-dlp is installed with it, so YouTube offers every format.
 - Channels (milestone M2): paste a channel link, a handle or a channel ID, see the channel before you add it, and choose its folder, its quality and what to mirror. A link to a video or a playlist is refused with a sentence that says what is accepted. The quality and "what to mirror" are stored now and take effect with the downloads of the next milestones.
 - The catalogue of a channel: every regular video with its thumbnail, title, duration, views and date, read from YouTube in the background. A large channel shows how many videos were found so far, and the app can be used meanwhile.
 - Checks: "Check now" reads only the top of a channel and takes a few seconds. "Full check" in the channel menu reads the whole channel, shows its progress and can be cancelled. New videos are marked as new. A video counts as removed from YouTube only after two full checks in a row without it, and it stays in the list.

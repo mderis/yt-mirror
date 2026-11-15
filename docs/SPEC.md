@@ -119,7 +119,7 @@ Design: `ChannelSettings.html`, `RemoveChannel.html`, `Menus.html`.
 |---|---|
 | R-CH-30 | Per channel the user can: open its folder in Finder, check now, run a full check, pause and resume, open it on YouTube, open channel settings, and remove it. The actions are in the channel menu, which opens by a right-click on the channel in the sidebar and by the "More actions" button of the header. |
 | R-CH-31 | A paused channel is not checked, neither automatically nor by hand, and its downloads do not run. Its queued downloads stay queued. Pausing a channel during its first listing stops the listing, and resuming starts it again. Pausing a paused channel changes nothing. |
-| R-CH-32 | Removing a channel asks whether to keep the files (default) or move them to the Trash. The channel's catalogue, exclude list, settings and cached pictures are deleted from the app either way. |
+| R-CH-32 | Removing a channel asks whether to keep the files (default) or move them to the Trash. The channel's catalogue, exclude list, settings and cached pictures are deleted from the app either way. Its downloads are cancelled first. "Delete the files" moves every file the app tracks for the channel to the Trash of macOS, never deleting it for good: the video files (also adopted ones), a thumbnail next to a video that is the app's own copy, and the hidden folder with its temp and partial files. A file of the user's own stays, and no symlink is followed out of the channel folder. When nothing but `.DS_Store` is left in the folder, the folder goes to the Trash too. The dialog says how many files and how much room go to the Trash, and that the other files of the folder stay. |
 | R-CH-33 | Changing a channel's folder moves its downloaded files and its hidden metadata folder to the new location, with progress, and rolls back on failure. |
 | R-CH-34 | The sidebar shows per channel: avatar, name, a status line (section 12.1) and a count of new videos. Channels are listed in the order in which they were added. |
 | R-CH-35 | The channel header shows totals: videos, synced, excluded, size on disk, and the last check result, with the time of the last check and the time of the last full check. |
@@ -156,7 +156,7 @@ Design: `Downloads.html`.
 | ID | Requirement |
 |---|---|
 | R-QU-01 | Downloads run in parallel up to a setting (1 to 5, default 2). |
-| R-QU-02 | The user can pause all, resume all, cancel one, remove a waiting item, clear all waiting items, and reorder waiting items by drag and drop. "Mirror first" puts a video at the top. |
+| R-QU-02 | The user can pause all, resume all, cancel one, remove a waiting item, clear all waiting items, and reorder waiting items by drag and drop. "Mirror first" puts a video at the top. Cancel works while a video waits, downloads or is processed (merged, its metadata embedded), until its file is moved into the channel folder, which is the point of no return: then the video ends synced. A cancelled video is "not downloaded" again, nothing of its download is left in the channel folder, no file of another video is touched, and Mirror works again. |
 | R-QU-03 | A global speed limit (unlimited or a value in MB/s) applies to the sum of all downloads. |
 | R-QU-04 | Each download shows stage (Video, Audio, Processing), percent, speed and time left. |
 | R-QU-05 | An interrupted download (quit, crash, network loss) continues from the partial file the next time it runs. |
@@ -200,6 +200,7 @@ Design: `ExcludeConfirm.html`, `ExcludePreview.html`, `ChannelSettings.html`.
       channel.json               (channel id, url, name: lets a moved folder be re-linked)
       <video id>.info.json       (complete raw metadata)
       <video id>.jpg             (original thumbnail, best resolution)
+      tmp/<job id>/              (the temp and partial files of one download, R-FI-03)
 ```
 
 | ID | Requirement |
@@ -413,7 +414,7 @@ Full specification: [LOGGING.md](LOGGING.md).
 
 | ID | Requirement |
 |---|---|
-| R-LG-01 | Structured logs are written to `data/logs/`, rotated daily, kept 14 days. Only the app's own daily log files are ever deleted. |
+| R-LG-01 | Structured logs are written to `data/logs/`, rotated daily, kept 14 days. The logs of jobs (`data/logs/jobs/`) are kept as [LOGGING.md](LOGGING.md) section 3 says: the log of the latest failed attempt of a video for as long as the video is failed, other failed jobs for 14 days after their video stopped being failed, and the 50 newest other jobs. Only the app's own daily log files and the app's own job logs (named by their job ID) are ever deleted. |
 | R-LG-02 | Each download has a job ID that ties together all its log lines, its activity entries and its yt-dlp and ffmpeg output. |
 | R-LG-03 | Every status change of a video is recorded in the database with time, old status, new status, reason and job ID. |
 | R-LG-04 | "Export debug report" produces one file with recent logs, settings (secrets redacted), tool versions, app version, database schema version and macOS version. |

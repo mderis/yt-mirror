@@ -47,7 +47,7 @@ Levels by setting: "Normal" writes `info` and above. "Verbose" writes `debug` an
 
 ## 2. Per-job logs
 
-Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job_id>.log`. Kept: every failed job for 14 days, and the 50 most recent successful jobs. The error details dialog and `GET /api/jobs/{id}/log` read this file.
+Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job_id>.log`. Kept: the log of the latest failed attempt of a video for as long as that video is failed, however old; any other failed job's log for 14 days after its video stopped being failed; and the logs of the 50 newest other jobs. The clean-up runs at every start and deletes only files of that folder whose names are a ULID and `.log`, never anything else (R-LG-01). The error details dialog and `GET /api/jobs/{id}/log` read this file.
 
 ## 3. Event catalogue (initial)
 
@@ -63,6 +63,7 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 | queue | `queue.enqueued`, `queue.paused`, `queue.resumed`, `queue.reordered`, `queue.disk_guard` |
 | download | `download.started`, `download.stage`, `download.retry` (the subtitles failed and the video is downloaded again without them, R-MD-04, or YouTube's "not a bot" check holds the download back, R-ER-05), `download.finished`, `download.failed`, `download.cancelled`. Every line of a download carries its `job_id` (R-LG-02), and the whole output of yt-dlp and ffmpeg goes into the log of the job |
 | ffprobe | `ffprobe.ran` (debug: ffprobe read a file, with its exit code) |
+| log | `log.jobs_deleted` (the clean-up at start deleted logs of jobs, with their count) |
 | file | `file.renamed`, `file.moved`, `file.trashed`, `file.missing`, `file.kept` (a file of a removed channel leads out of its folder through a symlink and is not moved to the Trash, R-CH-32), `file.trash_failed` (a file of a removed channel could not be moved to the Trash, with `error_code`) |
 | exclude | `exclude.manual`, `exclude.rule`, `exclude.restored` |
 | adopt | `adopt.scan`, `adopt.matched`, `adopt.ambiguous`, `adopt.fixed`, `adopt.failed` |

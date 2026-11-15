@@ -83,6 +83,8 @@ yt-mirror/
         naming.py            Title to file name rules (R-FN-*)
         dates.py             Date handling rules (R-DT-*)
         quality.py           Quality selection rules (R-QL-*)
+        jobs.py              Jobs, their states and progress, what a download asks and gives, job log retention
+        media.py             What a finished file contains, and whether it passes verification
         exclusion.py         Rule matching (R-EX-*)
         matching.py          Adoption matching (R-AD-*)
         errors.py            Error codes and the error taxonomy
@@ -91,7 +93,7 @@ yt-mirror/
         ytdlp_gateway.py     Listing, metadata and downloads through yt-dlp
         fixture_youtube.py   The fake YouTube, read from files, which the app can start with (section 10)
         youtube_api.py       Optional Data API client (exact dates)
-        media_tools.py       ffmpeg and ffprobe operations
+        media_tools.py       Reads a finished file with ffprobe (the MediaTools port)
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         notifier_mac.py      macOS notifications
         folder_picker_webview.py  The folder dialog of the app window (section 7.8)
@@ -112,7 +114,9 @@ yt-mirror/
         state.py             The snapshot of the app for the window (section 7.6)
         dates.py             Exact date fetching and date repair
         queue.py             Queue state, ordering, parallelism, pause, limits
-        downloader.py        One job from start to synced
+        downloader.py        One job from start to synced (milestone M3: one worker, Cancel, Retry, details)
+        download_state.py    The downloads that wait or run, in memory: progress, jobs, "Mirroring X of Y"
+        job_logs.py          Deletes the logs of jobs that are no longer kept (R-LG-01)
         adoption.py          Match and repair existing files
         repair.py            Repair metadata, repair dates
         exclusions.py        Manual excludes and rule engine
@@ -246,7 +250,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 Indexes: `(channel_id, channel_position)`, `(channel_id, status)`, `(status)`.
 
 ### jobs
-One row per queued or running piece of work on a video.
+One row per queued or running piece of work on a video. Created by migration 0006 (milestone M3). A row stays after its job ended, so that the clean-up of job logs knows when it ended (R-LG-01). Removing a channel removes the jobs of its videos.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -262,7 +266,7 @@ One row per queued or running piece of work on a video.
 | started_at, finished_at | int, null | |
 
 ### video_events
-Append-only history required by R-LG-03: `id`, `video_id`, `at`, `from_status`, `to_status`, `reason`, `job_id`.
+Append-only history required by R-LG-03: `id`, `video_id`, `at`, `from_status`, `to_status`, `reason`, `job_id`. Created by migration 0006. A status change is written in the same transaction as the job and the video (the JobRepository port). The JobRepository writes only the columns of a video that a download owns (status, file, exact date, last failure), and a check writes only the others, so that a check that runs during a download never undoes it.
 
 ### exclude_rules
 `id`, `channel_id`, `kind` (`title_contains`, `shorter_than`), `value`, `enabled`.
@@ -349,6 +353,8 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 9. Update the video row, record the event, write activity, emit the update.
 10. On any failure: classify the exception into an error code, clean up temp files except resumable partial downloads, set `failed` or re-queue according to the retry policy (R-QU-07).
 
+What milestone M3 builds of this flow (`services/downloader.py`): one worker, which takes jobs in the order of their priority under a lock and keeps everything about a job by its ID, so that M5 can run more. Step 1 checks only that the folder is available; the disk guard (R-QU-10) and the retry policy of step 10 (R-QU-07) arrive with M5. Cancel is asked by the hooks of yt-dlp and before the move of step 7, which is the point of no return (R-QU-02). After a cancel, a failure or a quit, the temp folder of the job is deleted; a start cleans up jobs that a crash left waiting or running, and their videos are "not downloaded" again. M5 replaces this with R-QU-05 (resume from the partial file) and R-QU-06 (queued again at start). YouTube's "not a bot" check (R-ER-05) puts a running job back in line, and the worker takes no job while the app pauses. A subtitle failure is tried once more without subtitles (R-MD-04). A file whose dates do not read back the same is moved out of the channel folder again, so that it never looks finished (R-QA-06).
+
 ### 7.3 yt-dlp configuration (in `ytdlp_gateway.py` only)
 
 Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D-078):
@@ -388,7 +394,7 @@ Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D
 - Modification and access time: `os.utime`.
 - Creation time: `setattrlist` with `ATTR_CMN_CRTIME` through `ctypes` (D-077). It works on APFS and on exFAT. There is no fallback: setting the modification time earlier than the creation time moves the creation time back on APFS only.
 - Verification reads `st_birthtime` and `st_mtime`.
-- Other operations in this adapter: move to Trash (so deletes are recoverable), reveal in Finder, open with the default app, free space of a volume, atomic rename, cross-volume move with copy, verify and delete.
+- Other operations in this adapter: move to Trash (so deletes are recoverable, `NSFileManager.trashItemAtURL`), reveal in Finder (`open -R`), open with the default app (`open`), free space of a volume, a rename that never overwrites (`renamex_np` with `RENAME_EXCL`), whole-file writes through a hidden temp file, the size of a folder, whether a path leaves a folder through a symlink, the delete of the temp folder of one job, and the delete of one job log. Nothing else is ever deleted for good. A cross-volume move (copy, verify, delete) arrives with the milestone that moves folders.
 
 ### 7.6 Events and live updates
 - Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`.
@@ -566,6 +572,7 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
 | `YTM_FAKE_YOUTUBE` | app | A folder with a recorded world of channels (`e2e/fixtures/youtube/`). The app then never talks to the real YouTube. For tests and for reproducing a problem |
 | `YTM_LIBRARY_DIR` | app | The default of the library folder instead of `~/Movies/YouTube`. For tests, so that no test creates a folder in the user's own library |
+| `YTM_TRASH_DIR` | app | A folder that stands for the Trash of macOS: files that "Delete the files" moves to the Trash go there. For tests, so that no test fills the Trash of the person who runs it |
 | `YTM_YOUTUBE_API_KEY` | live tests, probes | A YouTube API key for measurements and, from M4, live tests. The app does not use it: its key is a setting (R-DT-12). Its value is a secret of the logs, so the app removes it from every line (R-LG-07). Never written to a file, a fixture or a commit |
 | `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
 | `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |

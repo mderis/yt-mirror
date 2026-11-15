@@ -63,7 +63,9 @@ Coverage is a floor, not the goal. The review in section 7 is what establishes t
 | `premieres` | Scheduled and premiered videos, for R-DT-03 |
 | `no-subtitles`, `auto-subtitles-only` | Subtitle fallback (R-MD-03) |
 
-The fake gateway produces small real MKV files (a few seconds of generated video and audio) so that file handling, ffprobe verification and dates are tested for real.
+The fake gateway produces small real MKV files (a few seconds of generated video and audio) so that file handling, ffprobe verification and dates are tested for real. It writes them with the real ffmpeg, with the tags, chapters, subtitle track, cover and info JSON that yt-dlp writes (ARCHITECTURE section 7.3), and writes its output into the log of the job. A video of a fixture channel describes its download with these keys, and a channel can give defaults for all its videos under `download`: `published_at` (the exact upload time), `release_at` (the release time of a premiere), `subtitles` (`manual`, `auto` or `none`), `subtitles_fail`, `download_fails` (an error code), `step_delay_ms` (a slow download, to watch its progress), `chapters` (pairs of start and title) and `length_s`.
+
+The end-to-end tests run the real ffmpeg too: the stand-ins of ffmpeg and ffprobe (`e2e/fixtures/tools/tools.mjs`) print their own version for the first-run tests and pass every other call on to the real program, from `YTM_TEST_FFMPEG_DIR` or read from `tools/ffmpeg` of the app folder. Every app of the end-to-end tests has a folder of its own as the Trash (`YTM_TRASH_DIR`), so that no test fills the Trash of the person who runs it.
 
 Recorded answers of yt-dlp for real channels and videos are stored (with titles, names and IDs replaced) in `backend/tests/fixtures/ytdlp/` and used to test the gateway's parsing. `python -m ytmirror.tools.record_ytdlp` refreshes these recordings on demand.
 
