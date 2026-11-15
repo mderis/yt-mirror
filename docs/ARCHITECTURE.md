@@ -509,14 +509,16 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | POST `/channels/{id}/open-folder` | Open in Finder |
 | GET `/channels/{id}/videos` | The catalogue (all rows, compact fields) |
 | GET `/channels/{id}/avatar`, `/videos/{id}/thumbnail` | A cached picture, or `NOT_FOUND` at once when it is not cached (R-CH-16, D-067) |
-| GET `/videos/{id}` | Full details for the panel |
-| POST `/videos/mirror` | Queue videos (`ids`, optional `first`) |
+| GET `/videos/{id}` | Full details for the panel (from M3: the facts of the file, read with ffprobe, and the description and chapters of the saved metadata) |
+| POST `/videos/mirror` | Queue videos (`ids`, optional `first` from M5). From M3 |
+| POST `/videos/{id}/retry` | Put a failed video in line again (R-QU-08). From M3 |
+| GET `/channels/{id}/files-to-trash` | How many files and how much room "Delete the files" moves to the Trash (R-CH-32). From M3 |
 | POST `/videos/exclude` , `/videos/restore` | Exclude and restore (`ids`, `file_action`) |
 | POST `/videos/redownload`, `/videos/repair-metadata` | |
-| POST `/videos/{id}/play`, `/videos/{id}/reveal` | |
+| POST `/videos/{id}/play`, `/videos/{id}/reveal` | By video ID, never a path (R-UI-10). From M3 |
 | GET `/queue` | Full queue |
 | POST `/queue/pause`, `/queue/resume`, `/queue/reorder`, `/queue/clear-waiting` | |
-| POST `/jobs/{id}/cancel`, `/jobs/{id}/retry` | |
+| POST `/jobs/{id}/cancel` | Cancel a job that waits or runs (R-QU-02). From M3 |
 | GET, PUT `/channels/{id}/exclude-rules` | Rules, with `POST .../preview` (R-EX-06) |
 | POST `/channels/{id}/adopt/scan`, GET `.../adopt`, POST `.../adopt/apply` | Adoption (R-AD-*) |
 | POST `/channels/{id}/repair-dates` | |

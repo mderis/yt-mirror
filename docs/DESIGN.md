@@ -360,3 +360,15 @@ An element whose target a later milestone builds is not shown before that milest
 | A channel waits for YouTube (R-FB-01) | Sidebar: "Waiting for YouTube" with a clock icon, and the time of the next attempt as tooltip. Header of a first listing: "Waiting for YouTube. The next attempt is at 06:57." |
 | A failed check is tried again (R-CH-25, D-076) | The status says "Checking for new videos...". The banner of the failed check stays, says "Trying again now." and its "Try again" is busy. A failed first listing that is tried again shows the progress page of a first listing |
 | The window is not connected to its server | The brand icon, "Connecting to yt-mirror", or the error with "Try again" (R-ER-04) |
+
+### 8.9 Downloads (milestone M3)
+
+| Element | What the app does, and how it differs from the mockups |
+|---|---|
+| Rows (`Main.html`) | Every status chip of `States.html`. The actions of a row follow its status: Mirror, Cancel, Retry, or Play and Show in Finder. Selecting several rows, the bulk bar, the queue footer and "More actions" of a video arrive with M5 (D-066) |
+| Cancel while processing | Offered on a row that is processed, although `Main.html` shows no Cancel there: the maintainer asked for Cancel during the merge (D-080) |
+| The title of a row | A button that opens the details panel. `Main.html` draws plain text; there is no other way to the panel before the keyboard shortcuts of M5 |
+| The details panel (`Details.html`) | The chapters are a list under the description; the mockup shows only "6 chapters". Copy link, Re-download, Repair metadata and Exclude forever are not shown before their milestones (D-066). A video that is not downloaded shows Mirror in the place of Play |
+| The remove dialog (`RemoveChannel.html`) | The group of choices has the visible legend "The files of the channel". The hint of "Delete the files" says how many files and how much room go to the Trash, and that the other files of the folder stay |
+| The highlight of an exact date (R-DT-13) | A background of `ok-bg` that fades over `duration-arrive` (1200 ms). With "reduce motion" its duration is 0 |
+
