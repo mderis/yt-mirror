@@ -3,14 +3,14 @@
 This file is the single source of truth for where the project stands. Read it at the start of every session. It is updated only inside milestone pull requests, so `main` always shows what has really been merged.
 
 **Version in progress:** 1.0
-**Next milestone to start:** M3
+**Next milestone to start:** M4
 
 | Milestone | Title | Status | Branch | Pull request | Merged |
 |---|---|---|---|---|---|
 | M0 | Project skeleton and tooling | Done | `m0-project-skeleton` | [#1](https://github.com/mderis/yt-mirror/pull/1) | 2026-11-13 |
 | M1 | Toolchain and app identity | Done | `m1-toolchain-and-app-identity` | [#2](https://github.com/mderis/yt-mirror/pull/2) | 2026-11-14 |
 | M2 | Channels and catalogue | Done | `m2-channels-and-catalogue` | [#3](https://github.com/mderis/yt-mirror/pull/3) | 2026-11-14 |
-| M3 | Downloading one video correctly | In progress | `m3-download-one-video` | [#4](https://github.com/mderis/yt-mirror/pull/4) | |
+| M3 | Downloading one video correctly | In review | `m3-download-one-video` | [#4](https://github.com/mderis/yt-mirror/pull/4) | |
 | M4 | Exact dates and automatic checks | Not started | | | |
 | M5 | Queue | Not started | | | |
 | M6 | Excluding | Not started | | | |
@@ -26,6 +26,18 @@ Status values: `Not started`, `In progress` (branch and draft pull request), `In
 
 Short facts the next session needs and cannot get from the code or the other docs: an open question that was answered, something that was deliberately postponed, a known problem. Newest first. Remove a note when it no longer matters.
 
+- **M4 owes the rename of a file named by its video ID (R-FN-01, R-FN-06).** A title with nothing storable gives `<video id>.mkv`. When the title later changes to one that leaves something, the rename of R-FN-06 gives the file its title. The maintainer asked for a test of exactly that case.
+- **The real Trash of macOS has not run in a test (M3).** Every test and every end-to-end app uses a folder of its own as the Trash (`YTM_TRASH_DIR`), so no test fills the Trash of the person who runs it. On the manual checklist: remove a channel with "Delete the files", see the files in the Trash, and "Put Back" one.
+- **`.yt-mirror/channel.json` is in the layout of SPEC 6.1, but no requirement creates it yet.** It is for re-linking a moved folder. Ask the maintainer which milestone writes it.
+- **Open from M2: two full checks in the logs of 12:27.** The code and the tests of M3 show no way for "Check now" to run a full check: only a channel that was never listed, or a waiting quick check replaced by a full one, turns full. The two `check.started` lines of the maintainer's log (with `kind` and `first_listing`) would say which.
+- **M5 changes what a quit does to a download (D-080).** In M3 a quit, a crash or a cancel deletes the temp folder of the job and the video is "not downloaded" again. R-QU-05 (resume from the partial file) and R-QU-06 (queued again at start) replace this in M5, and keep a partial file in the hidden `tmp/` folder.
+- **M3 runs one download at a time.** The downloader takes jobs under a lock and keeps everything by job ID, so M5 only raises the number of workers (R-QU-01). There is no setting for it yet.
+- **R-MI-01 is partly done (M3).** Mirror works for one video, from its row and from the details panel, and several presses queue several jobs. Selecting several rows and the bulk bar arrive in M5. No test names R-MI-01 for selection.
+- **The settings of downloads are stored with their defaults (M3), without controls.** Default quality (Best available), English subtitles and the auto-generated fallback (on), the thumbnail next to the video (off). Their controls come with the settings screen of M7.
+- **Cancel is offered while a video is processed, although `Main.html` shows none there (D-080).** The maintainer asked for Cancel during the merge.
+- **Q-27 moved to M4.** No channel with a scheduled premiere or a members-only video was found in M3. The fixture channel `premieres` stands in for both until then.
+- **Not checked by a person yet (M3).** On the manual checklist (TESTING section 8): a downloaded file plays in IINA with its chapters, subtitles and cover; Finder sorts by Date Created in the order of the channel; Get Info shows the published time. The live test downloaded a real video and checked the file and its dates by program.
+- **`YTM_TRASH_DIR` (M3).** Tests and the end-to-end apps give the app a folder of its own as the Trash, so that "Delete the files" never fills the Trash of the person who runs them. No test may use the real Trash.
 - **The help of M7 recommends IINA for playing the MKV files (R-UI-10).** "Play" keeps opening the user's default player. The help says why: IINA is free and plays MKV with its chapters and subtitles.
 - **Hand tests that delete a tool are done on a copy of the app folder (TESTING rule 9).** In the review of M2, `rm -r tools/deno tools/ffmpeg` followed by `./start` was run again from the shell history of M1, so the tools were downloaded again at two starts. No code was at fault. The backend test session and the smoke test now fail when the tools of the app folder change.
 - **The design of the exact date fetch for M4 is a proposal in OPEN-QUESTIONS,** with the measurements with and without the free API key. With the key, 6,599 videos got their exact dates in 132 requests and 153 seconds. Decide it in the plan of M4.
@@ -35,11 +47,10 @@ Short facts the next session needs and cannot get from the code or the other doc
 - **A metadata lookup of one video takes 3.5 to 10 seconds from the maintainer's network (M2, for M4).** The numbers and what follows from them are in OPEN-QUESTIONS (Q-08). From the CI runners of GitHub every such lookup was refused with the "not a bot" check, so nothing that looks up a video can be tested live in CI.
 - **YouTube is reachable from the maintainer's Mac only on and off.** Requests sometimes stall completely for a while. The gateway has its own time limits. Live tests can fail for this reason alone: run them again before believing a failure.
 - **The video list is not virtual before M5.** A channel of 5,000 videos takes about two seconds to draw in WebKit, once per load of its catalogue. The list is built so that nothing else draws it again (D-073).
-- **The quality and "what to mirror" of a channel are only stored (M2).** They take effect in M3 (quality) and M5 (auto-mirror). The date of "only videos uploaded after" is stored as the start of that day in the time zone of the Mac.
+- **"What to mirror" of a channel is only stored (M2).** It takes effect in M5 (auto-mirror). The quality of a channel applies to downloads from M3. The date of "only videos uploaded after" is stored as the start of that day in the time zone of the Mac.
 - **The Chromium screenshots come from CI.** After an intended visual change, run WebKit locally, push, and take the new Chromium images from the `e2e-results` artifact of the failed run.
 - **The native Mac app relies on the pinned pywebview (M1).** How it works: ARCHITECTURE section 7.10 and decisions D-048 to D-052. pywebview stays pinned exactly. The tests with a real window (`backend/tests/integration/app/test_window_app.py`) are the guard for an update. The menu bar of M5 is built through the same adapter (`adapters/native_app_mac.py`), with public calls of pywebview and AppKit only.
 - **M5 builds the quit confirmation on the quit path of M1 (D-052).** M1 built only the shutdown work: nothing in the app listens to the `closing` event, and no quit is ever held. What exists when: the table in ARCHITECTURE section 7.10. The decision part, to be built in M5, hangs on the `closing` event of the pywebview window, which also fires for Cmd+Q, the Dock and a logout. A logout, a restart and a shutdown must never be held for a question: the quit request of macOS carries its reason. The experiment code for all of this is not in the repository: the decision record describes it.
-- **M3: the gateway tests run against both ffmpeg sources (D-053).** The second source is a patched fork. Until then only the self-check of both sources runs, in the smoke test of CI.
 - **M7 owes the activity entry of an installed tool (R-IN-03, D-057).** It names the source the tool came from. Until the activity log exists, the source is in the debug log, in `./start --doctor` and in `/api/tools`: the maintainer accepted this in the review of M1.
 - **M9 must ship the icon source file and the token file in the release archive (D-056),** or the installer cannot build the app bundle. The installer builds the bundle with `app/bundle.py`, with the identity of an installed copy ("yt-mirror").
 - **Not checked by a person yet (M1).** The manual checklist of TESTING section 8 has four new items: the name and icon in the Dock, the app switcher and Activity Monitor, a real click on the Dock icon, the Edit shortcuts typed by hand, and a real logout, restart and shutdown on the maintainer's Mac. Automated tests and the experiment of Q-24 cover the mechanisms behind each of them.
@@ -48,7 +59,7 @@ Short facts the next session needs and cannot get from the code or the other doc
 - **Do not start M7 without the About window mockup.** The maintainer supplies it before M7 (R-NA-05, DESIGN section 7.2). If `docs/design/v1/` has no About mockup when an M7 session starts, stop and ask for it.
 - **Labelling tests (TESTING rule 1, D-046).** A test whose behaviour no requirement states is a spec gap: propose the requirement to the maintainer, do not mark the test `infra` and do not borrow an ID.
 - **Q-09 is still not checked by a person.** The folder dialog is built on what the window library documents, and tested with a stand-in window. Nobody has clicked a folder in the real dialog yet. It is on the manual checklist (TESTING section 8).
-- **Stubs that later milestones replace:** `./start --update` only says it is not available (M9). `./start --doctor` checks what exists so far, the tools included, not the network (M7). The fake YouTube has the channels of M2 only: `failures`, `premieres` and the subtitle channels arrive with M3.
+- **Stubs that later milestones replace:** `./start --update` only says it is not available (M9). `./start --doctor` checks what exists so far, the tools included, not the network (M7). The fake YouTube has every channel of TESTING section 4.
 - **The requirements coverage script only reports.** CI switches to `--strict` in M11.
 - **TypeScript is 5.9 on purpose** (D-039). Move to a newer one when `openapi-typescript` and `typescript-eslint` support it.
 - **Playwright's own Chromium cannot be downloaded on the maintainer's Mac** (the download server refuses the location). There, local runs use the installed Chrome with `YTM_E2E_CHROME_CHANNEL=chrome`, and Playwright's own Chromium runs only in CI. WebKit runs locally and in CI. See TESTING section 6.
