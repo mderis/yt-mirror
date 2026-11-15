@@ -37,6 +37,7 @@ function download(changes: Partial<Download> = {}): Download {
     speed_bps: 3_100_000,
     left_s: 65,
     height: 1080,
+    downloaded_bytes: 1_200_000_000,
     ...changes,
   }
 }
@@ -78,6 +79,48 @@ describe('downloading videos', () => {
     expect(
       within(row()).getByRole('button', { name: 'Cancel the download of Video 1' }),
     ).toBeTruthy()
+  })
+
+  it('R-QU-04: the percent and the bar grow as the whole video arrives', async () => {
+    const app = await openWith()
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'downloading', job_id: 'J1' }))
+    const bar = () => within(row()).getByRole('progressbar', { name: 'Progress of Video 1' })
+
+    for (const [fraction, percent] of [
+      [0.1, '10'],
+      [0.55, '55'],
+      [0.9, '90'],
+    ] as const) {
+      app.stream().jobProgress(download({ fraction, stage: fraction < 0.75 ? 'video' : 'audio' }))
+      await waitFor(() => expect(within(row()).getByText(`Downloading ${percent}%`)).toBeTruthy())
+      expect(bar().getAttribute('aria-valuenow')).toBe(percent)
+      expect((bar().firstElementChild as HTMLElement).style.width).toBe(`${percent}%`)
+    }
+  })
+
+  it('R-QU-04: without a size the row says how much arrived, and makes up no percent', async () => {
+    const app = await openWith()
+
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'downloading', job_id: 'J1' }))
+    app.stream().jobProgress(download({ fraction: null, downloaded_bytes: 120_000_000 }))
+
+    await waitFor(() => expect(within(row()).getByText('Downloading · 120 MB')).toBeTruthy())
+    const bar = within(row()).getByRole('progressbar', { name: 'Progress of Video 1' })
+    expect(bar.hasAttribute('aria-valuenow')).toBe(false)
+    expect(bar.querySelector('[data-working]')).not.toBeNull()
+  })
+
+  it('R-QU-04: while the video is processed the bar shows that the step runs, with no percent', async () => {
+    const app = await openWith()
+
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'processing', job_id: 'J1' }))
+    app.stream().jobProgress(download({ stage: 'processing', fraction: null }))
+
+    await waitFor(() => expect(within(row()).getByText('Processing')).toBeTruthy())
+    const bar = within(row()).getByRole('progressbar', { name: 'Progress of Video 1' })
+    expect(bar.hasAttribute('aria-valuenow')).toBe(false)
+    expect(bar.querySelector('[data-working]')).not.toBeNull()
+    expect(row().textContent).not.toMatch(/\d+%/)
   })
 
   it('R-QU-04: a download that runs when the list is loaded shows its progress at once', async () => {

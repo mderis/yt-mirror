@@ -53,10 +53,21 @@ const date = computed(() =>
 const download = computed(() => videos.downloadOf(video.value.id))
 const isOpen = computed(() => videos.openVideoId === video.value.id)
 
-/** The percent of the stage that is done, or null when it is not known. */
+/** The percent of the whole video that is done, or null when it is not known (R-QU-04). */
 const percent = computed(() => {
   const fraction = download.value?.fraction
   return fraction === null || fraction === undefined ? null : Math.round(fraction * 100)
+})
+
+/** What the chip of a download says: the percent, else the bytes that arrived. */
+const downloadingText = computed(() => {
+  if (percent.value !== null) {
+    return t('channel.list.downloading', { percent: percent.value })
+  }
+  const arrived = download.value?.downloaded_bytes
+  return arrived
+    ? t('channel.list.downloadingSize', { size: formatBytes(arrived) })
+    : t('channel.list.downloadingStarting')
 })
 
 /** "1080p · 3.1 MB/s · 1 min left" while bytes arrive (R-QU-04). */
@@ -171,11 +182,7 @@ function cancel(): void {
           {{ t('channel.list.queued') }}
         </StatusChip>
         <StatusChip v-else-if="video.status === 'downloading'" tone="progress" icon="download">
-          {{
-            percent === null
-              ? t('channel.list.downloadingStarting')
-              : t('channel.list.downloading', { percent })
-          }}
+          {{ downloadingText }}
         </StatusChip>
         <StatusChip v-else-if="video.status === 'processing'" tone="progress" icon="retry">
           {{ t('channel.list.processing') }}

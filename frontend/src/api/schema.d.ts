@@ -850,14 +850,19 @@ export interface components {
      *         video_id: The video.
      *         channel_id: Its channel.
      *         stage: Video, audio or processing.
-     *         fraction: How much of the stage is done, from 0 to 1, or None.
+     *         fraction: How much of the whole video is done, its streams together, from 0
+     *             to 1. None while it is processed, or when a size is not known.
      *         speed_bps: Bytes per second, or None.
-     *         left_s: Seconds left of the stage, or None.
+     *         left_s: Seconds left of the download, or None.
      *         height: The height being downloaded, or None.
+     *         downloaded_bytes: How many bytes arrived, or None. Shown when the
+     *             fraction is not known.
      */
     Download: {
       /** Channel Id */
       channel_id: string
+      /** Downloaded Bytes */
+      downloaded_bytes: number | null
       /** Fraction */
       fraction: number | null
       /** Height */

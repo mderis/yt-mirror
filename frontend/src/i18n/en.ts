@@ -286,6 +286,7 @@ export const en = {
       queued: 'Queued',
       downloading: 'Downloading {percent}%',
       downloadingStarting: 'Downloading',
+      downloadingSize: 'Downloading · {size}',
       processing: 'Processing',
       synced: 'Synced · {height}p',
       syncedWithoutHeight: 'Synced',

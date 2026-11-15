@@ -121,3 +121,25 @@
 @utility animate-arrive {
   animation: ytm-arrive var(--ytm-duration-arrive) ease-out;
 }
+
+/* A step that runs without a known share (processing, or a size YouTube did not give):
+   a short part of the bar moves across it. Under "reduce motion" the bar is full,
+   dimmed and still, so it never looks like a percentage. */
+@keyframes ytm-working {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@utility animate-working {
+  width: 40%;
+  animation: ytm-working var(--ytm-duration-working) ease-in-out infinite;
+  @media (prefers-reduced-motion: reduce) {
+    width: 100%;
+    opacity: 0.5;
+    animation: none;
+  }
+}

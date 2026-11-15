@@ -205,19 +205,26 @@ class FixtureYouTube:
         if plan.fails is not None:
             raise AppError(plan.fails, {"message": f"the fixture fails {request.video_id}"})
         subtitles = _chosen_subtitles(plan.subtitles, request)
+        # As the real gateway reports it: one share of the whole video, the video
+        # stream first (three quarters of the bytes), then the audio stream.
+        sizes = {Stage.VIDEO: _VIDEO_BYTES, Stage.AUDIO: _AUDIO_BYTES}
+        total = _VIDEO_BYTES + _AUDIO_BYTES
+        arrived = 0
         for stage in (Stage.VIDEO, Stage.AUDIO):
-            for step in (1, 2, 3, 4):
+            for _ in range(4):
                 if is_cancelled():
                     raise DownloadCancelledError(f"cancelled during {stage.value}")
                 if plan.step_delay_s:
                     self._sleep(plan.step_delay_s)
+                arrived += sizes[stage] // 4
                 on_progress(
                     DownloadProgress(
                         stage=stage,
-                        fraction=step / 4,
+                        fraction=None if plan.size_unknown else arrived / total,
                         speed_bps=1_500_000.0,
-                        left_s=4 - step,
+                        left_s=None if plan.size_unknown else round((total - arrived) / 1_500_000),
                         height=_HEIGHT if stage is Stage.VIDEO else None,
+                        downloaded_bytes=arrived,
                     )
                 )
         on_progress(DownloadProgress(stage=Stage.PROCESSING))
@@ -504,6 +511,7 @@ class _FixtureChannel:
             subtitles_fail=bool(entry.get("subtitles_fail", False)),
             fails=ErrorCode(fails) if fails else None,
             step_delay_s=float(entry.get("step_delay_ms", 0)) / 1000,
+            size_unknown=bool(entry.get("size_unknown", False)),
             chapters=tuple(
                 Chapter(start_s=float(start), title=str(title))
                 for start, title in entry.get("chapters", [[0, "Start"], [1, "The middle"]])
@@ -548,6 +556,10 @@ class _FixtureChannel:
 _HEIGHT = 270
 """The height of every fake video file."""
 
+_VIDEO_BYTES = 6_000_000
+_AUDIO_BYTES = 2_000_000
+"""The sizes the fake reports for the two streams of a video."""
+
 
 @dataclass(frozen=True, slots=True)
 class _DownloadPlan:
@@ -562,6 +574,7 @@ class _DownloadPlan:
     subtitles_fail: bool
     fails: ErrorCode | None
     step_delay_s: float
+    size_unknown: bool
     chapters: tuple[Chapter, ...]
 
 

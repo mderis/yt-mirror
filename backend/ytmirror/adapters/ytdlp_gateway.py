@@ -543,7 +543,15 @@ class GatewayTools:
 
 
 class _Steps:
-    """Turns the hooks of yt-dlp into progress, and ends the download when it is cancelled."""
+    """Turns the hooks of yt-dlp into progress, and ends the download when it is cancelled.
+
+    What the real yt-dlp reports, in order (seen with a real download in M3):
+    the step that adds the tags and the conversion of the thumbnail, both
+    before the download; the subtitle file; the video stream; the audio
+    stream; then the processing steps. Only the two media streams count for
+    the percentage, which is one for the whole video. Only a step after the
+    first byte of a stream is processing.
+    """
 
     def __init__(
         self, on_progress: Callable[[DownloadProgress], None], is_cancelled: Callable[[], bool]
@@ -551,44 +559,73 @@ class _Steps:
         self._on_progress = on_progress
         self._is_cancelled = is_cancelled
         self.current: str | None = None
+        self._streams_started = False
+        self._finished: dict[str, int] = {}
 
     def downloading(self, report: Mapping[str, Any]) -> None:
-        """The progress hook: called while the bytes of a stream arrive."""
+        """The progress hook: called while the bytes of a file arrive."""
         if self._is_cancelled():
             raise DownloadCancelledError("cancelled while downloading")
+        stream = _mapping(report.get("info_dict"))
+        if not _is_media(stream):
+            return  # the subtitle file
+        self._streams_started = True
+        done = _int(report.get("downloaded_bytes"))
+        own_total = _int(report.get("total_bytes") or report.get("total_bytes_estimate"))
+        format_id = str(stream.get("format_id"))
+        if report.get("status") == "finished":
+            self._finished[format_id] = own_total or done or 0
+            return
         if report.get("status") != "downloading":
             return
-        stream = _mapping(report.get("info_dict"))
+        listed = stream.get("requested_formats")
+        streams = [
+            _mapping(item)
+            for item in (cast(list[object], listed) if isinstance(listed, list) else [])
+        ] or [stream]
+        ids = [str(item.get("format_id")) for item in streams]
+        index = ids.index(format_id) if format_id in ids else 0
+        sizes = [_int(item.get("filesize") or item.get("filesize_approx")) for item in streams]
+        sizes[index] = own_total or sizes[index]
+        for number, other in enumerate(ids):
+            if other in self._finished:
+                sizes[number] = self._finished[other]
+        before = sum(self._finished.get(other, 0) for other in ids[:index])
+        arrived = before + (done or 0)
+        total = None if None in sizes else sum(size for size in sizes if size is not None)
+        speed = report.get("speed")
         has_video = stream.get("vcodec") not in (None, "none")
-        done = report.get("downloaded_bytes")
-        total = report.get("total_bytes") or report.get("total_bytes_estimate")
         self._on_progress(
             DownloadProgress(
                 stage=Stage.VIDEO if has_video else Stage.AUDIO,
-                fraction=min(1.0, done / total) if done is not None and total else None,
-                speed_bps=report.get("speed"),
-                left_s=_int(report.get("eta")),
+                fraction=min(1.0, arrived / total) if total else None,
+                speed_bps=speed,
+                left_s=round((total - arrived) / speed)
+                if total and isinstance(speed, int | float) and speed > 0
+                else _int(report.get("eta")),
                 height=_int(stream.get("height")) if has_video else None,
+                downloaded_bytes=arrived,
             )
         )
 
     def processing(self, report: Mapping[str, Any]) -> None:
         """The post-processor hook: called before and after each processing step.
 
-        It is also called for the step that adds the tags, which runs before
-        the download: a cancel ends the download there, but it is no processing.
+        Steps before the streams (the tags, the thumbnail) may end the download
+        when it is cancelled, but they are no processing of the video.
         """
         step = str(report.get("postprocessor"))
-        if step == TAGS_STEP:
-            if self._is_cancelled():
-                raise DownloadCancelledError(f"cancelled at {step}")
-            return
-        if report.get("status") == "started":
+        if step != TAGS_STEP and report.get("status") == "started":
             self.current = step
         if self._is_cancelled():
-            raise DownloadCancelledError(f"cancelled at {self.current}")
-        if report.get("status") == "started":
+            raise DownloadCancelledError(f"cancelled at {step}")
+        if self._streams_started and report.get("status") == "started" and step != TAGS_STEP:
             self._on_progress(DownloadProgress(stage=Stage.PROCESSING))
+
+
+def _is_media(stream: Mapping[str, Any]) -> bool:
+    """Whether a file yt-dlp downloads is a stream of the video: it has a codec."""
+    return any(stream.get(codec) not in (None, "none") for codec in ("vcodec", "acodec"))
 
 
 def _subtitles_for(

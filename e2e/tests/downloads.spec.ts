@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import AxeBuilder from '@axe-core/playwright'
@@ -91,6 +91,86 @@ test('R-QU-02: a download that is cancelled leaves nothing, and Mirror works aga
   expect(readdirSync(join(folder, '.yt-mirror', 'tmp'))).toEqual([])
   await row(page, FIRST).getByRole('button', { name: 'Mirror' }).click()
   await expect(row(page, FIRST).getByText('Synced · 270p')).toBeVisible({ timeout: 20_000 })
+})
+
+test('R-QU-04: the percent and the bar of a row grow as the fake YouTube sends progress in steps', async ({
+  page,
+  freshApp,
+}) => {
+  await openChannel(page, freshApp)
+  // Notes every text of the chip and every width of the bar the row shows.
+  await page.evaluate((videoId) => {
+    const seen: { chip: string; width: string; working: boolean }[] = []
+    ;(window as unknown as { seen: typeof seen }).seen = seen
+    const target = document.querySelector(`[data-video="${videoId}"]`)
+    if (target === null) throw new Error('no row')
+    const note = (): void => {
+      const chip = target.querySelector('[data-chips]')?.textContent?.trim() ?? ''
+      const fill = target.querySelector('[role="progressbar"]')
+        ?.firstElementChild as HTMLElement | null
+      const entry = {
+        chip,
+        width: fill?.style.width ?? '',
+        working: fill?.hasAttribute('data-working') ?? false,
+      }
+      const last = seen.at(-1)
+      if (!last || last.chip !== entry.chip || last.width !== entry.width) seen.push(entry)
+    }
+    new MutationObserver(note).observe(target, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+    })
+  }, FIRST)
+
+  await row(page, FIRST).getByRole('button', { name: 'Mirror' }).click()
+  await expect(row(page, FIRST).getByText('Synced · 270p')).toBeVisible({ timeout: 20_000 })
+
+  const seen = await page.evaluate(
+    () => (window as unknown as { seen: { chip: string; width: string; working: boolean }[] }).seen,
+  )
+  const percents = seen
+    .map((entry) => /Downloading (\d+)%/.exec(entry.chip)?.[1])
+    .filter((value): value is string => value !== undefined)
+    .map(Number)
+  const widths = seen
+    .filter((entry) => /Downloading \d+%/.test(entry.chip))
+    .map((entry) => Number.parseFloat(entry.width))
+  expect(new Set(percents).size).toBeGreaterThanOrEqual(3)
+  expect(percents).toEqual([...percents].sort((a, b) => a - b))
+  expect(Math.max(...percents)).toBeGreaterThanOrEqual(75)
+  expect(widths).toEqual([...widths].sort((a, b) => a - b))
+  expect(widths).toEqual(percents)
+  const processing = seen.filter((entry) => entry.chip.startsWith('Processing'))
+  expect(processing.length).toBeGreaterThan(0)
+  expect(processing.every((entry) => entry.working && !/%/.test(entry.chip))).toBe(true)
+  const firstProcessing = seen.findIndex((entry) => entry.chip.startsWith('Processing'))
+  const lastDownloading = seen.findLastIndex((entry) => /Downloading \d+%/.test(entry.chip))
+  expect(firstProcessing).toBeGreaterThan(lastDownloading)
+})
+
+test('R-CH-32, R-QA-06: removing a channel while its video downloads leaves no file and no folder', async ({
+  page,
+  freshApp,
+}) => {
+  await openChannel(page, freshApp)
+  const folder = join(freshApp.libraryDir, 'Sample Channel One')
+
+  await row(page, FIRST).getByRole('button', { name: 'Mirror' }).click()
+  await expect(row(page, FIRST).getByText(/Downloading \d+%/)).toBeVisible()
+  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('menuitem', { name: 'Remove channel' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Remove Sample Channel One?' })
+  await dialog.getByRole('radio', { name: /Delete the files/ }).check()
+  await dialog.getByRole('button', { name: 'Remove channel' }).click()
+
+  await expect(sidebar(page).getByRole('button', { name: /Sample Channel One/ })).toHaveCount(0)
+  await expect.poll(() => existsSync(folder)).toBe(false)
+  // The download that was stopped must not write anything into the folder afterwards.
+  await page.waitForTimeout(1500)
+  expect(existsSync(folder)).toBe(false)
+  expect(((await freshApp.api('/state')) as { channels: unknown[] }).channels).toEqual([])
 })
 
 test('R-CH-32: "Delete the files" moves the files of a channel to the Trash and keeps a file of the user', async ({

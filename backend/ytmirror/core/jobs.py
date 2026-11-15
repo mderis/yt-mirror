@@ -94,10 +94,11 @@ class JobProgress:
         video_id: The video.
         channel_id: The channel of the video.
         stage: What the download does now.
-        fraction: How much of the stage is done, from 0 to 1, or None when unknown.
+        fraction: How much of the whole video is done, from 0 to 1, or None when unknown.
         speed_bps: Bytes per second, or None.
         left_s: Seconds left, or None.
         height: The height that is being downloaded, or None.
+        downloaded_bytes: How many bytes arrived, or None.
     """
 
     job_id: str
@@ -108,6 +109,7 @@ class JobProgress:
     speed_bps: float | None = None
     left_s: int | None = None
     height: int | None = None
+    downloaded_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,10 +226,13 @@ class DownloadProgress:
 
     Attributes:
         stage: Video, audio or processing.
-        fraction: How much of the stage is done, from 0 to 1, or None.
+        fraction: How much of the whole video is done, its streams together,
+            from 0 to 1. None while processing, or when a size is not known.
         speed_bps: Bytes per second, or None.
-        left_s: Seconds left of the stage, or None.
+        left_s: Seconds left of the whole download, or None.
         height: The height that is being downloaded, or None.
+        downloaded_bytes: How many bytes of the video arrived, its streams
+            together, or None. Shown when the fraction is not known.
     """
 
     stage: Stage
@@ -235,6 +240,7 @@ class DownloadProgress:
     speed_bps: float | None = None
     left_s: int | None = None
     height: int | None = None
+    downloaded_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

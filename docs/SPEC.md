@@ -158,7 +158,7 @@ Design: `Downloads.html`.
 | R-QU-01 | Downloads run in parallel up to a setting (1 to 5, default 2). |
 | R-QU-02 | The user can pause all, resume all, cancel one, remove a waiting item, clear all waiting items, and reorder waiting items by drag and drop. "Mirror first" puts a video at the top. Cancel works while a video waits, downloads or is processed (merged, its metadata embedded), until its file is moved into the channel folder, which is the point of no return: then the video ends synced. A cancelled video is "not downloaded" again, nothing of its download is left in the channel folder, no file of another video is touched, and Mirror works again. |
 | R-QU-03 | A global speed limit (unlimited or a value in MB/s) applies to the sum of all downloads. |
-| R-QU-04 | Each download shows stage (Video, Audio, Processing), percent, speed and time left. |
+| R-QU-04 | Each download shows stage (Video, Audio, Processing), percent, speed and time left. The percent is one for the whole video: its video and audio streams, which YouTube sends as two downloads, count together, and the bar fills with it. When YouTube gives no size, no percent is made up: the download shows how much has arrived. While the video is processed (merge and embed) the bar shows that the step runs, with no percent. |
 | R-QU-05 | An interrupted download (quit, crash, network loss) continues from the partial file the next time it runs. |
 | R-QU-06 | On start, items that were downloading or queued are queued again in their previous order. |
 | R-QU-07 | Transient failures (network, rate limit, server errors) are retried up to 3 times with increasing delays. Permanent failures (members-only, private, age-restricted, removed, geo-blocked) are not retried automatically. |

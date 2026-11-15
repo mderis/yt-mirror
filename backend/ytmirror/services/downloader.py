@@ -987,6 +987,7 @@ class DownloaderService:
             speed_bps=progress.speed_bps,
             left_s=progress.left_s,
             height=progress.height,
+            downloaded_bytes=progress.downloaded_bytes,
         )
         self._state.progressed(told)
         now = self._clock.monotonic()

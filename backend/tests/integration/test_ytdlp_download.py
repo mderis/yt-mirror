@@ -38,6 +38,8 @@ class FakeYtDlp:
         tags: The tags of the last download.
         fail: An error to raise at a processing step, as (step, error), or None.
         write_mkv: Whether the merged file is written.
+        video_size: The size YouTube gives for the video stream, or None.
+        audio_size: The size YouTube gives for the audio stream, or None.
     """
 
     def __init__(self) -> None:
@@ -46,6 +48,8 @@ class FakeYtDlp:
         self.tags: Mapping[str, str] = {}
         self.fail: tuple[str, Exception] | None = None
         self.write_mkv = True
+        self.video_size: int | None = 3000
+        self.audio_size: int | None = 1000
 
     def __call__(
         self, address: str, options: Mapping[str, Any], tags: Mapping[str, str]
@@ -59,24 +63,44 @@ class FakeYtDlp:
         options["logger"].info(f"[youtube] Extracting URL: {address}")
         # The step that adds the tags of the app runs before the download, and
         # yt-dlp calls the hook for it too (test_ytdlp_real_download.py).
-        processing({"status": "started", "postprocessor": TAGS_STEP})
-        processing({"status": "finished", "postprocessor": TAGS_STEP})
+        # Before the download (seen with the real yt-dlp): the tags step, then the
+        # conversion of the thumbnail, then the subtitle file, which has no codec.
+        for step in (TAGS_STEP, "FFmpegThumbnailsConvertor"):
+            processing({"status": "started", "postprocessor": step})
+            processing({"status": "finished", "postprocessor": step})
         (folder / f"{VIDEO_ID}.jpg").write_bytes(b"jpeg")
-        video = {"vcodec": "av01", "height": 480, "format_id": "397"}
+        subtitle = {"ext": "vtt", "url": "https://example.invalid/en.vtt"}
+        progress({"status": "downloading", "info_dict": subtitle, "downloaded_bytes": 10})
+        progress({"status": "finished", "info_dict": subtitle, "downloaded_bytes": 10})
+        video = {"vcodec": "av01", "acodec": "none", "height": 480, "format_id": "397"}
         audio = {"vcodec": "none", "acodec": "opus", "format_id": "251"}
+        sizes = {"397": self.video_size, "251": self.audio_size}
+        requested = [
+            {**video, "filesize": sizes["397"]},
+            {**audio, "filesize_approx": sizes["251"]},
+        ]
         for stream in (video, audio):
-            for done in (500, 1000):
+            format_id = str(stream["format_id"])
+            total = sizes[format_id] or 1000
+            for done in (total // 2, total):
                 progress(
                     {
                         "status": "downloading",
-                        "info_dict": stream,
+                        "info_dict": {**stream, "requested_formats": requested},
                         "downloaded_bytes": done,
-                        "total_bytes": 1000,
+                        "total_bytes": sizes[format_id],
                         "speed": 2048.0,
                         "eta": 3,
                     }
                 )
-            progress({"status": "finished", "info_dict": stream})
+            progress(
+                {
+                    "status": "finished",
+                    "info_dict": {**stream, "requested_formats": requested},
+                    "downloaded_bytes": total,
+                    "total_bytes": total,
+                }
+            )
         for step in ("Merger", "EmbedSubtitle", "Metadata", "EmbedThumbnail", "MoveFiles"):
             processing({"status": "started", "postprocessor": step})
             if self.fail is not None and self.fail[0] == step:
@@ -251,25 +275,48 @@ def test_with_subtitles_switched_off_none_are_embedded(
 def test_progress_tells_the_stage_percent_speed_and_time_left(
     tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
 ) -> None:
-    """R-QU-04: video, then audio, then processing, with how far each is.
+    """R-QU-04: one percent for the whole video, its video and audio streams together.
 
-    The step that adds the tags runs before the bytes arrive: it is not processing.
+    The steps before the download and the subtitle file are no progress of the video.
     """
     told: list[DownloadProgress] = []
 
     gateway(replay, ytdlp).download(request(tmp_path), told.append, never)
 
-    assert [report.stage for report in told[:4]] == [
-        Stage.VIDEO,
-        Stage.VIDEO,
-        Stage.AUDIO,
-        Stage.AUDIO,
+    streams = [report for report in told if report.stage is not Stage.PROCESSING]
+    assert [(report.stage, report.fraction) for report in streams] == [
+        (Stage.VIDEO, 0.375),
+        (Stage.VIDEO, 0.75),
+        (Stage.AUDIO, 0.875),
+        (Stage.AUDIO, 1.0),
     ]
     assert told[0] == DownloadProgress(
-        stage=Stage.VIDEO, fraction=0.5, speed_bps=2048.0, left_s=3, height=480
+        stage=Stage.VIDEO,
+        fraction=0.375,
+        speed_bps=2048.0,
+        left_s=1,
+        height=480,
+        downloaded_bytes=1500,
     )
+    assert [report.downloaded_bytes for report in streams] == [1500, 3000, 3500, 4000]
+    assert told[1].height == 480
     assert told[2].height is None
-    assert {report.stage for report in told[4:]} == {Stage.PROCESSING}
+    assert told.index(DownloadProgress(stage=Stage.PROCESSING)) == 4
+
+
+def test_without_a_size_the_progress_says_how_much_arrived(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-QU-04: when YouTube gives no size, no percent is made up; the bytes are counted."""
+    ytdlp.audio_size = None
+    told: list[DownloadProgress] = []
+
+    gateway(replay, ytdlp).download(request(tmp_path), told.append, never)
+
+    streams = [report for report in told if report.stage is not Stage.PROCESSING]
+    assert [report.fraction for report in streams] == [None, None, None, None]
+    assert [report.downloaded_bytes for report in streams] == [1500, 3000, 3500, 4000]
+    assert streams[0].left_s == 3
 
 
 def test_a_finished_download_gives_its_file_thumbnail_metadata_and_chapters(

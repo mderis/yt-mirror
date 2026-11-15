@@ -2,9 +2,10 @@
 /**
  * A progress bar (docs/DESIGN.md section 4).
  *
- * `value` goes from 0 to 1. Without a value the progress is unknown: the bar
- * is full and dimmed, and a screen reader hears only the label. A thin bar is
- * the one of a video row (design: Main.html).
+ * `value` goes from 0 to 1, and the bar fills with it. Without a value the
+ * share is unknown but the work runs: a short part of the bar moves across it
+ * (full, dimmed and still under "reduce motion"), and a screen reader hears
+ * only the label. A thin bar is the one of a video row (design: Main.html).
  */
 import { computed } from 'vue'
 
@@ -35,10 +36,11 @@ const percent = computed(() =>
     aria-valuemax="100"
     :aria-valuenow="percent ?? undefined"
   >
+    <div v-if="percent === null" class="h-full rounded-full bg-warn animate-working" data-working />
     <div
-      class="h-full rounded-full bg-warn duration-base"
-      :class="{ 'opacity-50': percent === null }"
-      :style="{ width: `${percent ?? 100}%` }"
+      v-else
+      class="h-full rounded-full bg-warn transition-all duration-base"
+      :style="{ width: `${percent}%` }"
     />
   </div>
 </template>
