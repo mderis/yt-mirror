@@ -78,7 +78,7 @@ Trigger: banner, Settings, or `./start --update`.
 2. **Show**: version, release notes, what will happen.
 3. **Preflight**: free space, no jobs in `processing` (wait for them or ask), queue paused.
 4. **Download**: archive and checksums into `data/cache/update/`. Verify.
-5. **Backup**: copy the database with SQLite's backup API to `data/backups/yt-mirror-<old version>-<timestamp>.db`. Keep the 5 most recent backups. Since M3 every start copies the database before pending migrations (R-QA-07, step 9 below relies on it): `data/backups/yt-mirror-<date>-<time>-schema-<schema version>.db`, the five newest kept, made by `DatabaseSchema.back_up` in `adapters/db/schema.py`. The updater builds its backup and its rollback on the same code.
+5. **Backup**: copy the database with SQLite's backup API to `data/backups/yt-mirror-<old version>-<timestamp>.db`. Keep the 5 most recent backups. Since M3 every start copies the database before pending migrations (R-QA-07, step 9 below relies on it): `data/backups/yt-mirror-<date>-<time>-schema-<schema version>.db`, the five newest kept, and no new copy when the newest of the same schema version has the same content (SHA-256), made by `DatabaseSchema.back_up` in `adapters/db/schema.py`. The updater builds its backup and its rollback on the same code.
 6. **Swap code**: `archive` installs move `app/` to `previous/` and unpack the new one. `clone` installs run `git fetch --tags` and check out the release tag, after confirming the working tree is clean (if not, explain and stop).
 7. **Dependencies**: `uv sync --frozen`.
 8. **Restart** into the new version in "migrating" mode.

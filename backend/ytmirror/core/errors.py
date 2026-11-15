@@ -52,6 +52,7 @@ class ErrorCode(StrEnum):
     DATES_NOT_APPLIED = "DATES_NOT_APPLIED"
     DB_UPGRADE_FAILED = "DB_UPGRADE_FAILED"
     CHANNEL_BUSY = "CHANNEL_BUSY"
+    DB_UNREADABLE = "DB_UNREADABLE"
     INTERNAL = "INTERNAL"
 
     @property
@@ -95,6 +96,7 @@ _KINDS: dict[ErrorCode, ErrorKind] = {
     ErrorCode.DATES_NOT_APPLIED: ErrorKind.TRANSIENT,
     ErrorCode.DB_UPGRADE_FAILED: ErrorKind.PERMANENT,
     ErrorCode.CHANNEL_BUSY: ErrorKind.TRANSIENT,
+    ErrorCode.DB_UNREADABLE: ErrorKind.PERMANENT,
     ErrorCode.INTERNAL: ErrorKind.TRANSIENT,
 }
 

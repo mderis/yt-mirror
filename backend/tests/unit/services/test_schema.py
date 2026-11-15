@@ -138,3 +138,66 @@ def test_a_failed_first_migration_has_no_copy_to_name(clock: FakeClock) -> None:
         SchemaService(schema, clock, BACKUPS).bring_up_to_date()
 
     assert failed.value.details["backup"] == ""
+
+
+# --- second review of M3, L4: every failure ends in a clear message
+
+
+def test_a_backup_that_fails_stops_the_start_before_any_migration(clock: FakeClock) -> None:
+    """R-QA-07: no copy, no update: the database is untouched, and the start says so."""
+    schema = FakeDatabaseSchema(latest="0002", current="0001")
+    schema.backup_fails = True
+
+    with pytest.raises(AppError) as failed:
+        SchemaService(schema, clock, BACKUPS).bring_up_to_date()
+
+    assert failed.value.code is ErrorCode.DB_UPGRADE_FAILED
+    assert failed.value.details["backup"] == ""
+    assert schema.upgrades == 0
+
+
+def test_a_file_that_cannot_be_read_at_start_is_unreadable(clock: FakeClock) -> None:
+    """R-QA-07: a damaged file gets its own message, not the one of a failed update."""
+    schema = FakeDatabaseSchema(latest="0002", current="0001")
+    schema.unreadable = True
+
+    with capture_logs() as logs, pytest.raises(AppError) as failed:
+        SchemaService(schema, clock, BACKUPS).bring_up_to_date()
+
+    assert failed.value.code is ErrorCode.DB_UNREADABLE
+    assert [line["event"] for line in logs] == ["db.unreadable"]
+
+
+def test_a_version_that_cannot_be_read_after_a_failure_puts_the_copy_back(
+    clock: FakeClock,
+) -> None:
+    """R-QA-07: a database that cannot be read after a failed migration is replaced by the copy."""
+    schema = FakeDatabaseSchema(latest="0002", current="0001")
+    schema.fail = RuntimeError("a migration failed")
+    real_upgrade = schema.upgrade
+
+    def fail_and_break() -> None:
+        schema.unreadable = True
+        real_upgrade()
+
+    schema.upgrade = fail_and_break  # type: ignore[method-assign]
+
+    with pytest.raises(AppError) as failed:
+        SchemaService(schema, clock, BACKUPS).bring_up_to_date()
+
+    assert failed.value.code is ErrorCode.DB_UPGRADE_FAILED
+    assert schema.restored == [schema.backups[0][0]]
+
+
+def test_a_copy_that_cannot_be_put_back_is_said_to_be_unreadable(clock: FakeClock) -> None:
+    """R-QA-07: when the restore fails the file may be damaged: that message names the copy."""
+    schema = FakeDatabaseSchema(latest="0002", current="0001")
+    schema.fail = RuntimeError("a migration failed")
+    schema.half_done = True
+    schema.restore_fails = True
+
+    with pytest.raises(AppError) as failed:
+        SchemaService(schema, clock, BACKUPS).bring_up_to_date()
+
+    assert failed.value.code is ErrorCode.DB_UNREADABLE
+    assert failed.value.details["backup"] == str(schema.backups[0][0])

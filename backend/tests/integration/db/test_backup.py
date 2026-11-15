@@ -61,10 +61,17 @@ def test_only_the_newest_five_copies_stay_and_no_other_file_is_touched(tmp_path:
     folder.mkdir()
     (folder / "my notes.txt").write_text("keep me")
 
-    made = [
-        schema.back_up(folder, MOMENT + datetime.timedelta(minutes=number), KEEP_BACKUPS)
-        for number in range(7)
-    ]
+    made: list[Path] = []
+    for number in range(8):
+        # Each copy is of a database that changed since the last one.
+        with engine.begin() as connection:
+            connection.execute(
+                text("INSERT INTO app_meta VALUES (:key, 'yes', 1, 1)"), {"key": f"run {number}"}
+            )
+        if number < 7:
+            made.append(
+                schema.back_up(folder, MOMENT + datetime.timedelta(minutes=number), KEEP_BACKUPS)
+            )
     twice = schema.back_up(folder, MOMENT + datetime.timedelta(minutes=6), KEEP_BACKUPS)
 
     left = sorted(path.name for path in folder.iterdir())
@@ -113,3 +120,21 @@ def test_a_failing_migration_keeps_the_old_database_and_its_copy(
         version = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     connection.close()
     assert version == revisions()[-1]
+
+
+def test_an_unchanged_database_is_not_copied_again(tmp_path: Path) -> None:
+    """R-QA-07: failed starts tried again keep the older, different copies."""
+    engine = new_database(tmp_path)
+    upgrade_to(engine, revisions()[-1])
+    fill(engine)
+    schema = AlembicSchema(engine, tmp_path / "yt-mirror.db")
+    folder = tmp_path / "backups"
+    first = schema.back_up(folder, MOMENT, KEEP_BACKUPS)
+
+    again = [
+        schema.back_up(folder, MOMENT + datetime.timedelta(minutes=number), KEEP_BACKUPS)
+        for number in range(1, 7)
+    ]
+
+    assert again == [first] * 6
+    assert sorted(path.name for path in folder.iterdir()) == [first.name]

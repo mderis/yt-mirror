@@ -34,3 +34,25 @@ def test_a_migration_that_fails_half_way_changes_nothing(
     assert contents(engine) == before
     with engine.connect() as connection:
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+
+
+def test_a_failure_late_in_a_chain_of_migrations_undoes_the_whole_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-QA-04: from an older version, the steps that passed are undone with the one that failed."""
+    start = revisions()[-4]
+    engine = new_database(tmp_path)
+    upgrade_to(engine, start)
+    fill(engine)
+    before = contents(engine)
+    columns_before = {column["name"] for column in inspect(engine).get_columns("channels")}
+    add_a_failing_migration(tmp_path, monkeypatch)
+    schema = AlembicSchema(engine, tmp_path / "yt-mirror.db")
+
+    with pytest.raises(RuntimeError, match="half way"):
+        schema.upgrade()
+
+    assert schema.current_version() == start
+    assert contents(engine) == before
+    assert {column["name"] for column in inspect(engine).get_columns("channels")} == columns_before
+    assert "pending_side_files" not in inspect(engine).get_table_names()

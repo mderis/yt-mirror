@@ -260,10 +260,10 @@ def run_app(
         try:
             container.schema.bring_up_to_date()
         except AppError as error:
-            if error.code is not ErrorCode.DB_UPGRADE_FAILED:
+            if error.code not in (ErrorCode.DB_UPGRADE_FAILED, ErrorCode.DB_UNREADABLE):
                 raise
             # Nothing starts on a database this version cannot use (R-QA-07).
-            title, text = upgrade_failed_message(error.details.get("backup", ""), paths.logs_dir)
+            title, text = database_message(error, paths.logs_dir)
             container.native.show_alert(title, text)
             return EXIT_DB_UPGRADE_FAILED
         container.toolchain.verify()
@@ -300,23 +300,35 @@ def run_app(
     return EXIT_OK
 
 
-def upgrade_failed_message(backup: str, logs: Path) -> tuple[str, str]:
-    """Return the title and the text that say a database update failed (R-QA-07).
+def database_message(error: AppError, logs: Path) -> tuple[str, str]:
+    """Return the title and the text that say why the database stops the start (R-QA-07).
 
     Args:
-        backup: The copy made before the update, or empty when there was no database yet.
+        error: ``DB_UPGRADE_FAILED`` (the file is as it was) or ``DB_UNREADABLE``.
         logs: The folder of the logs, for a report.
     """
-    if not backup:
-        return (
-            "yt-mirror could not create its database",
-            f"yt-mirror cannot start. Please report this problem, with the log from {logs}.",
+    backup = error.details.get("backup", "")
+    report = f"Please report this problem, with the log from {logs}."
+    if error.code is ErrorCode.DB_UNREADABLE:
+        copy = (
+            f" A copy of the database made before the update is at\n{backup}\n\n" if backup else " "
         )
+        return (
+            "yt-mirror cannot read its database",
+            f"The database file could not be read; it may be damaged.{copy}"
+            f"yt-mirror does not start. {report}",
+        )
+    if not error.details.get("from_version"):
+        return ("yt-mirror could not create its database", f"yt-mirror cannot start. {report}")
+    copy = (
+        f"A copy of it made just before the update is at\n{backup}\n\n"
+        if backup
+        else "No copy could be made, and none was needed: nothing was changed.\n\n"
+    )
     return (
         "yt-mirror could not update its database",
         "This version of yt-mirror needs an update of its database, and the update "
-        "failed. Your data is safe: the database was left as it was, and a copy of it "
-        f"made just before the update is at\n{backup}\n\n"
+        f"failed. Your data is safe: the database was left as it was. {copy}"
         "yt-mirror does not start with this version. Start the previous version again, "
         f"or report this problem with the log from {logs}.",
     )

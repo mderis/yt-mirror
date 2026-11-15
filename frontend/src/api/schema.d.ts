@@ -930,6 +930,7 @@ export interface components {
       | 'DATES_NOT_APPLIED'
       | 'DB_UPGRADE_FAILED'
       | 'CHANNEL_BUSY'
+      | 'DB_UNREADABLE'
       | 'INTERNAL'
     /**
      * ErrorResponse

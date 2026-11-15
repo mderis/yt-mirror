@@ -337,6 +337,30 @@ def test_a_failed_database_update_says_where_the_copy_is_and_starts_nothing(
     assert version == before
 
 
+def test_a_damaged_database_file_gets_its_own_message_and_starts_nothing(
+    paths: AppPaths,
+) -> None:
+    """R-QA-07: a file that is not a database is said to be unreadable, and nothing starts."""
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    paths.database_file.write_bytes(b"this is not a database at all " * 200)
+    native = FakeNativeApp()
+    visit = Visit()
+
+    exit_code = run_app(
+        options(), paths, build_container(paths, native=native), wait=visit, console=None
+    )
+
+    assert exit_code == EXIT_DB_UPGRADE_FAILED
+    assert visit.first_url == ""
+    [(title, message)] = native.alerts
+    assert title == "yt-mirror cannot read its database"
+    assert "it may be damaged" in message
+    assert paths.database_file.read_bytes().startswith(b"this is not a database")
+    events = [line["event"] for line in log_lines(paths)]
+    assert "db.unreadable" in events
+    assert "app.crashed" not in events
+
+
 def test_a_crash_is_logged_with_its_stack_trace_and_passed_on(paths: AppPaths) -> None:
     """R-LG-06: ``app.crashed`` records an unexpected end, and the error is not swallowed."""
 

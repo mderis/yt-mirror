@@ -50,6 +50,7 @@ _STATUS: dict[ErrorCode, int] = {
     ErrorCode.DATES_NOT_APPLIED: 500,
     ErrorCode.DB_UPGRADE_FAILED: 500,
     ErrorCode.CHANNEL_BUSY: 409,
+    ErrorCode.DB_UNREADABLE: 500,
     ErrorCode.INTERNAL: 500,
 }
 
@@ -82,6 +83,7 @@ _MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.DATES_NOT_APPLIED: "The file dates could not be set or did not read back.",
     ErrorCode.DB_UPGRADE_FAILED: "The database could not be updated to this version of yt-mirror.",
     ErrorCode.CHANNEL_BUSY: "A download or a check of the channel did not stop in time.",
+    ErrorCode.DB_UNREADABLE: "The database file cannot be read.",
     ErrorCode.INTERNAL: "yt-mirror hit an unexpected problem.",
 }
 
