@@ -60,16 +60,20 @@ class FileDates:
 class FileSystem(Protocol):
     """Creates, counts and shows folders."""
 
-    def make_folder(self, folder: Path) -> None:
+    def make_folder(self, folder: Path, *, inside: Path | None = None) -> None:
         """Create a folder and its parents. An existing folder is left as it is.
 
         Args:
             folder: The folder.
+            inside: A folder that must be there already and is never created,
+                for example the channel folder: only the folders below it are
+                created. A removal that moved it to the Trash is never undone.
 
         Raises:
             AppError: ``PERMISSION_DENIED`` when macOS denies it, ``FOLDER_UNAVAILABLE``
                 when it cannot be created for another reason, for example a drive
-                that is not connected.
+                that is not connected, or when ``inside`` is not there.
+            ValueError: When ``folder`` is not inside ``inside``.
         """
         ...
 
@@ -160,7 +164,7 @@ class FileSystem(Protocol):
         """
         ...
 
-    def write_file(self, path: Path, data: bytes, *, overwrite: bool) -> bool:
+    def write_file(self, path: Path, data: bytes, *, overwrite: bool, inside: Path) -> bool:
         """Write a whole file at once, so that no half-written file is ever seen (R-QA-06).
 
         A short-lived hidden temp file is written next to the file, so this is
@@ -168,16 +172,19 @@ class FileSystem(Protocol):
         temp folder of its job and moved (R-FI-03).
 
         Args:
-            path: The file. Its folder is created when missing.
+            path: The file. Its folder is created when missing, but only below ``inside``.
             data: The content.
             overwrite: Whether a file that is there may be replaced. Only files
                 of the app's own hidden folder are ever replaced.
+            inside: The folder the file belongs in, usually the channel folder.
+                It must be there: it is never created (see ``make_folder``).
 
         Returns:
             False when the file is there and ``overwrite`` is false: nothing was written.
 
         Raises:
             AppError: ``PERMISSION_DENIED``, ``DISK_FULL`` or ``FOLDER_UNAVAILABLE``.
+            ValueError: When ``path`` is not inside ``inside``.
         """
         ...
 

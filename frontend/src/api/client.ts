@@ -32,6 +32,7 @@ export type VideoDetails = components['schemas']['VideoDetailsResponse']
 export type QueuedJob = components['schemas']['QueuedJob']
 /** What "Delete the files" moves to the Trash (R-CH-32). */
 export type FilesToTrash = components['schemas']['FilesToTrashResponse']
+export type RemovedChannel = components['schemas']['RemovedChannelResponse']
 export type DatePrecision = components['schemas']['DatePrecision']
 export type CheckKind = components['schemas']['CheckKind']
 /** What the user pressed to start a check, logged with it. */
@@ -199,10 +200,12 @@ export const api = {
   /** Pause or resume a channel (R-CH-31). */
   setChannelPaused: (channelId: string, paused: boolean): Promise<Channel> =>
     send<Channel>('PATCH', `/channels/${channelId}`, { paused }),
-  /** Remove a channel with its catalogue, and move its files to the Trash or not (R-CH-32). */
-  removeChannel: async (channelId: string, keepFiles: boolean): Promise<void> => {
-    await send('DELETE', `/channels/${channelId}?keep_files=${keepFiles}`)
-  },
+  /**
+   * Remove a channel with its catalogue, and move its files to the Trash or not (R-CH-32).
+   * The answer lists the files macOS refused to move.
+   */
+  removeChannel: (channelId: string, keepFiles: boolean): Promise<RemovedChannel> =>
+    send<RemovedChannel>('DELETE', `/channels/${channelId}?keep_files=${keepFiles}`),
   /** Ask how many files and how much room "Delete the files" moves to the Trash (R-CH-32). */
   getFilesToTrash: (channelId: string): Promise<FilesToTrash> =>
     request<FilesToTrash>(`/channels/${channelId}/files-to-trash`),

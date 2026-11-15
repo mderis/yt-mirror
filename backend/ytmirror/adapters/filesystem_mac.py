@@ -94,17 +94,30 @@ class MacFileSystem:
         self._run = run if run is not None else _start
         self._trash = trash if trash is not None else _to_trash
 
-    def make_folder(self, folder: Path) -> None:
+    def make_folder(self, folder: Path, *, inside: Path | None = None) -> None:
         """Create a folder and its parents. An existing folder is left as it is.
 
         Args:
             folder: The folder.
+            inside: A folder that must be there and is never created. The
+                folders below it are created one level at a time, so a folder
+                that goes away meanwhile makes this fail instead of coming back.
 
         Raises:
             AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
+            ValueError: When ``folder`` is not inside ``inside``.
         """
         try:
-            folder.mkdir(parents=True, exist_ok=True)
+            if inside is None:
+                folder.mkdir(parents=True, exist_ok=True)
+                return
+            levels = folder.relative_to(inside).parts
+            if not inside.is_dir():
+                raise FileNotFoundError(2, "No such folder", str(inside))
+            current = inside
+            for level in levels:
+                current = current / level
+                current.mkdir(exist_ok=True)
         except OSError as error:
             code = (
                 ErrorCode.PERMISSION_DENIED
@@ -223,13 +236,14 @@ class MacFileSystem:
         """
         return path.resolve().is_relative_to(folder.resolve())
 
-    def write_file(self, path: Path, data: bytes, *, overwrite: bool) -> bool:
+    def write_file(self, path: Path, data: bytes, *, overwrite: bool, inside: Path) -> bool:
         """Write a whole file at once, so that no half-written file is ever seen.
 
         Args:
-            path: The file. Its folder is created when missing.
+            path: The file. Its folder is created when missing, but only below ``inside``.
             data: The content.
             overwrite: Whether a file that is there may be replaced.
+            inside: The folder the file belongs in. It must be there.
 
         Returns:
             False when the file is there and ``overwrite`` is false.
@@ -239,7 +253,7 @@ class MacFileSystem:
         """
         if not overwrite and os.path.lexists(path):
             return False
-        self.make_folder(path.parent)
+        self.make_folder(path.parent, inside=inside)
         try:
             handle, name = tempfile.mkstemp(dir=path.parent, prefix=".ytm-", suffix=".part")
             written = Path(name)

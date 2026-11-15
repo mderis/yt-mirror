@@ -233,13 +233,54 @@ def test_a_file_is_written_whole_and_replaced_only_when_asked(
     """R-MD-02, R-QA-06: files of the hidden folder are written at once, and replaced on request."""
     target = tmp_path / ".yt-mirror" / "a1B2c3D4e5F.info.json"
 
-    first = subject.files.write_file(target, b"{}", overwrite=False)
-    kept = subject.files.write_file(target, b'{"new": 1}', overwrite=False)
-    replaced = subject.files.write_file(target, b'{"new": 2}', overwrite=True)
+    subject.files.make_folder(tmp_path)
+    first = subject.files.write_file(target, b"{}", overwrite=False, inside=tmp_path)
+    kept = subject.files.write_file(target, b'{"new": 1}', overwrite=False, inside=tmp_path)
+    replaced = subject.files.write_file(target, b'{"new": 2}', overwrite=True, inside=tmp_path)
 
     assert (first, kept, replaced) == (True, False, True)
     assert subject.files.size_of(target) == len(b'{"new": 2}')
     assert subject.files.file_names(tmp_path / ".yt-mirror") == ["a1B2c3D4e5F.info.json"]
+
+
+def test_nothing_is_written_into_a_folder_that_went_to_the_trash(
+    subject: Subject, tmp_path: Path
+) -> None:
+    """R-CH-32, R-FI-05: a write that comes after a removal never brings its folder back."""
+    folder = tmp_path / "Sample Channel"
+    put_files(subject, folder, ["a.mkv"])
+    put_files(subject, tmp_path / "elsewhere", ["b.mkv"])
+    subject.files.trash(folder)
+    job = "01JD0000000000000000000001"
+
+    with pytest.raises(AppError) as written:
+        subject.files.write_file(
+            folder / ".yt-mirror" / "channel.json", b"{}", overwrite=True, inside=folder
+        )
+    with pytest.raises(AppError) as made:
+        subject.files.make_folder(folder / ".yt-mirror" / "tmp" / job, inside=folder)
+    with pytest.raises(AppError) as moved:
+        subject.files.move(tmp_path / "elsewhere" / "b.mkv", folder / "b.mkv")
+
+    assert written.value.code is ErrorCode.FOLDER_UNAVAILABLE
+    assert made.value.code is ErrorCode.FOLDER_UNAVAILABLE
+    assert moved.value.code is ErrorCode.FOLDER_UNAVAILABLE
+    assert subject.files.folder_exists(folder) is False
+
+
+def test_folders_inside_a_folder_that_is_there_are_created(
+    subject: Subject, tmp_path: Path
+) -> None:
+    """R-FI-03: the hidden folder and a temp folder are created inside the channel folder."""
+    folder = tmp_path / "Sample Channel"
+    subject.files.make_folder(folder)
+    work = folder / ".yt-mirror" / "tmp" / "01JD0000000000000000000001"
+
+    subject.files.make_folder(work, inside=folder)
+
+    assert subject.files.folder_exists(work) is True
+    with pytest.raises(ValueError, match="not in the subpath"):
+        subject.files.make_folder(tmp_path / "other", inside=folder)
 
 
 def test_visible_names_leave_hidden_ones_out(subject: Subject, tmp_path: Path) -> None:
@@ -367,7 +408,7 @@ def test_a_file_that_appears_while_it_is_written_is_not_overwritten(tmp_path: Pa
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("ytmirror.adapters.filesystem_mac.os.fdopen", write_and_race)
-        written = files.write_file(target, b"ours", overwrite=False)
+        written = files.write_file(target, b"ours", overwrite=False, inside=tmp_path)
 
     assert written is False
     assert target.read_bytes() == b"theirs"
@@ -386,7 +427,7 @@ def test_failed_file_operations_get_their_error_codes(tmp_path: Path) -> None:
     files = MacFileSystem(trash=refusing_trash)
     try:
         with pytest.raises(AppError) as denied:
-            files.write_file(locked / "x.json", b"{}", overwrite=True)
+            files.write_file(locked / "x.json", b"{}", overwrite=True, inside=locked)
     finally:
         locked.chmod(0o700)
     with pytest.raises(AppError) as missing:

@@ -383,6 +383,14 @@ export const en = {
     remove: 'Remove channel',
     close: 'Close',
   },
+  /** Files a removal could not move to the Trash (R-CH-32). */
+  filesLeft: {
+    title: '{channel} was removed',
+    body: 'macOS did not let yt-mirror move {count} file to the Trash. It is still in {folder}: | macOS did not let yt-mirror move {count} files to the Trash. They are still in {folder}:',
+    more: 'and {count} more | and {count} more',
+    done: 'OK',
+    close: 'Close',
+  },
   /** The banner of the "not a bot" check of YouTube (R-ER-05, R-FB-04). */
   youtubePause: {
     title: 'YouTube asks to confirm that you are not a bot',

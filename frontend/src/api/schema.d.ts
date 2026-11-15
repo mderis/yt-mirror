@@ -121,6 +121,8 @@ export interface paths {
     /**
      * Remove Channel
      * @description Remove a channel with its catalogue, and its files or not (R-CH-32).
+     *
+     *     The answer lists the files macOS refused to move to the Trash.
      */
     delete: operations['removeChannel']
     options?: never
@@ -1166,6 +1168,24 @@ export interface components {
       video_id: string
     }
     /**
+     * RemovedChannelResponse
+     * @description The answer of ``DELETE /api/channels/{id}`` (R-CH-32).
+     *
+     *     Attributes:
+     *         folder: The folder of the channel.
+     *         files_trashed: How many files and folders went to the Trash.
+     *         left: The files, relative to the folder, that macOS refused to move to
+     *             the Trash. Empty when every file went, or when the files were kept.
+     */
+    RemovedChannelResponse: {
+      /** Files Trashed */
+      files_trashed: number
+      /** Folder */
+      folder: string
+      /** Left */
+      left: string[]
+    }
+    /**
      * Stage
      * @description What a running download does now (R-QU-04).
      * @enum {string}
@@ -1785,11 +1805,13 @@ export interface operations {
     requestBody?: never
     responses: {
       /** @description Successful Response */
-      204: {
+      200: {
         headers: {
           [name: string]: unknown
         }
-        content?: never
+        content: {
+          'application/json': components['schemas']['RemovedChannelResponse']
+        }
       }
       /** @description Unauthorized */
       401: {

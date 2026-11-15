@@ -22,7 +22,8 @@ backend/tests/integration/test_download_end_to_end.py
 
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
@@ -164,6 +165,8 @@ class DownloaderService:
         self._videos: dict[str, Video] = {}
         """The video of each running job, as it is now."""
         self._cancelled: set[str] = set()
+        self._closed: set[str] = set()
+        self._writing_side_files_of: str | None = None
         self._stopped = False
         self._last_told: dict[str, float] = {}
 
@@ -211,7 +214,7 @@ class DownloaderService:
             self._wake.notify_all()
             self._wake.wait_for(lambda: not self._running, timeout=wait_s)
 
-    def _work_until_stopped(self) -> None:  # pragma: no cover  (a thread. Tests use work_once)
+    def _work_until_stopped(self) -> None:
         while True:
             with self._wake:
                 self._wake.wait_for(lambda: self._stopped or self._has_waiting())
@@ -356,7 +359,34 @@ class DownloaderService:
             if video is not None and video.channel_id == channel_id:
                 self.cancel(job.id)
         with self._wake:
-            self._wake.wait_for(lambda: channel_id not in self._running.values(), timeout=wait_s)
+            self._wake.wait_for(
+                lambda: (
+                    channel_id not in self._running.values()
+                    and self._writing_side_files_of != channel_id
+                ),
+                timeout=wait_s,
+            )
+
+    @contextmanager
+    def channel_closed(self, channel_id: str, wait_s: float = 30.0) -> Generator[None]:
+        """Keep the downloads of a channel stopped while it is removed (R-CH-32).
+
+        On entry its downloads are cancelled and waited for. Until the exit no
+        download of the channel is put in line and no side file is written in
+        its folder, so nothing the removal moved to the Trash comes back.
+
+        Args:
+            channel_id: The channel.
+            wait_s: How long to wait for a running download to end.
+        """
+        with self._wake:
+            self._closed.add(channel_id)
+        try:
+            self.cancel_channel(channel_id, wait_s)
+            yield
+        finally:
+            with self._wake:
+                self._closed.discard(channel_id)
 
     def file_of(self, video_id: str) -> Path:
         """Return the file of a synced video (R-UI-10).
@@ -441,7 +471,7 @@ class DownloaderService:
         try:
             video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
             self._videos[job.id] = video
-            self._files.make_folder(place.work)
+            self._files.make_folder(place.work, inside=place.folder)
             result = self._download(running, video, place, log)
             video = self._processing(running)
             self._finish(running, video, channel, place, result, log, started)
@@ -487,7 +517,7 @@ class DownloaderService:
                 reason=str(failure),
             )
             self._files.remove_temp_folder(place.work)
-            self._files.make_folder(place.work)
+            self._files.make_folder(place.work, inside=place.folder)
             return self._ask(
                 job, video, replace(request, manual_subtitles=False, auto_subtitles=False)
             )
@@ -657,13 +687,13 @@ class DownloaderService:
         target = folder / path
         try:
             if path.startswith(f"{HIDDEN_DIR}/"):
-                self._files.write_file(target, data, overwrite=True)
+                self._files.write_file(target, data, overwrite=True, inside=folder)
                 return True
             if self._files.read_bytes(folder / HIDDEN_DIR / f"{video_id}.jpg") != data:
                 return False
             stage = folder / HIDDEN_DIR / TEMP_DIR / self._new_job_id()
             try:
-                self._files.write_file(stage / target.name, data, overwrite=True)
+                self._files.write_file(stage / target.name, data, overwrite=True, inside=folder)
                 self._files.set_dates(stage / target.name, published)
                 if not self._files.move(stage / target.name, target):
                     _log.info(
@@ -686,11 +716,21 @@ class DownloaderService:
                 self._jobs.remove_pending_side_file(pending.id)
                 continue
             folder = self._views.folder_of(channel)
-            if not self._files.folder_exists(folder) or video.published_at is None:
+            if video.published_at is None or not self._files.folder_exists(folder):
                 continue
-            if self._write_side_file(
-                video.id, folder, pending.path, pending.data, video.published_at
-            ):
+            with self._wake:
+                if channel.id in self._closed:
+                    continue
+                self._writing_side_files_of = channel.id
+            try:
+                written = self._write_side_file(
+                    video.id, folder, pending.path, pending.data, video.published_at
+                )
+            finally:
+                with self._wake:
+                    self._writing_side_files_of = None
+                    self._wake.notify_all()
+            if written:
                 self._jobs.remove_pending_side_file(pending.id)
                 _log.info(
                     "download.side_file_written",
@@ -879,7 +919,7 @@ class DownloaderService:
 
     def _put_in_line(self, video: Video, reason: str) -> Job:
         channel = self._repository.channel(video.channel_id)
-        if channel is None:
+        if channel is None or channel.id in self._closed:
             raise AppError(ErrorCode.NOT_FOUND, {"video": video.id})
         job = Job(
             id=self._new_job_id(),

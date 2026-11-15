@@ -1,6 +1,9 @@
 """Tests of the downloader service: from "Mirror" to a synced file, and every way it can end."""
 
 import dataclasses
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -613,10 +616,10 @@ def test_a_side_file_that_fails_leaves_the_video_synced_and_is_written_later(wor
     write = world.files.write_file
     full = {"disk": True}
 
-    def write_unless_full(path: Path, data: bytes, *, overwrite: bool) -> bool:
+    def write_unless_full(path: Path, data: bytes, *, overwrite: bool, inside: Path) -> bool:
         if full["disk"] and path.name == f"{FIRST}.info.json":
             raise AppError(ErrorCode.DISK_FULL, {"file": str(path)})
-        return write(path, data, overwrite=overwrite)
+        return write(path, data, overwrite=overwrite, inside=inside)
 
     world.files.write_file = write_unless_full  # type: ignore[method-assign]
     world.downloader.mirror([FIRST])
@@ -751,3 +754,115 @@ def test_a_start_trashes_only_a_file_the_app_was_placing_and_that_is_its_own(
     assert world.files.trashed == []
     assert world.files.exists(folder_of(world) / name)
     assert world.repository.video(FIRST).placing_file is None  # pyright: ignore[reportOptionalMemberAccess]
+
+
+# --- threads: the worker, and a removal during a download (review of M3)
+
+
+def in_a_thread(work: Callable[[], object]) -> threading.Thread:
+    """Start work in a thread of its own."""
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    return thread
+
+
+def held_at_audio(world: World) -> tuple[threading.Event, threading.Event]:
+    """Make the download stop at the audio stage until the test lets it go on.
+
+    Returns the event that says it is held, and the one that lets it go.
+    """
+    held, go = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        held.set()
+        go.wait(10)
+
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = hold
+    return held, go
+
+
+def test_cancel_channel_returns_only_when_the_download_has_ended(world: World) -> None:
+    """R-CH-32, R-QU-02: the removal can rely on no download of the channel running any more."""
+    world.downloader.mirror([FIRST])
+    held, go = held_at_audio(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    cancelling = in_a_thread(lambda: world.downloader.cancel_channel(SMALL_ID))
+    cancelling.join(0.3)
+    still_waiting = cancelling.is_alive()
+    go.set()
+    cancelling.join(10)
+    worker.join(10)
+
+    assert still_waiting
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+    assert world.repository.video(FIRST).status is VideoStatus.NOT_DOWNLOADED  # type: ignore[union-attr]
+
+
+def test_removing_a_channel_while_its_video_downloads_leaves_nothing(world: World) -> None:
+    """R-CH-32, R-QA-06: the download ends first, then the files and the folder go for good."""
+    world.downloader.mirror([FIRST])
+    held, go = held_at_audio(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    removing = in_a_thread(lambda: world.channels.remove(SMALL_ID, keep_files=False))
+    removing.join(0.3)
+    trashed_while_running = list(world.files.trashed)
+    go.set()
+    removing.join(10)
+    worker.join(10)
+
+    assert trashed_while_running == []
+    assert not removing.is_alive()
+    assert world.files.folder_exists(folder_of(world)) is False
+    assert world.repository.channels() == ()
+    assert world.jobs.jobs(list(JobState)) == ()
+
+
+def test_the_worker_downloads_what_is_put_in_line_and_ends_when_the_app_stops(
+    world: World,
+) -> None:
+    """R-MI-01, R-PL-13: the worker thread takes jobs as they come, and stops with the app."""
+    world.downloader.start()
+    worker = in_a_thread(world.background.pop())
+
+    world.downloader.mirror([FIRST])
+    deadline = time.monotonic() + 10
+    while world.repository.video(FIRST).status is not VideoStatus.SYNCED:  # type: ignore[union-attr]
+        assert time.monotonic() < deadline, "the worker did not download the video"
+        time.sleep(0.01)
+    world.downloader.stop()
+    worker.join(10)
+
+    assert not worker.is_alive()
+
+
+def test_the_worker_goes_on_after_an_unexpected_error(world: World) -> None:
+    """R-ER-03: an error the worker did not expect is logged, and the next job still runs."""
+    work_once = world.downloader.work_once
+    calls: list[int] = []
+
+    def broken_once() -> bool:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("unexpected")
+        return work_once()
+
+    world.downloader.work_once = broken_once  # type: ignore[method-assign]
+    world.downloader.start()
+    worker = in_a_thread(world.background.pop())
+
+    with capture_logs() as logs:
+        world.downloader.mirror([FIRST])
+        deadline = time.monotonic() + 10
+        while world.repository.video(FIRST).status is not VideoStatus.SYNCED:  # type: ignore[union-attr]
+            assert time.monotonic() < deadline, "the worker stopped after the error"
+            time.sleep(0.01)
+    world.downloader.stop()
+    worker.join(10)
+
+    assert log_lines(logs, "download.failed")[0]["error_code"] == "INTERNAL"
+    assert not worker.is_alive()

@@ -135,11 +135,16 @@ describe('the channels store', () => {
 
   it('R-CH-32: a removed channel leaves the sidebar, and is not the last open one any more', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: () =>
-        new Response(null, { status: 204 }),
+      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: jsonResponse({
+        folder: '/Users/sam/Movies/YouTube/Sample Channel',
+        files_trashed: 0,
+        left: [],
+      }),
     })
 
-    await store.remove(CHANNEL_ID)
+    const removed = await store.remove(CHANNEL_ID)
+
+    expect(removed.left).toEqual([])
 
     expect(store.channels).toEqual([other])
     expect(store.lastOpenId).toBeNull()
@@ -147,8 +152,11 @@ describe('the channels store', () => {
 
   it('R-CH-32: removing another channel than the last open one keeps that one remembered', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${OTHER_CHANNEL_ID}?keep_files=true`]: () =>
-        new Response(null, { status: 204 }),
+      [`DELETE /api/channels/${OTHER_CHANNEL_ID}?keep_files=true`]: jsonResponse({
+        folder: '/Users/sam/Movies/YouTube/Other Channel',
+        files_trashed: 0,
+        left: [],
+      }),
     })
 
     await store.remove(OTHER_CHANNEL_ID)

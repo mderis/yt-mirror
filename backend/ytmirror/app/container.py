@@ -237,7 +237,7 @@ def build_container(
         thumbnails,
         used_clock,
         _in_a_thread,
-        cancel_downloads=downloader.cancel_channel,
+        close_downloads=downloader.channel_closed,
     )
     state = StateService(
         views, settings, used_files, used_picker, SqlAppMetaRepository(engine, used_clock), youtube

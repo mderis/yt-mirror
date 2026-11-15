@@ -334,7 +334,7 @@ class World:
             self.thumbnails,
             self.clock,
             self.background.append,
-            cancel_downloads=lambda channel_id: self.downloader.cancel_channel(channel_id),
+            close_downloads=lambda channel_id: self.downloader.channel_closed(channel_id),
         )
         self.state = StateService(
             self.views, self.settings, self.files, self.picker, self.meta, self.youtube

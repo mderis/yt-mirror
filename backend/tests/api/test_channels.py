@@ -13,7 +13,7 @@ from structlog.testing import capture_logs
 from tests.api.conftest import Api
 from tests.fixtures.world import SMALL_ID, World, log_lines
 from ytmirror.core.channels import CheckKind, Quality, VideoStatus
-from ytmirror.core.errors import ErrorCode
+from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import Job, JobKind, JobState
 
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -299,7 +299,12 @@ def test_removing_a_channel(client: TestClient, world: World) -> None:
 
     removed = client.delete(f"/api/channels/{SMALL_ID}")
 
-    assert removed.status_code == 204
+    assert removed.status_code == 200
+    assert removed.json() == {
+        "folder": str(world.library / "Small Channel"),
+        "files_trashed": 0,
+        "left": [],
+    }
     assert client.get(f"/api/channels/{SMALL_ID}").status_code == 404
     assert world.repository.videos(SMALL_ID) == ()
 
@@ -509,7 +514,8 @@ def test_the_files_to_trash_are_counted_and_moved_on_request(
     removed = client.delete(f"/api/channels/{SMALL_ID}", params={"keep_files": "false"})
 
     assert counted.json() == {"files": 1, "size_bytes": 5}
-    assert removed.status_code == 204
+    assert removed.status_code == 200
+    assert (removed.json()["files_trashed"], removed.json()["left"]) == (2, [])
     assert world.files.trashed == [
         folder / ".yt-mirror" / "channel.json",
         folder / "Video 1.mkv",
@@ -573,3 +579,36 @@ def test_an_unknown_trigger_is_refused(client: TestClient, world: World) -> None
     answer = client.post(f"/api/channels/{SMALL_ID}/check", json={"trigger": "telepathy"})
 
     assert answer.status_code == 422
+
+
+def test_a_removal_says_which_files_macos_refused_to_move(client: TestClient, world: World) -> None:
+    """R-CH-32: a file the Trash refuses is left, and the answer lists it."""
+    added(client, world)
+    folder = world.library / "Small Channel"
+    video = world.repository.videos(SMALL_ID)[0]
+    world.jobs.record(
+        Job(
+            id="01JOBAPI",
+            video_id=video.id,
+            kind=JobKind.DOWNLOAD,
+            state=JobState.DONE,
+            priority=1,
+            quality=Quality.BEST,
+            created_at=world.now(),
+        ),
+        replace(video, status=VideoStatus.SYNCED, file_name="Video 1.mkv"),
+    )
+    world.files.add_files(folder, ["Video 1.mkv"])
+    trash = world.files.trash
+
+    def refuse_the_video(path: Path) -> None:
+        if path.name == "Video 1.mkv":
+            raise AppError(ErrorCode.PERMISSION_DENIED, {"file": str(path)})
+        trash(path)
+
+    world.files.trash = refuse_the_video  # type: ignore[method-assign]
+    removed = client.delete(f"/api/channels/{SMALL_ID}", params={"keep_files": "false"})
+
+    assert removed.status_code == 200
+    assert removed.json()["left"] == ["Video 1.mkv"]
+    assert client.get(f"/api/channels/{SMALL_ID}").status_code == 404

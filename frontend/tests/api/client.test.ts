@@ -284,13 +284,15 @@ describe('the API client', () => {
   it('R-CH-32: removes a channel and says whether its files stay or go to the Trash', async () => {
     const fetchMock = mockApi({
       [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: () =>
-        new Response(null, { status: 204 }),
+        jsonResponse({ folder: '/f', files_trashed: 0, left: [] }),
       [`DELETE /api/channels/${CHANNEL_ID}?keep_files=false`]: () =>
-        new Response(null, { status: 204 }),
+        jsonResponse({ folder: '/f', files_trashed: 2, left: ['Locked.mkv'] }),
     })
 
     await api.removeChannel(CHANNEL_ID, true)
-    await api.removeChannel(CHANNEL_ID, false)
+    const trashed = await api.removeChannel(CHANNEL_ID, false)
+
+    expect(trashed).toEqual({ folder: '/f', files_trashed: 2, left: ['Locked.mkv'] })
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       `/api/channels/${CHANNEL_ID}?keep_files=true`,

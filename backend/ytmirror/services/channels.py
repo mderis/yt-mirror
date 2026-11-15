@@ -9,13 +9,19 @@ Tests: backend/tests/unit/services/test_channels.py
 
 import threading
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import structlog
 from structlog.typing import FilteringBoundLogger
 
-from ytmirror.core.channel_file import CHANNEL_FILE, channel_file_with, channel_file_without
+from ytmirror.core.channel_file import (
+    CHANNEL_FILE,
+    channel_entries,
+    channel_file_with,
+    channel_file_without,
+)
 from ytmirror.core.channel_input import parse_channel_input
 from ytmirror.core.channels import (
     Channel,
@@ -46,6 +52,9 @@ COUNT_TIME_LIMIT_S = 8.0
 MOST_PLAUSIBLE_VIDEOS = 1_000_000
 """A count above this is not believed."""
 
+STOP_WAIT_S = 30.0
+"""How long a removal waits for a check or a download of the channel to end."""
+
 
 @dataclass(frozen=True, slots=True)
 class FilesToTrash:
@@ -60,6 +69,22 @@ class FilesToTrash:
     paths: tuple[Path, ...]
     files: int
     size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class RemovedChannel:
+    """What a removal did with the files (R-CH-32).
+
+    Attributes:
+        folder: The folder of the channel.
+        files_trashed: How many files and folders went to the Trash.
+        left: The paths, relative to the folder, that should have gone to the
+            Trash and did not, because macOS refused. Empty when all went.
+    """
+
+    folder: str
+    files_trashed: int
+    left: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +173,9 @@ class ChannelsService:
         thumbnails: ThumbnailService,
         clock: Clock,
         run_in_background: Callable[[Callable[[], None]], None],
-        cancel_downloads: Callable[[str], None] = lambda _channel_id: None,
+        close_downloads: Callable[[str], AbstractContextManager[None]] = (
+            lambda _channel_id: nullcontext()
+        ),
     ) -> None:
         """Create the service.
 
@@ -163,14 +190,14 @@ class ChannelsService:
             thumbnails: Caches the pictures.
             clock: The source of time.
             run_in_background: Runs the request for a video count without blocking.
-            cancel_downloads: Cancels the downloads of a channel and waits for them
-                to end, before the channel is removed.
+            close_downloads: Cancels the downloads of a channel, waits for them to
+                end, and lets no new one start while the channel is removed.
         """
         self._repository = repository
         self._youtube = youtube
         self._files = files
         self._picker = picker
-        self._cancel_downloads = cancel_downloads
+        self._close_downloads = close_downloads
         self._settings = settings
         self._views = views
         self._catalogue = catalogue
@@ -182,6 +209,7 @@ class ChannelsService:
         self._counts: dict[str, _Count] = {}
         self._preview_avatars: dict[str, bytes] = {}
         self._chosen: set[str] = set()
+        self._removing: set[str] = set()
 
     def lookup(self, text: str) -> ChannelLookup:
         """Look up the channel the user named, for the preview of the dialog (R-CH-03).
@@ -295,6 +323,8 @@ class ChannelsService:
                 ErrorCode.INVALID_REQUEST, {"reason": "The folder was not chosen in the dialog"}
             )
         folder = Path(new.folder) if new.folder is not None else self._default_folder(facts)
+        # Only a folder the app creates may later go to the Trash with the channel (R-CH-32).
+        created = new.folder is None and not self._files.folder_exists(folder)
         self._files.make_folder(folder)
         channel = Channel(
             id=facts.channel_id,
@@ -304,6 +334,7 @@ class ChannelsService:
             avatar_url=facts.avatar_url,
             folder=new.folder if new.folder is not None else folder.name,
             folder_is_custom=new.folder is not None,
+            folder_created=created,
             quality=new.quality,
             auto_mirror=new.auto_mirror,
             mirror_after=new.mirror_after,
@@ -369,7 +400,8 @@ class ChannelsService:
         title or the handle of the channel changed. Two channels can share a
         folder: the entries of the others stay. The write is atomic, so a
         crash never leaves a broken file. Nothing is written while the folder
-        is not there: that would create it again.
+        is not there or the channel is being removed: that would create it
+        again. A file that cannot be read or understood is left as it is.
 
         Args:
             channel_id: The channel ID. An unknown one writes nothing.
@@ -378,38 +410,76 @@ class ChannelsService:
         if channel is None:
             return
         folder = self._views.folder_of(channel)
+        with self._lock:
+            if channel_id in self._removing:
+                return
         if not self._files.folder_exists(folder):
             return
         path = folder / HIDDEN_DIR / CHANNEL_FILE
-        existing = self._files.read_bytes(path)
+        try:
+            existing = self._readable_channel_file(channel_id, path)
+        except _LeaveAloneError:
+            return
         content = channel_file_with(existing, channel)
         if content != existing:
-            self._write_channel_file(channel_id, path, content)
+            self._write_channel_file(
+                channel_id, folder, path, content, replace=existing is not None
+            )
 
-    def _forget_in_channel_file(self, channel_id: str, folder: Path) -> None:
-        """Remove the entry of a removed channel; the file goes when no entry is left (R-FI-05)."""
+    def _forget_in_channel_file(self, channel_id: str, folder: Path) -> list[Path]:
+        """Remove the entry of a removed channel; the file goes when no entry is left (R-FI-05).
+
+        Returns the channel file when it should have gone to the Trash and did not.
+        """
         path = folder / HIDDEN_DIR / CHANNEL_FILE
-        existing = self._files.read_bytes(path)
+        try:
+            existing = self._readable_channel_file(channel_id, path)
+        except _LeaveAloneError:
+            return []
         if existing is None:
-            return
+            return []
         content = channel_file_without(existing, channel_id)
         if content is None:
             try:
                 self._files.trash(path)
-            except AppError as error:
+            except (AppError, OSError) as error:
                 _log.warning(
-                    "channel.file_failed",
+                    "file.trash_failed",
                     msg="The channel file could not be moved to the Trash",
                     channel_id=channel_id,
-                    error_code=error.code.value,
+                    file=str(path),
+                    error_code=_code_of(error),
                 )
-            return
+                return [path]
+            return []
         if content != existing:
-            self._write_channel_file(channel_id, path, content)
+            self._write_channel_file(channel_id, folder, path, content, replace=True)
+        return []
 
-    def _write_channel_file(self, channel_id: str, path: Path, content: bytes) -> None:
+    def _readable_channel_file(self, channel_id: str, path: Path) -> bytes | None:
+        """Return the channel file, or None when there is none.
+
+        Raises:
+            _LeaveAloneError: When it is there but cannot be read or understood.
+        """
+        existing = self._files.read_bytes(path)
+        if existing is None and not self._files.exists(path):
+            return None
+        if existing is None or channel_entries(existing) is None:
+            _log.warning(
+                "channel.file_unreadable",
+                msg="The channel file cannot be read or understood. It is left as it is",
+                channel_id=channel_id,
+                file=str(path),
+            )
+            raise _LeaveAloneError
+        return existing
+
+    def _write_channel_file(
+        self, channel_id: str, folder: Path, path: Path, content: bytes, *, replace: bool
+    ) -> None:
         try:
-            self._files.write_file(path, content, overwrite=True)
+            written = self._files.write_file(path, content, overwrite=replace, inside=folder)
         except AppError as error:
             _log.warning(
                 "channel.file_failed",
@@ -418,7 +488,8 @@ class ChannelsService:
                 error_code=error.code.value,
             )
             return
-        _log.info("channel.file_written", msg="Channel file written", channel_id=channel_id)
+        if written:
+            _log.info("channel.file_written", msg="Channel file written", channel_id=channel_id)
 
     def files_to_trash(self, channel_id: str) -> FilesToTrash:
         """Return what "Delete the files" would move to the Trash (R-CH-32).
@@ -471,28 +542,46 @@ class ChannelsService:
             size_bytes=sum(self._files.size_of(path) for path in paths),
         )
 
-    def remove(self, channel_id: str, *, keep_files: bool = True) -> None:
+    def remove(self, channel_id: str, *, keep_files: bool = True) -> RemovedChannel:
         """Remove a channel with its catalogue (R-CH-32).
 
-        With ``keep_files`` its folder and files stay. Otherwise the files the
-        app tracks go to the Trash, never away for good, and the folder goes
-        too when nothing else is left in it.
+        Its checks and downloads are stopped first, and none starts until it
+        is gone, so nothing writes into its folder meanwhile. With
+        ``keep_files`` its folder and files stay. Otherwise the files the app
+        tracks go to the Trash, never away for good, and a folder the app
+        created goes too when nothing else is left in it. A file macOS refuses
+        to move does not stop the others: it is listed in the result. The
+        channel leaves the catalogue only after the files.
 
         Args:
             channel_id: The channel ID.
             keep_files: Whether the files stay where they are.
 
         Raises:
-            AppError: ``NOT_FOUND`` for an unknown channel.
+            AppError: ``NOT_FOUND`` for an unknown channel, ``INVALID_REQUEST``
+                while the channel is being removed already.
         """
         channel = self._known(channel_id)
         folder = self._views.folder_of(channel)
-        self._cancel_downloads(channel_id)
-        self._forget_in_channel_file(channel_id, folder)
-        trashed = 0 if keep_files else self._trash_files(channel_id, folder)
-        self._catalogue.forget(channel_id)
-        video_ids = self._repository.video_ids(channel_id)
-        self._repository.remove_channel(channel_id)
+        with self._lock:
+            if channel_id in self._removing:
+                raise AppError(
+                    ErrorCode.INVALID_REQUEST, {"reason": "The channel is being removed"}
+                )
+            self._removing.add(channel_id)
+        try:
+            self._catalogue.forget(channel_id, wait_s=STOP_WAIT_S)
+            with self._close_downloads(channel_id):
+                left = self._forget_in_channel_file(channel_id, folder)
+                trashed = 0
+                if not keep_files:
+                    trashed, refused = self._trash_files(channel, folder)
+                    left += refused
+                video_ids = self._repository.video_ids(channel_id)
+                self._repository.remove_channel(channel_id)
+        finally:
+            with self._lock:
+                self._removing.discard(channel_id)
         self._thumbnails.forget(channel_id, video_ids)
         self._views.forget(channel_id)
         _log.info(
@@ -504,37 +593,59 @@ class ChannelsService:
             videos=len(video_ids),
             folder=str(folder),
             files_trashed=trashed,
+            files_left=len(left),
+        )
+        return RemovedChannel(
+            folder=str(folder),
+            files_trashed=trashed,
+            left=tuple(str(path.relative_to(folder)) for path in left),
         )
 
-    def _trash_files(self, channel_id: str, folder: Path) -> int:
-        """Move the tracked files of a channel to the Trash. Returns how many paths went."""
+    def _trash_files(self, channel: Channel, folder: Path) -> tuple[int, list[Path]]:
+        """Move the tracked files of a channel to the Trash.
+
+        Returns how many paths went, and the paths macOS refused.
+        """
         moved = 0
-        for path in self.files_to_trash(channel_id).paths:
+        refused: list[Path] = []
+
+        def trash(path: Path, msg: str) -> None:
+            nonlocal moved
             try:
                 self._files.trash(path)
-            except AppError as error:
+            except (AppError, OSError) as error:
                 _log.warning(
                     "file.trash_failed",
                     msg="A file of the channel could not be moved to the Trash",
-                    channel_id=channel_id,
+                    channel_id=channel.id,
                     file=str(path),
-                    error_code=error.code.value,
+                    error_code=_code_of(error),
                 )
-                continue
+                refused.append(path)
+                return
             moved += 1
-            _log.info("file.trashed", msg="File moved to the Trash", file=str(path))
+            _log.info("file.trashed", msg=msg, file=str(path))
+
+        for path in self.files_to_trash(channel.id).paths:
+            trash(path, "File moved to the Trash")
         hidden = folder / HIDDEN_DIR
-        if self._is_empty(hidden, ignore=(TEMP_DIR,)) and self._files.exists(hidden):
-            self._files.trash(hidden)
-            _log.info(
-                "file.trashed", msg="The empty hidden folder went to the Trash", file=str(hidden)
-            )
-        if self._is_empty(folder) and self._files.folder_exists(folder):
-            self._files.trash(folder)
-            _log.info(
-                "file.trashed", msg="Empty channel folder moved to the Trash", file=str(folder)
-            )
-        return moved
+        if self._files.exists(hidden) and self._is_empty(hidden, ignore=(TEMP_DIR,)):
+            trash(hidden, "The empty hidden folder went to the Trash")
+        if (
+            self._may_trash_folder(channel, folder)
+            and self._files.folder_exists(folder)
+            and self._is_empty(folder)
+        ):
+            trash(folder, "Empty channel folder moved to the Trash")
+        return moved, refused
+
+    def _may_trash_folder(self, channel: Channel, folder: Path) -> bool:
+        """Only a folder the app created may go; never the library or a folder the user chose."""
+        return (
+            channel.folder_created
+            and not channel.folder_is_custom
+            and folder != self._settings.library_folder()
+        )
 
     def _is_empty(self, folder: Path, ignore: tuple[str, ...] = ()) -> bool:
         """Whether a folder holds nothing but .DS_Store and empty folders named in ``ignore``."""
@@ -616,3 +727,11 @@ def _unavailable(channel_id: str, reason: str, code: ErrorCode | None = None) ->
         reason=reason,
         error_code=None if code is None else code.value,
     )
+
+
+class _LeaveAloneError(Exception):
+    """A channel file that is there but cannot be read or understood: it stays as it is."""
+
+
+def _code_of(error: AppError | OSError) -> str:
+    return error.code.value if isinstance(error, AppError) else ErrorCode.INTERNAL.value

@@ -644,6 +644,21 @@ class FilesToTrashResponse(BaseModel):
     size_bytes: int
 
 
+class RemovedChannelResponse(BaseModel):
+    """The answer of ``DELETE /api/channels/{id}`` (R-CH-32).
+
+    Attributes:
+        folder: The folder of the channel.
+        files_trashed: How many files and folders went to the Trash.
+        left: The files, relative to the folder, that macOS refused to move to
+            the Trash. Empty when every file went, or when the files were kept.
+    """
+
+    folder: str
+    files_trashed: int
+    left: list[str]
+
+
 class CancelCheckResponse(BaseModel):
     """The answer of ``POST /api/channels/{id}/check/cancel``.
 

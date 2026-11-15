@@ -4,7 +4,8 @@
  * cannot be undone, so it is confirmed here. "Keep the files" is the default.
  * "Delete the files" moves every file the app tracks for the channel to the
  * Trash, never away for good: the dialog says how many and how much room,
- * and that the other files of the folder stay.
+ * and that the other files of the folder stay. Files macOS refuses to move
+ * do not stop the removal: the shell lists them once the channel is gone.
  */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -16,6 +17,7 @@ import RadioGroup from '@/components/RadioGroup.vue'
 import { formatBytes, formatNumber } from '@/format'
 import { useErrorTexts } from '@/i18n/errors'
 import { useChannelsStore } from '@/stores/channels'
+import { useUiStore } from '@/stores/ui'
 import { useVideosStore } from '@/stores/videos'
 
 const props = defineProps<{
@@ -32,6 +34,7 @@ const { t } = useI18n()
 const textsOf = useErrorTexts()
 const channels = useChannelsStore()
 const videos = useVideosStore()
+const ui = useUiStore()
 
 const UNKNOWN_ERROR: ErrorCode = 'INTERNAL'
 const KEEP = 'keep'
@@ -90,9 +93,16 @@ async function remove(): Promise<void> {
   removing.value = true
   failure.value = null
   try {
-    await channels.remove(props.channel.id, choice.value === KEEP)
+    const removed = await channels.remove(props.channel.id, choice.value === KEEP)
     if (videos.channelId === props.channel.id) {
       videos.close()
+    }
+    if (removed.left.length > 0) {
+      ui.showFilesLeft({
+        channel: props.channel.title,
+        folder: removed.folder,
+        files: removed.left,
+      })
     }
     emit('close')
   } catch (error) {

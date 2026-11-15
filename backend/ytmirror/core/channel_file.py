@@ -27,8 +27,13 @@ FORMAT_VERSION = 1
 """The version of the content. It grows when the content changes in a way older readers miss."""
 
 
-def channel_entries(content: bytes | None) -> list[dict[str, str | None]]:
-    """Return the entries of a channel file, or none when it is missing or cannot be read.
+def channel_entries(content: bytes | None) -> list[dict[str, str | None]] | None:
+    """Return the entries of a channel file: none when there is no file.
+
+    Returns None when the file cannot be understood: it is not JSON, it has
+    another shape, it comes from a newer version of the app, or an entry has
+    no ID. Such a file is never replaced or removed: it may hold what this
+    version cannot see.
 
     Args:
         content: The bytes of the file, or None when there is no file.
@@ -38,20 +43,23 @@ def channel_entries(content: bytes | None) -> list[dict[str, str | None]]:
     try:
         data: object = json.loads(content)
     except ValueError:
-        return []
+        return None
     if not isinstance(data, dict):
-        return []
-    listed: object = cast(dict[str, object], data).get("channels")
+        return None
+    fields = cast(dict[str, object], data)
+    version, listed = fields.get("version"), fields.get("channels")
+    if type(version) is not int or not 1 <= version <= FORMAT_VERSION:
+        return None
     if not isinstance(listed, list):
-        return []
+        return None
     entries: list[dict[str, str | None]] = []
     for item in cast(list[object], listed):
         if not isinstance(item, dict):
-            continue
+            return None
         entry = cast(dict[str, object], item)
         channel_id = entry.get("id")
         if not isinstance(channel_id, str):
-            continue
+            return None
         handle, title = entry.get("handle"), entry.get("title")
         entries.append(
             {
@@ -60,6 +68,13 @@ def channel_entries(content: bytes | None) -> list[dict[str, str | None]]:
                 "title": title if isinstance(title, str) else None,
             }
         )
+    return entries
+
+
+def _readable(content: bytes | None) -> list[dict[str, str | None]]:
+    entries = channel_entries(content)
+    if entries is None:
+        raise ValueError("the channel file cannot be understood")
     return entries
 
 
@@ -72,13 +87,16 @@ def channel_file_with(content: bytes | None, channel: Channel) -> bytes:
     Args:
         content: The file as it is, or None when there is none.
         channel: The channel.
+
+    Raises:
+        ValueError: When the file cannot be understood (see ``channel_entries``).
     """
     entry: dict[str, str | None] = {
         "id": channel.id,
         "handle": channel.handle,
         "title": channel.title,
     }
-    entries = channel_entries(content)
+    entries = _readable(content)
     places = [index for index, other in enumerate(entries) if other["id"] == channel.id]
     if places:
         entries[places[0]] = entry
@@ -93,8 +111,11 @@ def channel_file_without(content: bytes | None, channel_id: str) -> bytes | None
     Args:
         content: The file as it is, or None when there is none.
         channel_id: The channel.
+
+    Raises:
+        ValueError: When the file cannot be understood (see ``channel_entries``).
     """
-    entries = [entry for entry in channel_entries(content) if entry["id"] != channel_id]
+    entries = [entry for entry in _readable(content) if entry["id"] != channel_id]
     return _content(entries) if entries else None
 
 

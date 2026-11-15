@@ -220,13 +220,22 @@ class CatalogueService:
             return False
         return self._drop(channel_id)
 
-    def forget(self, channel_id: str) -> None:
+    def forget(self, channel_id: str, *, wait_s: float = 0.0) -> None:
         """Drop every check of a channel, because the channel is paused or removed.
 
         Args:
             channel_id: The channel ID.
+            wait_s: How long to wait for a check of the channel that runs to
+                end. A removal waits, so that no check writes into a folder it
+                moves to the Trash (R-CH-32).
         """
         self._drop(channel_id)
+        if wait_s > 0:
+            with self._wake:
+                self._wake.wait_for(
+                    lambda: self._running is None or self._running.channel_id != channel_id,
+                    timeout=wait_s,
+                )
 
     def work_once(self) -> bool:
         """Run the next check that waits, if there is one.
@@ -247,6 +256,7 @@ class CatalogueService:
             with self._wake:
                 self._running = None
                 self._cancelled.discard(request.channel_id)
+                self._wake.notify_all()
             self._views.set_checking(request.channel_id, False)
         return True
 

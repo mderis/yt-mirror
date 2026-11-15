@@ -1,13 +1,19 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/vue'
 import { describe, expect, it } from 'vitest'
 
-import { noContent, openApp, part } from '../helpers/app'
+import { openApp, part } from '../helpers/app'
 import { channel, CHANNEL_ID, OTHER_CHANNEL_ID, video } from '../helpers/catalogue'
 import { errorBody, jsonResponse } from '../helpers/fetch'
 
 const REMOVE = `DELETE /api/channels/${CHANNEL_ID}?keep_files=true`
 const REMOVE_AND_TRASH = `DELETE /api/channels/${CHANNEL_ID}?keep_files=false`
 const FILES_TO_TRASH = `GET /api/channels/${CHANNEL_ID}/files-to-trash`
+const FOLDER = '/Users/sam/Movies/YouTube/Sample Channel'
+
+/** The answer of a removal that left these files in the folder. */
+function removedWith(left: string[] = []) {
+  return jsonResponse({ folder: FOLDER, files_trashed: 3, left })
+}
 
 /** Open the app on a channel and ask to remove it, through "More actions". */
 async function askToRemove(options: Parameters<typeof openApp>[0]) {
@@ -51,7 +57,7 @@ describe('the remove channel dialog', () => {
   it('R-CH-32: "Delete the files" asks the backend to move the files to the Trash', async () => {
     const { app, dialog } = await askToRemove({
       channels: [channel()],
-      answers: { [REMOVE_AND_TRASH]: noContent() },
+      answers: { [REMOVE_AND_TRASH]: removedWith() },
     })
 
     await fireEvent.click(within(dialog).getByRole('radio', { name: /Delete the files/ }))
@@ -64,7 +70,7 @@ describe('the remove channel dialog', () => {
   it('R-CH-32, R-UI-02: "Remove channel" removes it, and without channels the welcome screen is shown', async () => {
     const { app, dialog } = await askToRemove({
       channels: [channel()],
-      answers: { [REMOVE]: noContent() },
+      answers: { [REMOVE]: removedWith() },
     })
 
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove channel' }))
@@ -84,7 +90,7 @@ describe('the remove channel dialog', () => {
     const { dialog } = await askToRemove({
       channels: [channel(), other],
       answers: {
-        [REMOVE]: noContent(),
+        [REMOVE]: removedWith(),
         [`GET /api/channels/${OTHER_CHANNEL_ID}/videos`]: jsonResponse({ videos: [] }),
       },
     })
@@ -130,5 +136,41 @@ describe('the remove channel dialog', () => {
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove channel' }))
 
     expect(await screen.findByRole('dialog', { name: 'Remove Sample Channel?' })).toBeTruthy()
+  })
+
+  it('R-CH-32: files macOS refused to move to the Trash are listed once the channel is gone', async () => {
+    const left = Array.from({ length: 12 }, (_, index) => `Locked ${index + 1}.mkv`)
+    const { dialog } = await askToRemove({
+      channels: [channel(), channel({ id: OTHER_CHANNEL_ID, title: 'Other Channel' })],
+      answers: { [REMOVE_AND_TRASH]: removedWith(left) },
+    })
+
+    await fireEvent.click(within(dialog).getByRole('radio', { name: /Delete the files/ }))
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove channel' }))
+
+    const message = await screen.findByRole('dialog', { name: 'Sample Channel was removed' })
+    expect(within(message).getByRole('alert').textContent).toContain(
+      `macOS did not let yt-mirror move 12 files to the Trash. They are still in ${FOLDER}:`,
+    )
+    expect(part('[data-files-left]').querySelectorAll('li')).toHaveLength(10)
+    expect(message.textContent).toContain('Locked 1.mkv')
+    expect(message.textContent).toContain('and 2 more')
+    expect(screen.queryByRole('dialog', { name: 'Remove Sample Channel?' })).toBeNull()
+
+    await fireEvent.click(within(message).getByRole('button', { name: 'OK' }))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('R-CH-32: a removal where every file went says nothing more', async () => {
+    const { dialog } = await askToRemove({
+      channels: [channel(), channel({ id: OTHER_CHANNEL_ID, title: 'Other Channel' })],
+      answers: { [REMOVE_AND_TRASH]: removedWith() },
+    })
+
+    await fireEvent.click(within(dialog).getByRole('radio', { name: /Delete the files/ }))
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove channel' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 })

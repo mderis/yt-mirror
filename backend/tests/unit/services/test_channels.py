@@ -1,5 +1,6 @@
 """Tests of ``ytmirror.services.channels``: look up, add, pause, remove, open the folder."""
 
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -633,8 +634,8 @@ def test_a_channel_folder_inside_another_keeps_its_own_channel_file(tmp_path: Pa
     outer = channel_entries(world.files.read_bytes(world.library / ".yt-mirror" / "channel.json"))
     own = channel_entries(world.files.read_bytes(inner / ".yt-mirror" / "channel.json"))
 
-    assert [entry["id"] for entry in outer] == [BIG_ID]
-    assert [entry["id"] for entry in own] == [SMALL_ID]
+    assert [entry["id"] for entry in outer or []] == [BIG_ID]
+    assert [entry["id"] for entry in own or []] == [SMALL_ID]
 
 
 def test_deleting_the_outer_channel_leaves_the_inner_channel_and_its_files(tmp_path: Path) -> None:
@@ -666,3 +667,209 @@ def test_the_video_files_of_a_nested_channel_do_not_count_for_the_outer_folder(
     world, _inner = nested(tmp_path)
 
     assert world.files.count_video_files(world.library) == 0
+
+
+# --- removing safely (review of M3, M1, M2, M4 and the folder rule)
+
+
+def refusing(world: World, *names: str) -> None:
+    """Make the Trash refuse the paths with these names, as macOS does for a locked file."""
+    trash = world.files.trash
+
+    def refuse(path: Path) -> None:
+        if path.name in names:
+            raise AppError(ErrorCode.PERMISSION_DENIED, {"file": str(path)})
+        trash(path)
+
+    world.files.trash = refuse  # type: ignore[method-assign]
+
+
+def test_a_file_the_trash_refuses_never_stops_the_removal_halfway(tmp_path: Path) -> None:
+    """R-CH-32: every other file goes, the channel is removed, and what is left is said."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv", "sm000000002": "Video 2.mkv"})
+    refusing(world, "Video 1.mkv", ".yt-mirror")
+
+    with capture_logs() as logs:
+        removed = world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert removed.left == ("Video 1.mkv", ".yt-mirror")
+    assert removed.folder == str(folder)
+    assert folder / "Video 2.mkv" in world.files.trashed
+    assert world.files.file_names(folder, hidden=True) == [".yt-mirror", "Video 1.mkv"]
+    assert world.repository.channels() == ()
+    assert [line["error_code"] for line in log_lines(logs, "file.trash_failed")] == [
+        "PERMISSION_DENIED",
+        "PERMISSION_DENIED",
+    ]
+
+
+def test_a_channel_leaves_the_catalogue_only_after_its_files(tmp_path: Path) -> None:
+    """R-CH-32: a crash during the file step leaves a channel that can be removed again."""
+    world = World(tmp_path)
+    world.add_and_list()
+    synced_files(world, {"sm000000001": "Video 1.mkv"})
+    trash = world.files.trash
+    still_there: list[bool] = []
+
+    def trash_and_look(path: Path) -> None:
+        still_there.append(world.repository.channel(SMALL_ID) is not None)
+        trash(path)
+
+    world.files.trash = trash_and_look  # type: ignore[method-assign]
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert still_there and all(still_there)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"{not json", b'{"version": 2, "channels": [{"id": "UCnewer"}], "folders": []}'],
+    ids=["damaged", "newer"],
+)
+def test_a_channel_file_that_cannot_be_understood_is_never_replaced_or_trashed(
+    tmp_path: Path, content: bytes
+) -> None:
+    """R-FI-05: a damaged file or one of a newer version stays as it is, with a warning."""
+    world = World(tmp_path)
+    world.add_and_list()
+    path = world.library / "Small Channel" / ".yt-mirror" / "channel.json"
+    world.files.write_file(path, content, overwrite=True, inside=world.library)
+
+    with capture_logs() as logs:
+        world.channels.write_channel_file(SMALL_ID)
+        removed = world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.files.read_bytes(path) == content
+    assert path not in world.files.trashed
+    assert removed.left == ()
+    assert len(log_lines(logs, "channel.file_unreadable")) == 2
+
+
+def test_a_channel_file_that_cannot_be_read_is_not_taken_for_an_empty_one(tmp_path: Path) -> None:
+    """R-FI-05: a read error is not "no entries": the file is neither replaced nor trashed."""
+    world = World(tmp_path)
+    world.add_and_list()
+    path = world.library / "Small Channel" / ".yt-mirror" / "channel.json"
+    before = world.files.read_bytes(path)
+    read_bytes = world.files.read_bytes
+    world.files.read_bytes = lambda p: None if p == path else read_bytes(p)  # type: ignore[method-assign]
+    world.channels.write_channel_file(SMALL_ID)
+    world.repository.save_channel(replace(world.repository.channel(SMALL_ID), title="New"))  # type: ignore[arg-type]
+
+    world.channels.write_channel_file(SMALL_ID)
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert read_bytes(path) == before
+    assert path not in world.files.trashed
+
+
+def test_a_folder_the_user_chose_never_goes_to_the_trash_even_when_empty(tmp_path: Path) -> None:
+    """R-CH-32: only a folder the app created may go; a chosen one stays, empty or not."""
+    world = World(tmp_path)
+    chosen = tmp_path / "Elsewhere"
+    world.files.make_folder(chosen)
+    world.picker.answer = chosen
+    world.channels.choose_folder()
+    world.add_and_list(folder=str(chosen))
+
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.files.folder_exists(chosen) is True
+    assert chosen not in world.files.trashed
+
+
+def test_a_folder_that_was_there_before_the_channel_stays(tmp_path: Path) -> None:
+    """R-CH-32: a folder in the library that the app did not create is not the app's to trash."""
+    world = World(tmp_path)
+    folder = world.library / "Small Channel"
+    world.files.make_folder(folder)
+    world.add_and_list()
+
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.repository.channels() == ()
+    assert world.files.folder_exists(folder) is True
+    assert world.files.folder_exists(world.library) is True
+
+
+def test_nothing_starts_or_writes_in_a_folder_while_it_is_removed(tmp_path: Path) -> None:
+    """R-CH-32, R-FI-05: a check that ends or a Mirror pressed during the removal writes nothing."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv"})
+    trash = world.files.trash
+    refused: list[ErrorCode] = []
+
+    def trash_then_race(path: Path) -> None:
+        trash(path)
+        if path == folder / ".yt-mirror":
+            world.channels.write_channel_file(SMALL_ID)
+            try:
+                world.downloader.mirror(["sm000000002"])
+            except AppError as error:
+                refused.append(error.code)
+
+    world.files.trash = trash_then_race  # type: ignore[method-assign]
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert refused == [ErrorCode.NOT_FOUND]
+    assert world.files.folder_exists(folder) is False
+    assert world.files.trashed[-1] == folder
+    assert world.jobs.jobs(list(JobState)) == ()
+
+
+def test_a_channel_cannot_be_removed_twice_at_once(tmp_path: Path) -> None:
+    """R-CH-32: a second removal that comes while the first runs is refused."""
+    world = World(tmp_path)
+    world.add_and_list()
+    synced_files(world, {"sm000000001": "Video 1.mkv"})
+    trash = world.files.trash
+    second: list[ErrorCode] = []
+
+    def trash_and_remove_again(path: Path) -> None:
+        trash(path)
+        if not second:
+            try:
+                world.channels.remove(SMALL_ID, keep_files=False)
+            except AppError as error:
+                second.append(error.code)
+
+    world.files.trash = trash_and_remove_again  # type: ignore[method-assign]
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert second == [ErrorCode.INVALID_REQUEST]
+    assert world.repository.channels() == ()
+
+
+def test_a_removal_waits_for_the_check_of_the_channel_to_end(tmp_path: Path) -> None:
+    """R-CH-32, R-FI-05: no check writes into the folder while its files go to the Trash."""
+    world = World(tmp_path, BIG)
+    channel_id = world.add("@big")
+    world.run_background()
+    held, go = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        held.set()
+        go.wait(10)
+
+    world.at_progress(30, hold)
+    checking = threading.Thread(target=world.catalogue.work_once, daemon=True)
+    checking.start()
+    assert held.wait(10)
+
+    removing = threading.Thread(
+        target=lambda: world.channels.remove(channel_id, keep_files=False), daemon=True
+    )
+    removing.start()
+    removing.join(0.3)
+    trashed_while_checking = list(world.files.trashed)
+    go.set()
+    removing.join(10)
+    checking.join(10)
+
+    assert trashed_while_checking == []
+    assert not removing.is_alive()
+    assert world.repository.channels() == ()
+    assert world.files.folder_exists(world.library / "Big Channel") is False

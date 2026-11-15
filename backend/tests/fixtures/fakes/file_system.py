@@ -67,8 +67,12 @@ class FakeFileSystem:
     def _add_folder(self, folder: Path) -> None:
         self.folders.update({folder, *folder.parents})
 
-    def make_folder(self, folder: Path) -> None:
-        """Remember the folder, or fail as configured."""
+    def make_folder(self, folder: Path, *, inside: Path | None = None) -> None:
+        """Remember the folder, or fail as configured. ``inside`` must be there."""
+        if inside is not None:
+            folder.relative_to(inside)
+            if inside not in self.folders:
+                raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"folder": str(inside)})
         if folder in self.denied:
             raise AppError(ErrorCode.PERMISSION_DENIED, {"folder": str(folder)})
         if folder in self.unavailable:
@@ -123,11 +127,11 @@ class FakeFileSystem:
         """Return whether the path is in the folder and not marked as leading out."""
         return path not in self.outside and path.is_relative_to(folder)
 
-    def write_file(self, path: Path, data: bytes, *, overwrite: bool) -> bool:
+    def write_file(self, path: Path, data: bytes, *, overwrite: bool, inside: Path) -> bool:
         """Store the file unless it is there and must not be replaced."""
         if not overwrite and self.exists(path):
             return False
-        self.make_folder(path.parent)
+        self.make_folder(path.parent, inside=inside)
         self.files[path] = FakeFile(data)
         return True
 
@@ -135,9 +139,8 @@ class FakeFileSystem:
         """Move a file, never onto something that is there."""
         if self.exists(target):
             return False
-        if source not in self.files:
+        if source not in self.files or target.parent not in self.folders:
             raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(source)})
-        self.make_folder(target.parent)
         self.files[target] = self.files.pop(source)
         return True
 
