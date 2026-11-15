@@ -448,3 +448,28 @@ def test_a_download_without_a_merged_file_failed(
         gateway(replay, ytdlp).download(request(tmp_path), lambda _progress: None, never)
 
     assert failure.value.code is ErrorCode.FFMPEG_FAILED
+
+
+@pytest.mark.parametrize("step", ["Merger", "EmbedSubtitle"])
+def test_an_error_after_a_cancel_is_the_cancel(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp, step: str
+) -> None:
+    """R-QU-02, R-PL-13: when ffmpeg was stopped by a cancel or a quit, its error is the cancel.
+
+    Never a failure with a code, and never a failure of the subtitles that is tried again.
+    """
+    cancelled = {"now": False}
+    ytdlp.fail = (step, RuntimeError("ERROR: Postprocessing: Conversion failed!"))
+    # The cancel arrives as the failing step starts: no later hook can see it first.
+    at = ["Merger", "EmbedSubtitle"].index(step) + 1
+    processing: list[DownloadProgress] = []
+
+    def cancel_when_processing(report: DownloadProgress) -> None:
+        if report.stage is Stage.PROCESSING:
+            processing.append(report)
+            cancelled["now"] = len(processing) == at
+
+    with pytest.raises(DownloadCancelledError):
+        gateway(replay, ytdlp).download(
+            request(tmp_path), cancel_when_processing, lambda: cancelled["now"]
+        )

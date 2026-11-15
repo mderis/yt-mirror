@@ -318,9 +318,15 @@ class YtDlpGateway:
             tags["published_at"] = _iso(published)
         try:
             answer = self._download(address, options, tags)
-        except DownloadCancelledError, AppError:
+        except DownloadCancelledError:
             raise
         except Exception as error:
+            # Asked first: when the job was cancelled or the app quits, its ffmpeg was
+            # stopped, and what yt-dlp raises then is the cancel (R-QU-02, R-PL-13).
+            if is_cancelled():
+                raise DownloadCancelledError("cancelled: the tools were stopped") from error
+            if isinstance(error, AppError):
+                raise
             text = f"{type(error).__name__}: {error}"
             if steps.current == _SUBTITLE_STEP or _SUBTITLE_FAILURE in text.lower():
                 raise SubtitlesFailedError(text) from error

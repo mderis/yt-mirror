@@ -483,25 +483,35 @@ class DownloaderService:
             result = self._download(running, video, place, log)
             video = self._processing(running)
             self._finish(running, video, channel, place, result, log, started)
-        except DownloadCancelledError:
-            self._end(running, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled")
-            log.info(
-                "download.cancelled",
-                msg="Download cancelled. Its temp files were deleted",
-                duration_ms=self._ms_since(started),
-            )
-        except AppError as error:
-            self._failed(running, video, error.code, log, started, error.details)
-        except Exception:
-            log.error(
-                "download.failed",
-                msg="Download failed with an unexpected error",
-                error_code=ErrorCode.INTERNAL.value,
-                exc_info=True,
-            )
-            self._failed(running, video, ErrorCode.INTERNAL, None, started, {})
+        except Exception as error:  # noqa: BLE001  (a cancel is asked before any error is read)
+            # A job that was cancelled, or an app that quits, stopped the tools: the error
+            # that follows is the cancel, never a failure nor a retry (R-QU-02, R-PL-13).
+            if isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id):
+                self._end(
+                    running, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled"
+                )
+                log.info(
+                    "download.cancelled",
+                    msg="Download cancelled. Its temp files were deleted",
+                    duration_ms=self._ms_since(started),
+                )
+            elif isinstance(error, AppError):
+                self._failed(running, video, error.code, log, started, error.details)
+            else:
+                self._failed_unexpectedly(running, video, log, started)
         finally:
             self._files.remove_temp_folder(place.work)
+
+    def _failed_unexpectedly(
+        self, job: Job, video: Video, log: FilteringBoundLogger, started: float
+    ) -> None:
+        log.error(
+            "download.failed",
+            msg="Download failed with an unexpected error",
+            error_code=ErrorCode.INTERNAL.value,
+            exc_info=True,
+        )
+        self._failed(job, video, ErrorCode.INTERNAL, None, started, {})
 
     def _download(
         self, job: Job, video: Video, place: _Place, log: FilteringBoundLogger
@@ -534,9 +544,17 @@ class DownloaderService:
         def told(progress: DownloadProgress) -> None:
             self._progressed(job, video, progress)
 
-        return self._youtube.download(
-            request, told, lambda: self._is_cancelled(job.id), by_user=True
-        )
+        try:
+            return self._youtube.download(
+                request, told, lambda: self._is_cancelled(job.id), by_user=True
+            )
+        except DownloadCancelledError:
+            raise
+        except Exception as error:
+            # Asked before the error is read: a stopped ffmpeg is no failed subtitle.
+            if self._is_cancelled(job.id):
+                raise DownloadCancelledError("cancelled: its tools were stopped") from error
+            raise
 
     def _finish(
         self,

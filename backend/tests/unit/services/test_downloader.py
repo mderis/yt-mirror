@@ -19,6 +19,7 @@ from ytmirror.core.jobs import (
     JobProgressed,
     JobState,
     Stage,
+    SubtitlesFailedError,
     VideoUpdated,
 )
 from ytmirror.core.models import Settings
@@ -940,3 +941,51 @@ def test_a_crash_right_after_the_synced_commit_keeps_the_side_files_to_write(
 
     assert world.jobs.pending_side_files() == ()
     assert world.files.exists(folder_of(world) / ".yt-mirror" / f"{FIRST}.info.json")
+
+
+# --- a quit is a cancel (second review of M3, M2)
+
+
+def killed_at(world: World, stage: Stage, error: Exception) -> threading.Event:
+    """Hold the download at a stage; stopping the tools makes that step fail like a killed ffmpeg.
+
+    Returns the event that says the download is held.
+    """
+    held, killed = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        held.set()
+        killed.wait(10)
+        raise error
+
+    world.download.cancel_at = stage
+    world.download.on_cancel = hold
+    world.stop_tools = killed.set
+    return held
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        AppError(ErrorCode.FFMPEG_FAILED, {"message": "Conversion failed!"}),
+        SubtitlesFailedError("ERROR: Postprocessing: Conversion failed!"),
+    ],
+    ids=["merge", "subtitles"],
+)
+def test_quitting_while_ffmpeg_runs_cancels_and_never_fails_or_retries(
+    world: World, error: Exception
+) -> None:
+    """R-PL-13, R-QU-02: the error of the stopped ffmpeg is a cancel, never FAILED nor a retry."""
+    world.downloader.mirror([FIRST])
+    held = killed_at(world, Stage.PROCESSING, error)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.downloader.stop(wait_s=10)
+    worker.join(10)
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+    assert len(world.download.calls) == 1
