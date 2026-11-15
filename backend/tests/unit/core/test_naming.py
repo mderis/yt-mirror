@@ -149,10 +149,48 @@ def test_names_are_compared_without_regard_to_case() -> None:
     assert name == f"Trailer [{VIDEO_ID}].mkv"
 
 
-@pytest.mark.parametrize("title", ["", "   ", "\x00\x07"])
-def test_a_title_with_nothing_storable_becomes_the_video_id(title: str) -> None:
-    """R-FN-01: a video always gets a visible file, also when its title leaves nothing."""
-    assert video_file_name(title, VIDEO_ID, taken=()) == f"{VIDEO_ID}.mkv"
+def test_an_empty_title_becomes_the_video_id() -> None:
+    """R-FN-01: a video without a title gets its video ID as the name."""
+    assert video_file_name("", VIDEO_ID, taken=()) == f"{VIDEO_ID}.mkv"
+
+
+def test_a_title_of_only_spaces_becomes_the_video_id() -> None:
+    """R-FN-01: spaces are trimmed (R-FN-02), and nothing is left."""
+    assert video_file_name("   ", VIDEO_ID, taken=()) == f"{VIDEO_ID}.mkv"
+
+
+def test_a_title_of_only_control_characters_becomes_the_video_id() -> None:
+    """R-FN-01: control characters are removed (R-FN-02), and nothing is left."""
+    assert video_file_name("\x00\x07", VIDEO_ID, taken=()) == f"{VIDEO_ID}.mkv"
+
+
+def test_a_title_of_one_dot_becomes_the_video_id() -> None:
+    """R-FN-01: "." is no name for a file, so it counts as nothing storable."""
+    assert video_file_name(".", VIDEO_ID, taken=()) == f"{VIDEO_ID}.mkv"
+
+
+def test_a_title_of_two_dots_becomes_the_video_id() -> None:
+    """R-FN-01: ".." is no name for a file, so it counts as nothing storable."""
+    assert video_file_name("..", VIDEO_ID, taken=()) == f"{VIDEO_ID}.mkv"
+
+
+def test_a_title_of_only_dots_and_spaces_becomes_the_video_id() -> None:
+    """R-FN-01: dots and spaces alone leave nothing storable."""
+    assert video_file_name(" . . ... ", VIDEO_ID, taken=()) == f"{VIDEO_ID}.mkv"
+
+
+def test_a_title_that_starts_with_a_dot_keeps_its_words_and_is_not_hidden() -> None:
+    """R-FN-02: a leading dot gets a preceding underscore, so Finder shows the file."""
+    assert video_file_name("...and then it worked", VIDEO_ID, taken=()) == (
+        "_...and then it worked.mkv"
+    )
+
+
+def test_the_video_id_name_follows_the_collision_rule_too() -> None:
+    """R-FN-05: a file of no known video named like the ID is never overwritten."""
+    assert video_file_name("..", VIDEO_ID, taken=[f"{VIDEO_ID}.mkv"]) == (
+        f"{VIDEO_ID} [{VIDEO_ID}].mkv"
+    )
 
 
 _VIDEO_IDS = st.text(

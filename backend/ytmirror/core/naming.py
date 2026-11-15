@@ -82,8 +82,9 @@ def video_file_name(title: str, video_id: str, taken: Collection[str]) -> str:
     ``" [<video id>]"`` is appended when the name would be longer than 255
     bytes, after the title is shortened (R-FN-04), and when the name is
     taken, compared without regard to case (R-FN-05). A title that leaves
-    nothing becomes the video ID, as the name of a channel folder does
-    (R-FI-01).
+    nothing, or only dots and spaces (".", ".."), becomes the video ID
+    (R-FN-01). A title that starts with a dot keeps its words and gets a
+    preceding "_", so the file is never hidden (R-FN-02).
 
     Args:
         title: The title of the video, exactly as YouTube gives it.
@@ -96,7 +97,9 @@ def video_file_name(title: str, video_id: str, taken: Collection[str]) -> str:
         The file name, at most 255 bytes long, ending in ``.mkv``.
     """
     suffix = f" [{video_id}]"
-    title_part = safe_name(title) or video_id
+    title_part = safe_name(title)
+    if not title_part.strip(_KEPT_VISIBLE + _HIDDEN_PREFIX + " "):
+        title_part = video_id
     whole = title_part + VIDEO_EXTENSION
     taken_names = {other.casefold() for other in taken}
     if len(whole.encode()) <= MAX_NAME_BYTES and whole.casefold() not in taken_names:

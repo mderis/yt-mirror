@@ -213,7 +213,7 @@ Design: `ExcludeConfirm.html`, `ExcludePreview.html`, `ChannelSettings.html`.
 
 | ID | Requirement |
 |---|---|
-| R-FN-01 | The file name is the video title plus `.mkv`. Nothing else is added by default. |
+| R-FN-01 | The file name is the video title plus `.mkv`. Nothing else is added by default. A title that leaves nothing after the substitutions of R-FN-02, or only dots and spaces (such as "." or ".."), becomes the video ID. When the title later changes to one that leaves something, the rename of R-FN-06 gives the file its title. |
 | R-FN-02 | Only characters that macOS cannot store or that break Finder are substituted, each by a visually similar character: `/` becomes `⧸` (U+29F8) and `:` becomes `：` (U+FF1A). Control characters are removed. A leading `.` gets a preceding `_`. Leading and trailing spaces are trimmed. |
 | R-FN-03 | Names are stored in Unicode NFC. |
 | R-FN-04 | If the name would exceed 255 bytes in UTF-8, the title part is shortened on a character boundary and ` [<video id>]` is appended. |
