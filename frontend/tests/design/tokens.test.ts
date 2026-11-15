@@ -111,9 +111,13 @@ describe('tokens.css', () => {
   it('R-TH-02: animations take no time when the system asks for reduced motion', () => {
     const durations = everyName.filter((name) => groupOf(name) === 'duration').sort()
 
-    expect(durations).toEqual(['--ytm-duration-base', '--ytm-duration-fast'])
+    expect(durations).toEqual([
+      '--ytm-duration-arrive',
+      '--ytm-duration-base',
+      '--ytm-duration-fast',
+    ])
     expect([...tokens.reducedMotion.keys()].sort()).toEqual(durations)
-    expect([...tokens.reducedMotion.values()]).toEqual(['0ms', '0ms'])
+    expect([...tokens.reducedMotion.values()]).toEqual(['0ms', '0ms', '0ms'])
   })
 
   it('R-TH-07: the file is plain CSS that the website can import as it is', () => {

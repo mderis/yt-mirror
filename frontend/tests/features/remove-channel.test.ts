@@ -5,11 +5,20 @@ import { noContent, openApp, part } from '../helpers/app'
 import { channel, CHANNEL_ID, OTHER_CHANNEL_ID, video } from '../helpers/catalogue'
 import { errorBody, jsonResponse } from '../helpers/fetch'
 
-const REMOVE = `DELETE /api/channels/${CHANNEL_ID}`
+const REMOVE = `DELETE /api/channels/${CHANNEL_ID}?keep_files=true`
+const REMOVE_AND_TRASH = `DELETE /api/channels/${CHANNEL_ID}?keep_files=false`
+const FILES_TO_TRASH = `GET /api/channels/${CHANNEL_ID}/files-to-trash`
 
 /** Open the app on a channel and ask to remove it, through "More actions". */
 async function askToRemove(options: Parameters<typeof openApp>[0]) {
-  const app = await openApp({ videos: [video(1)], ...options })
+  const app = await openApp({
+    videos: [video(1)],
+    ...options,
+    answers: {
+      [FILES_TO_TRASH]: jsonResponse({ files: 3, size_bytes: 1_250_000_000 }),
+      ...options?.answers,
+    },
+  })
   await fireEvent.click(await screen.findByRole('button', { name: 'More actions' }))
   await fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove channel' }))
   const dialog = await screen.findByRole('dialog', { name: 'Remove Sample Channel?' })
@@ -17,15 +26,38 @@ async function askToRemove(options: Parameters<typeof openApp>[0]) {
 }
 
 describe('the remove channel dialog', () => {
-  it('R-CH-32: removing a channel asks first, and says what goes and that the folder stays', async () => {
-    const { app, dialog } = await askToRemove({ channels: [channel()] })
+  it('R-CH-32: removing a channel asks first, and offers to keep the files or move them to the Trash', async () => {
+    const { app, dialog } = await askToRemove({
+      channels: [channel({ synced: 212, size_bytes: 41_200_000_000 })],
+    })
 
     expect(dialog.textContent).toContain(
       'The channel disappears from yt-mirror, including its exclude list and settings.',
     )
-    expect(part('[data-folder]').textContent?.trim()).toBe(
-      'Its folder and everything in it stay where they are: /Users/sam/Movies/YouTube/Sample Channel',
+    expect(part('[data-downloaded]').textContent?.trim()).toBe('212 downloaded videos (41.2 GB)')
+    const keep = within(dialog).getByRole('radio', { name: /Keep the files/ })
+    const trash = within(dialog).getByRole('radio', { name: /Delete the files/ })
+    expect((keep as HTMLInputElement).checked).toBe(true)
+    expect((trash as HTMLInputElement).checked).toBe(false)
+    expect(dialog.textContent).toContain('They stay in /Users/sam/Movies/YouTube/Sample Channel.')
+    await waitFor(() =>
+      expect(dialog.textContent).toContain(
+        '3 files (1.3 GB) go to the Trash, so you can still get them back. Other files in the folder stay where they are.',
+      ),
     )
+    expect(app.requests()).not.toContain(REMOVE)
+  })
+
+  it('R-CH-32: "Delete the files" asks the backend to move the files to the Trash', async () => {
+    const { app, dialog } = await askToRemove({
+      channels: [channel()],
+      answers: { [REMOVE_AND_TRASH]: noContent() },
+    })
+
+    await fireEvent.click(within(dialog).getByRole('radio', { name: /Delete the files/ }))
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove channel' }))
+
+    await waitFor(() => expect(app.requests()).toContain(REMOVE_AND_TRASH))
     expect(app.requests()).not.toContain(REMOVE)
   })
 

@@ -38,6 +38,17 @@ export function useStatusLine(): (channel: Channel) => StatusLine {
   const agoText = useAgo()
   const channels = useChannelsStore()
   return (channel) => {
+    if (channel.status === 'mirroring' && channel.mirroring) {
+      const done = Math.min(channel.mirroring.done + 1, channel.mirroring.total)
+      return {
+        text: t('channelStatus.mirroring', {
+          done: formatNumber(done),
+          total: formatNumber(channel.mirroring.total),
+        }),
+        icon: 'download',
+        tone: 'progress',
+      }
+    }
     if (channel.status === 'waiting_for_youtube') {
       const until = channels.youtubePause?.until
       return {

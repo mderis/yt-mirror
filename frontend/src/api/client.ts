@@ -23,6 +23,15 @@ export type Channel = components['schemas']['Channel']
 export type ChannelStatus = components['schemas']['ChannelStatus']
 /** One video of a catalogue, with the fields a list needs (R-CH-10). */
 export type Video = components['schemas']['Video']
+export type VideoStatus = components['schemas']['VideoStatus']
+/** How far the running download of a video is (R-QU-04). */
+export type Download = components['schemas']['Download']
+/** Everything the details panel shows of a video (R-UI-08). */
+export type VideoDetails = components['schemas']['VideoDetailsResponse']
+/** A download that was put in line (R-MI-01). */
+export type QueuedJob = components['schemas']['QueuedJob']
+/** What "Delete the files" moves to the Trash (R-CH-32). */
+export type FilesToTrash = components['schemas']['FilesToTrashResponse']
 export type DatePrecision = components['schemas']['DatePrecision']
 export type CheckKind = components['schemas']['CheckKind']
 export type Quality = components['schemas']['Quality']
@@ -109,6 +118,10 @@ export interface EventHandlers {
   taskProgress: (progress: Progress) => void
   /** The pause of YouTube began, got longer or ended. */
   pauseChanged: (pause: Pause | null) => void
+  /** A video changed: its status, its file or its date (R-FB-03). */
+  videoUpdated: (channelId: string, video: Video) => void
+  /** A running download got further (R-QU-04). */
+  jobProgress: (download: Download) => void
   /** The stream is connected again after a break: events may have been missed. */
   reconnected: () => void
 }
@@ -135,6 +148,12 @@ function openEvents(handlers: EventHandlers): () => void {
   )
   on<components['schemas']['BannerChangedEvent']>('banner.changed', (event) =>
     handlers.pauseChanged(event.youtube_pause),
+  )
+  on<components['schemas']['VideoUpdatedEvent']>('video.updated', (event) =>
+    handlers.videoUpdated(event.channel_id, event.video),
+  )
+  on<components['schemas']['JobProgressEvent']>('job.progress', (event) =>
+    handlers.jobProgress(event.download),
   )
   source.addEventListener('error', () => {
     broken = true
@@ -178,10 +197,13 @@ export const api = {
   /** Pause or resume a channel (R-CH-31). */
   setChannelPaused: (channelId: string, paused: boolean): Promise<Channel> =>
     send<Channel>('PATCH', `/channels/${channelId}`, { paused }),
-  /** Remove a channel with its catalogue. Its folder stays (R-CH-32). */
-  removeChannel: async (channelId: string): Promise<void> => {
-    await send('DELETE', `/channels/${channelId}`)
+  /** Remove a channel with its catalogue, and move its files to the Trash or not (R-CH-32). */
+  removeChannel: async (channelId: string, keepFiles: boolean): Promise<void> => {
+    await send('DELETE', `/channels/${channelId}?keep_files=${keepFiles}`)
   },
+  /** Ask how many files and how much room "Delete the files" moves to the Trash (R-CH-32). */
+  getFilesToTrash: (channelId: string): Promise<FilesToTrash> =>
+    request<FilesToTrash>(`/channels/${channelId}/files-to-trash`),
   /** Start a quick or a full check of a channel (R-CH-23). */
   checkChannel: (channelId: string, kind: CheckKind): Promise<Channel> =>
     send<Channel>('POST', `/channels/${channelId}/check`, { kind }),
@@ -195,6 +217,24 @@ export const api = {
   openChannelFolder: async (channelId: string): Promise<void> => {
     await send('POST', `/channels/${channelId}/open-folder`)
   },
+  /** Put videos in line to be downloaded, in this order (R-MI-01). */
+  mirrorVideos: async (ids: string[]): Promise<QueuedJob[]> =>
+    (await send<{ jobs: QueuedJob[] }>('POST', '/videos/mirror', { ids })).jobs,
+  /** Put a failed video in line again (R-QU-08). */
+  retryVideo: (videoId: string): Promise<Video> => send<Video>('POST', `/videos/${videoId}/retry`),
+  /** Cancel a download that waits or runs (R-QU-02). */
+  cancelJob: (jobId: string): Promise<{ cancelled: boolean }> =>
+    send<{ cancelled: boolean }>('POST', `/jobs/${jobId}/cancel`),
+  /** Open the file of a video in the default player of macOS (R-UI-10). */
+  playVideo: async (videoId: string): Promise<void> => {
+    await send('POST', `/videos/${videoId}/play`)
+  },
+  /** Show the file of a video selected in Finder (R-UI-10). */
+  revealVideo: async (videoId: string): Promise<void> => {
+    await send('POST', `/videos/${videoId}/reveal`)
+  },
+  /** Ask for everything the details panel shows of a video (R-UI-08). */
+  getVideo: (videoId: string): Promise<VideoDetails> => request<VideoDetails>(`/videos/${videoId}`),
   /** Ask for the catalogue of a channel, newest first (R-CH-10). */
   getChannelVideos: async (channelId: string): Promise<Video[]> =>
     (await request<{ videos: Video[] }>(`/channels/${channelId}/videos`)).videos,

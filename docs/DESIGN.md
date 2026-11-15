@@ -174,6 +174,7 @@ Approved by the maintainer in milestone M0. The mockups do not define these as r
 | `font-weight-semibold` | 600 | Headings, the wordmark |
 | `duration-fast` | 150 ms | Hover, press, toggles |
 | `duration-base` | 200 ms | Menus, dialogs, panels, toasts |
+| `duration-arrive` | 1200 ms | The highlight that fades when an exact date replaces an approximate one (R-DT-13) |
 
 Both durations become 0 ms when the system "reduce motion" setting is on.
 

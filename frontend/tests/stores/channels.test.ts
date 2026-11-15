@@ -135,7 +135,8 @@ describe('the channels store', () => {
 
   it('R-CH-32: a removed channel leaves the sidebar, and is not the last open one any more', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${CHANNEL_ID}`]: () => new Response(null, { status: 204 }),
+      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: () =>
+        new Response(null, { status: 204 }),
     })
 
     await store.remove(CHANNEL_ID)
@@ -146,7 +147,8 @@ describe('the channels store', () => {
 
   it('R-CH-32: removing another channel than the last open one keeps that one remembered', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${OTHER_CHANNEL_ID}`]: () => new Response(null, { status: 204 }),
+      [`DELETE /api/channels/${OTHER_CHANNEL_ID}?keep_files=true`]: () =>
+        new Response(null, { status: 204 }),
     })
 
     await store.remove(OTHER_CHANNEL_ID)
@@ -156,7 +158,10 @@ describe('the channels store', () => {
 
   it('R-ER-02: a removal that the backend refuses keeps the channel and passes the code on', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${CHANNEL_ID}`]: jsonResponse(errorBody('INTERNAL'), 500),
+      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: jsonResponse(
+        errorBody('INTERNAL'),
+        500,
+      ),
     })
 
     const error = await store.remove(CHANNEL_ID).catch((caught: unknown) => caught)

@@ -23,11 +23,11 @@ export interface VideoListRow {
   views: string | null
 }
 
-/** Returns the rows of a list of videos. They follow the videos and the time zone. */
-export function useVideoRows(videos: () => readonly Video[]): ComputedRef<VideoListRow[]> {
+/** Returns the function that writes the date of a video, as a row shows it. */
+export function useDateOf(): (video: Video) => VideoListRow['date'] {
   const { t } = useI18n()
 
-  function dateOf(video: Video): VideoListRow['date'] {
+  return function dateOf(video: Video): VideoListRow['date'] {
     if (video.published_precision !== null && video.published_around !== null) {
       const date = formatApproximateDate(
         video.published_around,
@@ -42,6 +42,12 @@ export function useVideoRows(videos: () => readonly Video[]): ComputedRef<VideoL
     }
     return { text: t('channel.list.datePending'), approximate: true }
   }
+}
+
+/** Returns the rows of a list of videos. They follow the videos and the time zone. */
+export function useVideoRows(videos: () => readonly Video[]): ComputedRef<VideoListRow[]> {
+  const { t } = useI18n()
+  const dateOf = useDateOf()
 
   return computed(() =>
     videos().map((video) => ({

@@ -109,7 +109,7 @@ describe('docs/DESIGN.md section 2 and tokens.css', () => {
         .map(([name, value]) => [name.replace('--ytm-', ''), value]),
     )
 
-    expect(Object.keys(documented).length).toBe(24)
+    expect(Object.keys(documented).length).toBe(25)
     expect(actual).toEqual(documented)
   })
 

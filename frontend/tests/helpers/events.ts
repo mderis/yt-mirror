@@ -1,7 +1,7 @@
 /** A stand-in for the browser's EventSource, so tests can play the event stream. */
 import { vi } from 'vitest'
 
-import type { Channel, Pause, Progress, Tool } from '@/api/client'
+import type { Channel, Download, Pause, Progress, Tool, Video } from '@/api/client'
 
 type Listener = (message: { data: string }) => void
 
@@ -51,6 +51,16 @@ export class FakeEventSource {
   /** Play the event that tells about the pause of YouTube, or its end. */
   pauseChanged(pause: Pause | null): void {
     this.emit('banner.changed', { youtube_pause: pause })
+  }
+
+  /** Play the event that tells about one video (R-FB-03). */
+  videoUpdated(channelId: string, video: Video): void {
+    this.emit('video.updated', { channel_id: channelId, video })
+  }
+
+  /** Play the event that tells how far a download is (R-QU-04). */
+  jobProgress(download: Download): void {
+    this.emit('job.progress', { download })
   }
 
   /** Play a break of the stream and its return. */

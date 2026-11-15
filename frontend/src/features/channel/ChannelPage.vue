@@ -22,6 +22,7 @@ import ChannelHeader from './ChannelHeader.vue'
 import CheckFailedBanner from './CheckFailedBanner.vue'
 import FullCheckProgress from './FullCheckProgress.vue'
 import { isBeingListed } from './status'
+import VideoDetails from './VideoDetails.vue'
 import VideoList from './VideoList.vue'
 
 const props = defineProps<{
@@ -92,48 +93,51 @@ watch(
     </div>
     <!-- It can be focused, so that the list can be scrolled with the keyboard (R-UI-13).
          It is `relative`, so that nothing inside it is placed against the window (R-UI-01). -->
-    <div
-      class="relative min-h-0 flex-1 overflow-y-auto border-t border-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-      role="region"
-      tabindex="0"
-      :aria-label="t('channel.list.region')"
-    >
-      <div v-if="isBeingListed(channel)" data-skeleton-list>
-        <div
-          v-for="(widths, index) in SKELETON_ROWS"
-          :key="index"
-          class="flex items-center gap-3 border-b border-line px-4 py-2"
-        >
-          <SkeletonBlock class="h-18 w-32 flex-none" />
-          <div class="flex flex-1 flex-col gap-2">
-            <SkeletonBlock class="h-3" :class="widths[0]" />
-            <SkeletonBlock class="h-3" :class="widths[1]" />
+    <div class="flex min-h-0 flex-1 border-t border-line">
+      <div
+        class="relative min-h-0 min-w-0 flex-1 overflow-y-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+        role="region"
+        tabindex="0"
+        :aria-label="t('channel.list.region')"
+      >
+        <div v-if="isBeingListed(channel)" data-skeleton-list>
+          <div
+            v-for="(widths, index) in SKELETON_ROWS"
+            :key="index"
+            class="flex items-center gap-3 border-b border-line px-4 py-2"
+          >
+            <SkeletonBlock class="h-18 w-32 flex-none" />
+            <div class="flex flex-1 flex-col gap-2">
+              <SkeletonBlock class="h-3" :class="widths[0]" />
+              <SkeletonBlock class="h-3" :class="widths[1]" />
+            </div>
           </div>
         </div>
+        <div v-else-if="loadError" class="p-7">
+          <AppBanner tone="error" data-banner="list-failed">
+            <p class="font-medium">{{ t('channel.list.failed') }}</p>
+            <p class="text-meta">{{ loadError.happened }} {{ loadError.action }}</p>
+            <template #action>
+              <AppButton icon="retry" @press="videos.open(channel.id)">
+                {{ t('channel.list.retry') }}
+              </AppButton>
+            </template>
+          </AppBanner>
+        </div>
+        <EmptyState
+          v-else-if="
+            channel.first_listed_at !== null &&
+            videos.status === 'ready' &&
+            videos.videos.length === 0
+          "
+          icon="video"
+          :title="t('channel.empty.title')"
+        >
+          {{ t('channel.empty.text') }}
+        </EmptyState>
+        <VideoList v-else :videos="videos.videos" :channel-id="channel.id" />
       </div>
-      <div v-else-if="loadError" class="p-7">
-        <AppBanner tone="error" data-banner="list-failed">
-          <p class="font-medium">{{ t('channel.list.failed') }}</p>
-          <p class="text-meta">{{ loadError.happened }} {{ loadError.action }}</p>
-          <template #action>
-            <AppButton icon="retry" @press="videos.open(channel.id)">
-              {{ t('channel.list.retry') }}
-            </AppButton>
-          </template>
-        </AppBanner>
-      </div>
-      <EmptyState
-        v-else-if="
-          channel.first_listed_at !== null &&
-          videos.status === 'ready' &&
-          videos.videos.length === 0
-        "
-        icon="video"
-        :title="t('channel.empty.title')"
-      >
-        {{ t('channel.empty.text') }}
-      </EmptyState>
-      <VideoList v-else :videos="videos.videos" :channel-id="channel.id" />
+      <VideoDetails v-if="videos.openVideoId !== null" />
     </div>
   </main>
 </template>

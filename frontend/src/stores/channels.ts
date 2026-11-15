@@ -21,6 +21,7 @@ import {
   type NewChannel,
   type Pause,
   type Progress,
+  type FilesToTrash,
 } from '@/api/client'
 
 export const useChannelsStore = defineStore('channels', () => {
@@ -111,13 +112,18 @@ export const useChannelsStore = defineStore('channels', () => {
     return added
   }
 
-  /** Remove a channel with its catalogue (R-CH-32). */
-  async function remove(channelId: string): Promise<void> {
-    await api.removeChannel(channelId)
+  /** Remove a channel with its catalogue, and its files or not (R-CH-32). */
+  async function remove(channelId: string, keepFiles = true): Promise<void> {
+    await api.removeChannel(channelId, keepFiles)
     channels.value = channels.value.filter((channel) => channel.id !== channelId)
     if (lastOpenId.value === channelId) {
       lastOpenId.value = null
     }
+  }
+
+  /** Ask what "Delete the files" would move to the Trash (R-CH-32). */
+  async function filesToTrash(channelId: string): Promise<FilesToTrash> {
+    return api.getFilesToTrash(channelId)
   }
 
   /** Pause or resume a channel (R-CH-31). */
@@ -178,6 +184,7 @@ export const useChannelsStore = defineStore('channels', () => {
     chooseFolder,
     add,
     remove,
+    filesToTrash,
     setPaused,
     check,
     cancelCheck,

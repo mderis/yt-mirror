@@ -12,7 +12,7 @@ defineProps<{
   /** What the choice is about. */
   legend: string
   /** The options, in the order they are shown. */
-  options: readonly { value: string; label: string; hint?: string }[]
+  options: readonly { value: string; label: string; hint?: string | undefined }[]
 }>()
 
 defineEmits<{
