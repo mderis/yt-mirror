@@ -214,12 +214,13 @@ def build_container(
         channels.write_channel_file(channel_id)
 
     jobs = SqlJobRepository(engine, used_clock)
+    media = FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe"))
     downloader = DownloaderService(
         repository=repository,
         jobs=jobs,
         youtube=youtube,
         files=used_files,
-        media=FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe")),
+        media=media,
         settings=settings,
         views=views,
         state=downloads,
@@ -242,6 +243,7 @@ def build_container(
         used_clock,
         _in_a_thread,
         close_downloads=downloader.channel_closed,
+        media=media,
     )
     state = StateService(
         views, settings, used_files, used_picker, SqlAppMetaRepository(engine, used_clock), youtube

@@ -185,6 +185,11 @@ class RefusingGateway:
         return self._youtube.download(request, on_progress, is_cancelled)
 
 
+def own_file(video_id: str) -> bytes:
+    """The content of a fake video file of the app: the fake media tools read its video ID."""
+    return f"video:{video_id}".encode()
+
+
 class FakeDownload:
     """Stands in for a download: writes the files yt-dlp leaves, and calls the hooks.
 
@@ -230,10 +235,14 @@ class FakeDownload:
         if request.manual_subtitles and self.subtitles_fail_once:
             self.subtitles_fail_once = False
             raise SubtitlesFailedError("the subtitles failed")
-        names = [f"{request.video_id}.mkv"]
+        # The file carries its video ID, as the tag of a real download does (R-MD-01).
+        self._files.add_files(
+            request.work_folder, [f"{request.video_id}.mkv"], data=own_file(request.video_id)
+        )
         if not self.no_thumbnail:
-            names.append(f"{request.video_id}.jpg")
-        self._files.add_files(request.work_folder, names, data=b"twelve bytes")
+            self._files.add_files(
+                request.work_folder, [f"{request.video_id}.jpg"], data=b"twelve bytes"
+            )
         return DownloadResult(
             file=request.work_folder / f"{request.video_id}.mkv",
             thumbnail=None
@@ -283,6 +292,7 @@ class World:
         self.background: list[Callable[[], None]] = []
         self.later: list[tuple[float, Callable[[], None]]] = []
         self.files = FakeFileSystem()
+        self.media = FakeMediaTools(self.files)
         self.picker = FakeFolderPicker()
         self.cache = InMemoryImageCache()
         self.meta = InMemoryAppMetaRepository()
@@ -335,11 +345,11 @@ class World:
             self.clock,
             self.background.append,
             close_downloads=lambda channel_id: self.downloader.channel_closed(channel_id),
+            media=self.media,
         )
         self.state = StateService(
             self.views, self.settings, self.files, self.picker, self.meta, self.youtube
         )
-        self.media = FakeMediaTools()
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
         self.job_numbers = itertools.count(1)

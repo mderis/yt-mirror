@@ -1,7 +1,9 @@
 """What a media file contains, made up. Fake of the MediaTools port."""
 
+import dataclasses
 from pathlib import Path
 
+from tests.fixtures.fakes.file_system import FakeFileSystem
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.media import MediaFacts, SubtitleTrack
 
@@ -29,8 +31,14 @@ class FakeMediaTools:
         probed: Every file that was read.
     """
 
-    def __init__(self) -> None:
-        """Read every file as a good one."""
+    def __init__(self, files: FakeFileSystem | None = None) -> None:
+        """Read every file as a good one.
+
+        Args:
+            files: The fake file system. A file there whose content is
+                ``video:<id>`` carries that video ID as its tag, as a download does.
+        """
+        self._files = files
         self.facts: dict[Path, MediaFacts] = {}
         self.unreadable: set[Path] = set()
         self.probed: list[Path] = []
@@ -40,4 +48,9 @@ class FakeMediaTools:
         self.probed.append(path)
         if path in self.unreadable:
             raise AppError(ErrorCode.VERIFY_FAILED, {"file": str(path)})
-        return self.facts.get(path, GOOD)
+        if path in self.facts or self._files is None:
+            return self.facts.get(path, GOOD)
+        content = self._files.read_bytes(path) or b""
+        if content.startswith(b"video:"):
+            return dataclasses.replace(GOOD, tags={"video_id": content[6:].decode()})
+        return GOOD

@@ -10,7 +10,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.fakes.media_tools import GOOD
-from tests.fixtures.world import SMALL_ID, World, job_id, log_lines
+from tests.fixtures.world import SMALL_ID, World, job_id, log_lines, own_file
 from ytmirror.core.channels import ChannelStatus, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import (
@@ -169,7 +169,7 @@ def test_a_downloaded_video_is_synced_with_its_name_metadata_and_dates(world: Wo
         None,
     )
     assert video.downloaded_at == world.now()
-    assert video.file_size == len(b"twelve bytes")
+    assert video.file_size == len(own_file(FIRST))
     dates = world.files.read_dates(folder / name)
     assert (dates.created, dates.modified) == (PUBLISHED, PUBLISHED)
     assert everything(world) == sorted(

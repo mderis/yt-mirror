@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from structlog.testing import capture_logs
 
-from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines
+from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines, own_file
 from ytmirror.core.channel_file import channel_entries
 from ytmirror.core.channels import ChannelStatus, CheckKind, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
@@ -478,7 +478,7 @@ def synced_files(world: World, names: dict[str, str]) -> Path:
             ),
             replace(video, status=VideoStatus.SYNCED, file_name=name),
         )
-        world.files.add_files(folder, [name], data=b"video")
+        world.files.add_files(folder, [name], data=own_file(video_id))
         world.files.add_files(folder / ".yt-mirror", [f"{video_id}.info.json", f"{video_id}.jpg"])
     return folder
 
@@ -557,7 +557,7 @@ def test_the_thumbnail_next_to_a_video_goes_only_when_it_is_the_apps_own_copy(
 
     assert folder / "Video 1.jpg" in found.paths
     assert found.files == 2
-    assert found.size_bytes == len(b"video") + 1 + 2
+    assert found.size_bytes == len(own_file("sm000000001")) + 1 + 2
 
 
 def test_a_file_that_leads_out_of_the_folder_is_never_moved(tmp_path: Path) -> None:
@@ -916,3 +916,49 @@ def test_side_files_that_wait_are_not_written_into_a_folder_being_removed(tmp_pa
 
     assert world.files.folder_exists(folder) is False
     assert world.files.trashed[-1] == folder
+
+
+# --- second review of M3, M1: shared folders
+
+
+def shared_with_big(tmp_path: Path) -> tuple[World, Path]:
+    """The small channel in its folder, and the big one in the same folder."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list()
+    shared = world.library / "Small Channel"
+    world.picker.answer = shared
+    world.channels.choose_folder()
+    world.add_and_list("@big", folder=str(shared))
+    return world, shared
+
+
+def test_a_name_another_channel_of_the_folder_tracks_stays_taken(tmp_path: Path) -> None:
+    """R-FN-03, R-CH-32: a video never takes a name that a channel of the same folder tracks.
+
+    The user deleted that channel's file, so the name is free on disk. Were it
+    reused, removing that channel with "Delete the files" would find this video.
+    """
+    world, shared = shared_with_big(tmp_path)
+    theirs = world.ids(BIG_ID)[0]
+    title = world.repository.video(theirs).title  # type: ignore[union-attr]
+    synced_files(world, {"sm000000001": f"{title}.mkv"})
+    world.files.trash(shared / f"{title}.mkv")
+
+    world.downloader.mirror([theirs])
+    world.download_all()
+
+    assert world.repository.video(theirs).file_name == f"{title} [{theirs}].mkv"  # type: ignore[union-attr]
+
+
+def test_delete_the_files_keeps_a_file_whose_inside_is_another_video(tmp_path: Path) -> None:
+    """R-CH-32: before a file goes to the Trash, the video ID inside it must be the channel's."""
+    world, shared = shared_with_big(tmp_path)
+    synced_files(world, {"sm000000001": "Q and A.mkv"})
+    world.files.add_files(shared, ["Q and A.mkv"], data=own_file(world.ids(BIG_ID)[0]))
+
+    with capture_logs() as logs:
+        world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.files.exists(shared / "Q and A.mkv")
+    assert shared / "Q and A.mkv" not in world.files.trashed
+    assert log_lines(logs, "file.kept")[0]["video_id"] == "sm000000001"

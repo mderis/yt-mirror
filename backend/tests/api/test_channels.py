@@ -11,7 +11,7 @@ from httpx2 import Response
 from structlog.testing import capture_logs
 
 from tests.api.conftest import Api
-from tests.fixtures.world import SMALL_ID, World, log_lines
+from tests.fixtures.world import SMALL_ID, World, log_lines, own_file
 from ytmirror.core.channels import CheckKind, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import Job, JobKind, JobState
@@ -508,12 +508,13 @@ def test_the_files_to_trash_are_counted_and_moved_on_request(
         ),
         replace(video, status=VideoStatus.SYNCED, file_name="Video 1.mkv"),
     )
-    world.files.add_files(folder, ["Video 1.mkv", "mine.txt"], data=b"12345")
+    world.files.add_files(folder, ["Video 1.mkv"], data=own_file(video.id))
+    world.files.add_files(folder, ["mine.txt"], data=b"12345")
 
     counted = client.get(f"/api/channels/{SMALL_ID}/files-to-trash")
     removed = client.delete(f"/api/channels/{SMALL_ID}", params={"keep_files": "false"})
 
-    assert counted.json() == {"files": 1, "size_bytes": 5}
+    assert counted.json() == {"files": 1, "size_bytes": len(own_file(video.id))}
     assert removed.status_code == 200
     assert (removed.json()["files_trashed"], removed.json()["left"]) == (2, [])
     assert world.files.trashed == [
@@ -598,7 +599,7 @@ def test_a_removal_says_which_files_macos_refused_to_move(client: TestClient, wo
         ),
         replace(video, status=VideoStatus.SYNCED, file_name="Video 1.mkv"),
     )
-    world.files.add_files(folder, ["Video 1.mkv"])
+    world.files.add_files(folder, ["Video 1.mkv"], data=own_file(video.id))
     trash = world.files.trash
 
     def refuse_the_video(path: Path) -> None:

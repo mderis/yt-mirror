@@ -8,9 +8,9 @@ Tests: backend/tests/unit/services/test_channels.py
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import structlog
@@ -38,6 +38,7 @@ from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.file_system import FileSystem
 from ytmirror.ports.folder_picker import FolderPicker
+from ytmirror.ports.media_tools import MediaTools
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.settings import SettingsService
@@ -64,11 +65,13 @@ class FilesToTrash:
         paths: The files and the hidden folder, in the order they are moved.
         files: How many visible files: videos and their thumbnails.
         size_bytes: How much room they take, the hidden folder included.
+        owners: The video ID each video file must carry inside to be moved.
     """
 
     paths: tuple[Path, ...]
     files: int
     size_bytes: int
+    owners: Mapping[Path, str] = field(default_factory=dict[Path, str])
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +179,8 @@ class ChannelsService:
         close_downloads: Callable[[str], AbstractContextManager[None]] = (
             lambda _channel_id: nullcontext()
         ),
+        *,
+        media: MediaTools,
     ) -> None:
         """Create the service.
 
@@ -192,12 +197,14 @@ class ChannelsService:
             run_in_background: Runs the request for a video count without blocking.
             close_downloads: Cancels the downloads of a channel, waits for them to
                 end, and lets no new one start while the channel is removed.
+            media: Reads the video ID inside a file before it goes to the Trash.
         """
         self._repository = repository
         self._youtube = youtube
         self._files = files
         self._picker = picker
         self._close_downloads = close_downloads
+        self._media = media
         self._settings = settings
         self._views = views
         self._catalogue = catalogue
@@ -513,11 +520,13 @@ class ChannelsService:
         hidden = folder / HIDDEN_DIR
         candidates: list[Path] = []
         hidden_files: list[Path] = []
+        owners: dict[Path, str] = {}
         for video in self._repository.videos(channel_id):
             hidden_files += [hidden / f"{video.id}.info.json", hidden / f"{video.id}.jpg"]
             if not video.file_name:
                 continue
             candidates.append(folder / video.file_name)
+            owners[folder / video.file_name] = video.id
             cover = (folder / video.file_name).with_suffix(".jpg")
             own_copy = self._files.read_bytes(hidden / f"{video.id}.jpg")
             if own_copy is not None and self._files.read_bytes(cover) == own_copy:
@@ -540,6 +549,7 @@ class ChannelsService:
             paths=tuple(paths),
             files=sum(1 for path in paths if path.parent != hidden),
             size_bytes=sum(self._files.size_of(path) for path in paths),
+            owners={path: owners[path] for path in paths if path in owners},
         )
 
     def remove(self, channel_id: str, *, keep_files: bool = True) -> RemovedChannel:
@@ -626,7 +636,20 @@ class ChannelsService:
             moved += 1
             _log.info("file.trashed", msg=msg, file=str(path))
 
-        for path in self.files_to_trash(channel.id).paths:
+        found = self.files_to_trash(channel.id)
+        for path in found.paths:
+            owner = found.owners.get(path)
+            if owner is not None and not self._carries(path, owner):
+                # A file under a tracked name that is another video, for example one
+                # of another channel in a shared folder, is not the app's to move.
+                _log.warning(
+                    "file.kept",
+                    msg="A file has the name of a video of the channel but is another video",
+                    channel_id=channel.id,
+                    video_id=owner,
+                    file=str(path),
+                )
+                continue
             trash(path, "File moved to the Trash")
         hidden = folder / HIDDEN_DIR
         if self._files.exists(hidden) and self._is_empty(hidden, ignore=(TEMP_DIR,)):
@@ -638,6 +661,13 @@ class ChannelsService:
         ):
             trash(folder, "Empty channel folder moved to the Trash")
         return moved, refused
+
+    def _carries(self, path: Path, video_id: str) -> bool:
+        """Whether a file carries this video ID inside, as every download of the app does."""
+        try:
+            return self._media.probe(path).tags.get("video_id") == video_id
+        except AppError:
+            return False
 
     def _may_trash_folder(self, channel: Channel, folder: Path) -> bool:
         """Only a folder the app created may go; never the library or a folder the user chose."""

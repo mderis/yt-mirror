@@ -641,11 +641,7 @@ class DownloaderService:
         for _ in range(2):
             taken = [
                 *self._files.file_names(place.folder),
-                *(
-                    other.file_name
-                    for other in self._repository.videos(video.channel_id)
-                    if other.id != video.id and other.file_name
-                ),
+                *self._names_tracked_in(place.folder, video.id),
                 *tried,
             ]
             name = video_file_name(video.title, video.id, taken)
@@ -657,6 +653,22 @@ class DownloaderService:
             self._jobs.record(job, replace(current, placing_file=None))
             tried.append(name)
         raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken twice while moving"})
+
+    def _names_tracked_in(self, folder: Path, except_video: str) -> list[str]:
+        """Every name the app tracks in a folder, of every channel that shares it.
+
+        A file the user deleted keeps its name taken: removing its channel later
+        must not find another video under it.
+        """
+        names: list[str] = []
+        for channel in self._repository.channels():
+            if self._views.folder_of(channel) != folder:
+                continue
+            for other in self._repository.videos(channel.id):
+                if other.id == except_video:
+                    continue
+                names += [name for name in (other.file_name, other.placing_file) if name]
+        return names
 
     def _verify_dates(self, target: Path, published: int, log: FilteringBoundLogger) -> None:
         """Step 8: read both dates back in the channel folder (R-DT-07)."""
