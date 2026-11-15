@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ytmirror.core.channels import ChannelUpdated, Quality, TaskProgressed, YouTubePauseChanged
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.jobs import JobProgressed, VideoUpdated
 
 APP_NAME = "yt-mirror"
 """The name of the app everywhere a user reads it (R-NA-01)."""
@@ -347,5 +348,12 @@ class ToolUpdated:
     report: ToolReport
 
 
-type AppEvent = ToolUpdated | ChannelUpdated | TaskProgressed | YouTubePauseChanged
+type AppEvent = (
+    ToolUpdated
+    | ChannelUpdated
+    | TaskProgressed
+    | YouTubePauseChanged
+    | VideoUpdated
+    | JobProgressed
+)
 """Every event the services publish for the interface. Each milestone adds its own."""

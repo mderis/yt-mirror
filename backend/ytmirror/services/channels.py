@@ -146,6 +146,7 @@ class ChannelsService:
         thumbnails: ThumbnailService,
         clock: Clock,
         run_in_background: Callable[[Callable[[], None]], None],
+        cancel_downloads: Callable[[str], None] = lambda _channel_id: None,
     ) -> None:
         """Create the service.
 
@@ -160,11 +161,14 @@ class ChannelsService:
             thumbnails: Caches the pictures.
             clock: The source of time.
             run_in_background: Runs the request for a video count without blocking.
+            cancel_downloads: Cancels the downloads of a channel and waits for them
+                to end, before the channel is removed.
         """
         self._repository = repository
         self._youtube = youtube
         self._files = files
         self._picker = picker
+        self._cancel_downloads = cancel_downloads
         self._settings = settings
         self._views = views
         self._catalogue = catalogue
@@ -412,6 +416,7 @@ class ChannelsService:
         """
         channel = self._known(channel_id)
         folder = self._views.folder_of(channel)
+        self._cancel_downloads(channel_id)
         trashed = 0 if keep_files else self._trash_files(channel_id, folder)
         self._catalogue.forget(channel_id)
         video_ids = self._repository.video_ids(channel_id)

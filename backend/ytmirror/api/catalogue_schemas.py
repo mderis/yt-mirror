@@ -23,6 +23,7 @@ from ytmirror.core.channels import (
     YouTubePause,
 )
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.jobs import JobProgress, Stage
 from ytmirror.services.channels import ChannelLookup, ChosenFolder
 from ytmirror.services.state import AppState
 
@@ -82,6 +83,8 @@ class Channel(BaseModel):
         pictures: A number that grows when more pictures of the channel are cached.
         avatar_version: A number that grows when the avatar of the channel was cached anew.
         catalogue_version: A number that grows with every successful check of the channel.
+        mirroring: While videos of the channel are downloaded, how many ended and how
+            many there are (R-FB-01: "Mirroring X of Y"). Otherwise None.
     """
 
     id: str
@@ -109,6 +112,7 @@ class Channel(BaseModel):
     pictures: int
     avatar_version: int
     catalogue_version: int
+    mirroring: Mirroring | None = None
 
     @classmethod
     def of(cls, view: ChannelView) -> Channel:
@@ -140,6 +144,59 @@ class Channel(BaseModel):
             pictures=view.pictures,
             avatar_version=view.avatar_version,
             catalogue_version=view.catalogue_version,
+            mirroring=None
+            if view.mirroring is None
+            else Mirroring(done=view.mirroring[0], total=view.mirroring[1]),
+        )
+
+
+class Mirroring(BaseModel):
+    """How far the downloads of a channel are (R-FB-01).
+
+    Attributes:
+        done: How many ended, well or not.
+        total: How many there are in all.
+    """
+
+    done: int
+    total: int
+
+
+class Download(BaseModel):
+    """How far the running download of a video is (R-QU-04).
+
+    Attributes:
+        job_id: The job.
+        video_id: The video.
+        channel_id: Its channel.
+        stage: Video, audio or processing.
+        fraction: How much of the stage is done, from 0 to 1, or None.
+        speed_bps: Bytes per second, or None.
+        left_s: Seconds left of the stage, or None.
+        height: The height being downloaded, or None.
+    """
+
+    job_id: str
+    video_id: str
+    channel_id: str
+    stage: Stage
+    fraction: float | None
+    speed_bps: float | None
+    left_s: int | None
+    height: int | None
+
+    @classmethod
+    def of(cls, progress: JobProgress) -> Download:
+        """Return the wire form of a progress."""
+        return cls(
+            job_id=progress.job_id,
+            video_id=progress.video_id,
+            channel_id=progress.channel_id,
+            stage=progress.stage,
+            fraction=progress.fraction,
+            speed_bps=progress.speed_bps,
+            left_s=progress.left_s,
+            height=progress.height,
         )
 
 
@@ -158,6 +215,11 @@ class Video(BaseModel):
         is_new: Whether the video counts as new (R-CH-15).
         gone: Whether it is removed from YouTube (R-CH-14).
         excluded: Whether it is excluded.
+        job_id: The job of a download that waits or runs, for Cancel, or None.
+        download: How far a running download is (R-QU-04), or None.
+        height: The height of the file of a synced video (R-FB-02), or None.
+        file_size: The size of its file in bytes, or None.
+        error_code: Why the last download failed (R-QU-08), or None.
     """
 
     id: str
@@ -171,6 +233,11 @@ class Video(BaseModel):
     is_new: bool
     gone: bool
     excluded: bool
+    job_id: str | None = None
+    download: Download | None = None
+    height: int | None = None
+    file_size: int | None = None
+    error_code: ErrorCode | None = None
 
     @classmethod
     def of(cls, view: VideoView) -> Video:
@@ -188,6 +255,11 @@ class Video(BaseModel):
             is_new=view.is_new,
             gone=video.gone,
             excluded=video.excluded,
+            job_id=view.job_id,
+            download=None if view.progress is None else Download.of(view.progress),
+            height=video.height,
+            file_size=video.file_size,
+            error_code=video.last_error_code,
         )
 
 
@@ -439,6 +511,28 @@ class ChannelUpdatedEvent(BaseModel):
     """
 
     channel: Channel
+
+
+class VideoUpdatedEvent(BaseModel):
+    """The data of the ``video.updated`` event of ``GET /api/events`` (R-FB-03).
+
+    Attributes:
+        channel_id: The channel of the video.
+        video: The video as a list shows it now.
+    """
+
+    channel_id: str
+    video: Video
+
+
+class JobProgressEvent(BaseModel):
+    """The data of the ``job.progress`` event of ``GET /api/events`` (R-QU-04).
+
+    Attributes:
+        download: How far the download is.
+    """
+
+    download: Download
 
 
 class TaskProgressEvent(BaseModel):

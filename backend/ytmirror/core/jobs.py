@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from ytmirror.core.channels import Quality, Video
+from ytmirror.core.channels import Quality, VideoView
 from ytmirror.core.errors import ErrorCode
 
 JOB_LOGS_KEPT = 50
@@ -136,10 +136,10 @@ class VideoUpdated:
     """One video changed: its status, its file or its date (R-FB-03).
 
     Attributes:
-        video: The video as it is stored now.
+        view: The video as a list shows it now.
     """
 
-    video: Video
+    view: VideoView
 
 
 @dataclass(frozen=True, slots=True)

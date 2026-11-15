@@ -11,8 +11,12 @@ Tests: backend/tests/unit/core/test_channels.py
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from ytmirror.core.errors import ErrorCode
+
+if TYPE_CHECKING:
+    from ytmirror.core.jobs import JobProgress
 
 CHANNEL_ADDRESS = "https://www.youtube.com/channel/"
 """What the canonical address of a channel starts with. The channel ID follows."""
@@ -63,6 +67,7 @@ class ChannelStatus(StrEnum):
     Each milestone adds the statuses that can occur from it on.
     """
 
+    MIRRORING = "mirroring"
     CHECKING = "checking"
     WAITING_FOR_YOUTUBE = "waiting_for_youtube"
     COULD_NOT_CHECK = "could_not_check"
@@ -334,6 +339,8 @@ class ChannelView:
         avatar_version: A number that grows whenever the avatar of this channel was cached anew.
         catalogue_version: A number that grows with every successful check of this channel:
             its catalogue may have changed.
+        mirroring: While videos of the channel are downloaded: how many of them
+            ended, and how many there are (R-FB-01). Otherwise None.
     """
 
     channel: Channel
@@ -344,6 +351,7 @@ class ChannelView:
     pictures: int
     avatar_version: int = 0
     catalogue_version: int = 0
+    mirroring: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,8 +409,12 @@ class VideoView:
         is_new: Whether it counts as new right now (R-CH-15).
         published_around: For an approximate date, the moment to show it from: the
             middle of the range the real date lies in (R-DT-04). Otherwise None.
+        job_id: The job of a download that waits or runs, for Cancel, or None.
+        progress: How far a running download is (R-QU-04), or None.
     """
 
     video: Video
     is_new: bool
     published_around: int | None
+    job_id: str | None = None
+    progress: JobProgress | None = None

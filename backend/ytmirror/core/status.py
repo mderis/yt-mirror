@@ -27,6 +27,8 @@ ALLOWED_TRANSITIONS: frozenset[tuple[VideoStatus, VideoStatus]] = frozenset(
         (_S.DOWNLOADING, _S.PROCESSING),  # the streams are done
         (_S.DOWNLOADING, _S.NOT_DOWNLOADED),  # cancel
         (_S.DOWNLOADING, _S.FAILED),
+        (_S.DOWNLOADING, _S.QUEUED),  # back in line while YouTube is paused (R-ER-05)
+        (_S.PROCESSING, _S.QUEUED),  # back in line while YouTube is paused (R-ER-05)
         (_S.PROCESSING, _S.SYNCED),  # verified
         (_S.PROCESSING, _S.NOT_DOWNLOADED),  # cancel before the file is in its place
         (_S.PROCESSING, _S.FAILED),
@@ -139,7 +141,12 @@ def waits_for_youtube(channel: Channel, *, youtube_paused: bool) -> bool:
 
 
 def channel_status(
-    channel: Channel, *, checking: bool, new_videos: int, waiting_for_youtube: bool = False
+    channel: Channel,
+    *,
+    checking: bool,
+    new_videos: int,
+    waiting_for_youtube: bool = False,
+    mirroring: bool = False,
 ) -> ChannelStatus:
     """Return the one status line of a channel (R-FB-01, R-CH-34).
 
@@ -156,7 +163,10 @@ def channel_status(
         new_videos: How many of its videos are new.
         waiting_for_youtube: Whether the app holds work for this channel until
             YouTube answers again (``waits_for_youtube``).
+        mirroring: Whether videos of the channel wait to be downloaded or are.
     """
+    if mirroring:
+        return ChannelStatus.MIRRORING
     if checking:
         return ChannelStatus.CHECKING
     if waiting_for_youtube:

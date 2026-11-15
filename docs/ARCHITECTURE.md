@@ -291,6 +291,7 @@ not_downloaded --enqueue--> queued --worker picks--> downloading --streams done-
       +<----------------------------- failure: status = failed <-----------------------+
 failed --retry--> queued
 processing --cancel, before the file is moved into its place--> not_downloaded
+downloading or processing --YouTube's "not a bot" check (R-ER-05)--> queued
 synced --file not found at check--> file_missing --enqueue--> queued
 synced --redownload--> queued (the old file stays until the new one is verified)
 ```

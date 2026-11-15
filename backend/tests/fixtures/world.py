@@ -6,6 +6,7 @@ writes, and the clock, the folders, the folder dialog and the picture cache
 are fakes. Nothing runs in the background by itself: a test says when.
 """
 
+import itertools
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
@@ -17,6 +18,7 @@ from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.file_system import FakeFileSystem
 from tests.fixtures.fakes.folder_picker import FakeFolderPicker
 from tests.fixtures.fakes.image_cache import InMemoryImageCache
+from tests.fixtures.fakes.media_tools import FakeMediaTools
 from tests.fixtures.fakes.settings_repository import InMemorySettingsRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
 from ytmirror.adapters.db.job_repository import SqlJobRepository
@@ -32,11 +34,22 @@ from ytmirror.core.channels import (
     YouTubePauseChanged,
 )
 from ytmirror.core.errors import AppError, ErrorCode
-from ytmirror.core.jobs import DownloadProgress, DownloadRequest, DownloadResult
+from ytmirror.core.jobs import (
+    DownloadCancelledError,
+    DownloadProgress,
+    DownloadRequest,
+    DownloadResult,
+    Stage,
+    SubtitleKind,
+    SubtitlesFailedError,
+    VideoUpdated,
+)
 from ytmirror.core.models import AppEvent
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
+from ytmirror.services.download_state import DownloadState
+from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
@@ -165,6 +178,70 @@ class RefusingGateway:
         return self._youtube.download(request, on_progress, is_cancelled)
 
 
+class FakeDownload:
+    """Stands in for a download: writes the files yt-dlp leaves, and calls the hooks.
+
+    Attributes:
+        calls: Every request, in order.
+        fail: An error to raise instead of downloading, or None.
+        subtitles_fail_once: Whether the first download with subtitles fails them.
+        cancel_at: A stage at which the test cancels, through ``on_cancel``, or None.
+        on_cancel: What the test does at that stage, for example press Cancel.
+        published: The upload time the metadata gives.
+        release: The release time of a premiere, or None.
+        no_thumbnail: Whether YouTube gives no thumbnail.
+    """
+
+    def __init__(self, files: FakeFileSystem) -> None:
+        """Write into the given fake file system."""
+        self._files = files
+        self.calls: list[DownloadRequest] = []
+        self.fail: Exception | None = None
+        self.subtitles_fail_once = False
+        self.cancel_at: Stage | None = None
+        self.on_cancel: Callable[[], object] = lambda: None
+        self.published: int | None = 1_793_379_761
+        self.release: int | None = None
+        self.no_thumbnail = False
+
+    def __call__(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+    ) -> DownloadResult:
+        """Download like the gateway, into the temp folder of the job."""
+        self.calls.append(request)
+        if self.fail is not None:
+            raise self.fail
+        for stage in (Stage.VIDEO, Stage.AUDIO, Stage.PROCESSING):
+            if stage is self.cancel_at:
+                self.on_cancel()
+            if is_cancelled():
+                raise DownloadCancelledError(f"cancelled at {stage.value}")
+            on_progress(DownloadProgress(stage=stage, fraction=1.0, speed_bps=1e6, left_s=0))
+        if request.manual_subtitles and self.subtitles_fail_once:
+            self.subtitles_fail_once = False
+            raise SubtitlesFailedError("the subtitles failed")
+        names = [f"{request.video_id}.mkv"]
+        if not self.no_thumbnail:
+            names.append(f"{request.video_id}.jpg")
+        self._files.add_files(request.work_folder, names, data=b"twelve bytes")
+        return DownloadResult(
+            file=request.work_folder / f"{request.video_id}.mkv",
+            thumbnail=None
+            if self.no_thumbnail
+            else request.work_folder / f"{request.video_id}.jpg",
+            info_json=json.dumps({"id": request.video_id}),
+            title="Title at YouTube",
+            description="A description.",
+            duration_s=2,
+            release_time=self.release,
+            upload_time=self.published,
+            subtitles=SubtitleKind.MANUAL if request.manual_subtitles else None,
+        )
+
+
 class World:
     """The catalogue services with fakes around them.
 
@@ -210,12 +287,14 @@ class World:
         self.youtube = YouTubeAccess(
             self.gateway, self.clock, self.bus, lambda delay, work: self.later.append((delay, work))
         )
+        self.downloads = DownloadState()
         self.views = ChannelViews(
             self.repository,
             self.settings,
             self.clock,
             self.bus,
             youtube_paused=lambda: self.youtube.pause() is not None,
+            downloads=self.downloads,
         )
         self.waited: list[float] = []
         self.during_wait: Callable[[], None] | None = None
@@ -250,10 +329,46 @@ class World:
             self.thumbnails,
             self.clock,
             self.background.append,
+            cancel_downloads=lambda channel_id: self.downloader.cancel_channel(channel_id),
         )
         self.state = StateService(
             self.views, self.settings, self.files, self.picker, self.meta, self.youtube
         )
+        self.media = FakeMediaTools()
+        self.job_numbers = itertools.count(1)
+        self.download = FakeDownload(self.files)
+        self.gateway.download_with = self.download
+        self.downloader = DownloaderService(
+            repository=self.repository,
+            jobs=self.jobs,
+            youtube=self.youtube,
+            files=self.files,
+            media=self.media,
+            settings=self.settings,
+            views=self.views,
+            state=self.downloads,
+            events=self.bus,
+            clock=self.clock,
+            new_job_id=lambda: f"01JOB{next(self.job_numbers):05d}",
+            job_logs=folder / "logs" / "jobs",
+            run_in_background=self.background.append,
+        )
+
+    def download_all(self) -> None:
+        """Let every waiting download run, one after another."""
+        while self.downloader.work_once():
+            pass
+
+    def video_updates(self) -> list[VideoUpdated]:
+        """Return the video updates that were published."""
+        return [event for event in self.events if isinstance(event, VideoUpdated)]
+
+    def statuses(self, video_id: str) -> list[tuple[str, str, str]]:
+        """Return the recorded status changes of a video: from, to and why."""
+        return [
+            (event.from_status, event.to_status, event.reason)
+            for event in self.jobs.events(video_id)
+        ]
 
     def at_progress(self, done: int, action: Callable[[], object]) -> None:
         """Run an action once, when a long check has read so many videos."""

@@ -29,6 +29,8 @@ class FakeFileSystem:
         denied: Folders that macOS does not let the app create.
         unavailable: Folders that cannot be created, as on a drive that is not connected.
         refuse_dates: Files whose dates cannot be set.
+        drift_dates: Files whose creation date reads back one hour off, as on a volume
+            that does not keep it.
         outside: Paths that lead out of their folder through a symlink.
         disk: The disk every folder is on.
     """
@@ -44,6 +46,7 @@ class FakeFileSystem:
         self.denied: set[Path] = set()
         self.unavailable: set[Path] = set()
         self.refuse_dates: set[Path] = set()
+        self.drift_dates: set[Path] = set()
         self.outside: set[Path] = set()
         self.disk = Disk(name="Macintosh HD", free_bytes=182 * 1000**3)
 
@@ -140,7 +143,8 @@ class FakeFileSystem:
     def read_dates(self, path: Path) -> FileDates:
         """Return both dates of the file."""
         file = self.files[path]
-        return FileDates(created=file.created, modified=file.modified)
+        drift = 3600 if path in self.drift_dates else 0
+        return FileDates(created=file.created + drift, modified=file.modified)
 
     def trash(self, path: Path) -> None:
         """Remember the move to the Trash, and take the file or folder away with its content."""

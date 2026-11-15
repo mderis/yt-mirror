@@ -48,6 +48,11 @@ def test_the_catalogue_of_a_channel_is_listed_newest_first(
         "is_new": False,
         "gone": False,
         "excluded": False,
+        "job_id": None,
+        "download": None,
+        "height": None,
+        "file_size": None,
+        "error_code": None,
     }
 
 

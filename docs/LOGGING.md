@@ -61,7 +61,8 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 | image | `image.cache.finished` (pictures of a channel were cached: stored, failed, left, R-CH-16) |
 | dates | `dates.fetch.batch`, `dates.fetch.backoff`, `dates.applied`, `dates.repaired`, `dates.verify_failed` |
 | queue | `queue.enqueued`, `queue.paused`, `queue.resumed`, `queue.reordered`, `queue.disk_guard` |
-| download | `download.started`, `download.stage`, `download.retry`, `download.finished`, `download.failed`, `download.cancelled` |
+| download | `download.started`, `download.stage`, `download.retry` (the subtitles failed and the video is downloaded again without them, R-MD-04, or YouTube's "not a bot" check holds the download back, R-ER-05), `download.finished`, `download.failed`, `download.cancelled`. Every line of a download carries its `job_id` (R-LG-02), and the whole output of yt-dlp and ffmpeg goes into the log of the job |
+| ffprobe | `ffprobe.ran` (debug: ffprobe read a file, with its exit code) |
 | file | `file.renamed`, `file.moved`, `file.trashed`, `file.missing`, `file.kept` (a file of a removed channel leads out of its folder through a symlink and is not moved to the Trash, R-CH-32), `file.trash_failed` (a file of a removed channel could not be moved to the Trash, with `error_code`) |
 | exclude | `exclude.manual`, `exclude.rule`, `exclude.restored` |
 | adopt | `adopt.scan`, `adopt.matched`, `adopt.ambiguous`, `adopt.fixed`, `adopt.failed` |
