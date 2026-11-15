@@ -873,3 +873,46 @@ def test_a_removal_waits_for_the_check_of_the_channel_to_end(tmp_path: Path) -> 
     assert not removing.is_alive()
     assert world.repository.channels() == ()
     assert world.files.folder_exists(world.library / "Big Channel") is False
+
+
+# --- second review of M3: guards that no test held (mutations 16 and 17)
+
+
+def test_removing_one_channel_of_a_shared_folder_keeps_the_entry_of_the_other(
+    tmp_path: Path,
+) -> None:
+    """R-FI-05: the channel file stays, with the other channel's entry, and is not trashed."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list()
+    shared = world.library / "Small Channel"
+    world.picker.answer = shared
+    world.channels.choose_folder()
+    world.add_and_list("@big", folder=str(shared))
+    path = shared / ".yt-mirror" / "channel.json"
+
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert [entry["id"] for entry in channel_entries(world.files.read_bytes(path)) or []] == [
+        BIG_ID
+    ]
+    assert path not in world.files.trashed
+
+
+def test_side_files_that_wait_are_not_written_into_a_folder_being_removed(tmp_path: Path) -> None:
+    """R-CH-32, R-MD-02: the retry of waiting side files holds back while the channel goes."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv"})
+    world.jobs.add_pending_side_file("sm000000001", ".yt-mirror/sm000000001.jpg", b"cover")
+    trash = world.files.trash
+
+    def trash_then_retry(path: Path) -> None:
+        trash(path)
+        if path == folder / ".yt-mirror":
+            world.downloader.retry_side_files()
+
+    world.files.trash = trash_then_retry  # type: ignore[method-assign]
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.files.folder_exists(folder) is False
+    assert world.files.trashed[-1] == folder
