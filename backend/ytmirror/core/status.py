@@ -28,6 +28,7 @@ ALLOWED_TRANSITIONS: frozenset[tuple[VideoStatus, VideoStatus]] = frozenset(
         (_S.DOWNLOADING, _S.NOT_DOWNLOADED),  # cancel
         (_S.DOWNLOADING, _S.FAILED),
         (_S.PROCESSING, _S.SYNCED),  # verified
+        (_S.PROCESSING, _S.NOT_DOWNLOADED),  # cancel before the file is in its place
         (_S.PROCESSING, _S.FAILED),
         (_S.FAILED, _S.QUEUED),  # retry
         (_S.SYNCED, _S.FILE_MISSING),  # the file was not found at a check

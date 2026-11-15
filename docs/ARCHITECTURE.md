@@ -290,6 +290,7 @@ not_downloaded --enqueue--> queued --worker picks--> downloading --streams done-
       |                                                                                |
       +<----------------------------- failure: status = failed <-----------------------+
 failed --retry--> queued
+processing --cancel, before the file is moved into its place--> not_downloaded
 synced --file not found at check--> file_missing --enqueue--> queued
 synced --redownload--> queued (the old file stays until the new one is verified)
 ```

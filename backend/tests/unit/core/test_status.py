@@ -32,6 +32,7 @@ def test_the_allowed_transitions_are_exactly_those_of_the_architecture() -> None
         (S.DOWNLOADING, S.NOT_DOWNLOADED),
         (S.DOWNLOADING, S.FAILED),
         (S.PROCESSING, S.SYNCED),
+        (S.PROCESSING, S.NOT_DOWNLOADED),
         (S.PROCESSING, S.FAILED),
         (S.FAILED, S.QUEUED),
         (S.SYNCED, S.FILE_MISSING),

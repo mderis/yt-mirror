@@ -8,11 +8,12 @@ Tests: backend/tests/integration/db/test_catalogue_repository.py
 
 import dataclasses
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Engine, case, delete, func, insert, select, update
+from sqlalchemy import Engine, Table, bindparam, case, delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
+from ytmirror.adapters.db.job_repository import DOWNLOAD_FIELDS
 from ytmirror.adapters.db.tables import ChannelRow, VideoRow
 from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import (
@@ -166,8 +167,35 @@ class SqlCatalogueRepository:
             if changes.updated:
                 session.execute(
                     update(VideoRow),
-                    [{**_values_of(video), "updated_at": now} for video in changes.updated],
+                    [{**_check_values_of(video), "updated_at": now} for video in changes.updated],
                 )
+                # A date from a listing never replaces an exact one that a download
+                # stored while this check ran (R-DT-04, R-DT-05).
+                dates = [
+                    {
+                        "video_id": video.id,
+                        "at": video.published_at,
+                        "precision": getattr(
+                            video.published_precision, "value", video.published_precision
+                        ),
+                    }
+                    for video in changes.updated
+                    if not video.published_exact
+                ]
+                if dates:
+                    videos = cast("Table", VideoRow.__table__)
+                    session.connection().execute(
+                        update(videos)
+                        .where(
+                            videos.c.id == bindparam("video_id"),
+                            videos.c.published_exact.is_(False),
+                        )
+                        .values(
+                            published_at=bindparam("at"),
+                            published_precision=bindparam("precision"),
+                        ),
+                        dates,
+                    )
         return True
 
     def totals(self, new_since: int) -> Mapping[str, ChannelTotals]:
@@ -244,6 +272,15 @@ def _values_of(item: Channel | Video) -> dict[str, Any]:
         for field in dataclasses.fields(item)
         for value in (getattr(item, field.name),)
     }
+
+
+def _check_values_of(video: Video) -> dict[str, Any]:
+    """Return the columns of a video that a check owns: never its status, file or exact date.
+
+    A download that ends while a check runs stores those itself (DOWNLOAD_FIELDS),
+    so the check must not write back what it read before.
+    """
+    return {name: value for name, value in _values_of(video).items() if name not in DOWNLOAD_FIELDS}
 
 
 def _channel_of(row: ChannelRow) -> Channel:
