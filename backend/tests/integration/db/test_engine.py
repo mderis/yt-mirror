@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from sqlalchemy import text
 
 from ytmirror.adapters.db.engine import create_db_engine
@@ -39,3 +40,21 @@ def test_connections_use_wal_mode_and_enforce_foreign_keys(tmp_path: Path) -> No
     assert journal_mode == "wal"
     assert foreign_keys == 1
     assert busy_timeout == 5000
+
+
+def test_a_transaction_that_fails_undoes_changes_of_tables_too(tmp_path: Path) -> None:
+    """R-QA-04, R-QA-06: a migration that fails half way leaves no new column behind."""
+    engine = create_db_engine(tmp_path / "yt-mirror.db")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE things (id INTEGER PRIMARY KEY)"))
+
+    with pytest.raises(RuntimeError), engine.begin() as connection:
+        connection.execute(text("ALTER TABLE things ADD COLUMN half_done TEXT"))
+        connection.execute(text("CREATE TABLE other (id INTEGER PRIMARY KEY)"))
+        raise RuntimeError("failed half way")
+
+    with engine.connect() as connection:
+        columns = [row[1] for row in connection.execute(text("PRAGMA table_info(things)"))]
+        tables = connection.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        assert columns == ["id"]
+        assert [row[0] for row in tables] == ["things"]
