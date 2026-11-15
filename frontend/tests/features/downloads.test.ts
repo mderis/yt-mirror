@@ -80,6 +80,12 @@ describe('downloading videos', () => {
     ).toBeTruthy()
   })
 
+  it('R-QU-04: a download that runs when the list is loaded shows its progress at once', async () => {
+    await openWith({ status: 'downloading', job_id: 'J1', download: download() })
+
+    expect(within(row()).getByText('Downloading 42%')).toBeTruthy()
+  })
+
   it('R-QU-02: a video that is processed can still be cancelled', async () => {
     const app = await openWith()
 

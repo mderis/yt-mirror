@@ -54,6 +54,12 @@ export const useVideosStore = defineStore('videos', () => {
       if (channelId.value === wanted) {
         videos.value = loaded
         forgetChanges()
+        // A download that runs keeps its progress across a new load of the list.
+        for (const video of loaded) {
+          if (video.download) {
+            downloads.set(video.id, video.download)
+          }
+        }
         status.value = 'ready'
         errorCode.value = null
       }
