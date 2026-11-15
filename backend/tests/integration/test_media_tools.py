@@ -9,6 +9,8 @@ from ytmirror.adapters.media_tools import FfprobeMediaTools, facts_of
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.media import verification_problem
 
+pytestmark = pytest.mark.media
+
 
 @pytest.fixture
 def ffmpeg() -> Path:

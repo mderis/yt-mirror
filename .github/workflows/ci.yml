@@ -72,8 +72,46 @@ jobs:
           enable-cache: true
       - name: Install Python and packages
         run: uv sync --frozen
-      - name: Tests with coverage
-        run: uv run pytest --cov --cov-report=term-missing:skip-covered --cov-report=json:coverage.json
+      # The tests that read and write real video files use the ffmpeg that users get:
+      # installed by the app's own code, with the pinned version and checksum of
+      # each source (D-053). Without it they fail instead of being skipped.
+      - name: Install ffmpeg from its first source, as the app does
+        run: uv run python -m ytmirror.tools.install_tool ffmpeg "$RUNNER_TEMP/ffmpeg-first" --source martin-riedl
+      - name: Install ffmpeg from its second source, as the app does
+        run: uv run python -m ytmirror.tools.install_tool ffmpeg "$RUNNER_TEMP/ffmpeg-second" --source jellyfin-ffmpeg
+      - name: Tests with coverage (ffmpeg of the first source)
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
+        run: uv run pytest -rs --cov --cov-report=term-missing:skip-covered --cov-report=json:coverage.json
+      - name: Media tests with the ffmpeg of the second source
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-second/ffmpeg
+        run: |
+          set -o pipefail
+          uv run pytest -m media -rs -p no:cacheprovider | tee media-second.txt
+          if grep -q skipped media-second.txt; then exit 1; fi
+          echo "Media tests, second ffmpeg source: $(tail -n 1 media-second.txt)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Media tests fail without ffmpeg (proves they are never skipped)
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/no-ffmpeg
+        run: |
+          if uv run pytest -m media -q -p no:cacheprovider; then
+            echo "The media tests passed without ffmpeg: they would hide a missing ffmpeg" >&2
+            exit 1
+          fi
+          echo "Without ffmpeg the media tests failed, as they must." >> "$GITHUB_STEP_SUMMARY"
+      - name: Media tests ran and passed with the first source, none skipped
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
+        run: |
+          set -o pipefail
+          uv run pytest -m media -rs -p no:cacheprovider | tee media-first.txt
+          if grep -q skipped media-first.txt; then exit 1; fi
+          echo "Media tests, first ffmpeg source: $(tail -n 1 media-first.txt)" >> "$GITHUB_STEP_SUMMARY"
       - name: Coverage thresholds
         run: uv run python scripts/check_coverage.py coverage.json | tee -a "$GITHUB_STEP_SUMMARY"
 
