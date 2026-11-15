@@ -37,6 +37,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - The app folder can be moved or copied: the Python environment and the app bundle are rebuilt at the next start.
 
 ### Fixed
+- A download showed a bar that did not move, without a percent, or "Processing" from its first second. The percent is now one for the whole video, its video and audio streams together, and the bar fills with it. When YouTube gives no size, the row says how much has arrived. While a video is processed, the bar shows that the step runs, without a percent.
+- A file that the Trash refuses no longer stops the removal of a channel halfway: the other files go, the channel is removed, and the app lists the files left in the folder. Removing a channel stops its checks and downloads first, so nothing is written into its folder meanwhile.
+- The library folder and a folder you chose are never moved to the Trash with a channel, even when empty. Only a folder yt-mirror created may go.
+- A `channel.json` that yt-mirror cannot read, or that a newer version wrote, is never replaced or moved to the Trash.
+- A side file of a downloaded video (its metadata or a thumbnail) that cannot be written no longer fails the video: it is written later. A failure after the file is in the channel folder takes it out again, so nothing unfinished is left there.
+- A start after a crash moves a half-placed file to the Trash only when the video ID inside it is that download, and a Trash that refuses no longer stops the app from starting.
+- Quitting stops the ffmpeg that a download started, so the download is cleaned up before the app ends.
+- A database update that fails changes nothing; before, part of it could stay and the next start failed.
 - Quitting with Cmd+Q, from the Dock, with Ctrl+C or with a termination signal now shuts the app down cleanly. Before, only closing the window did: the other ways ended the app without stopping its server and without the last log line.
 
 ### Added in milestone M0
