@@ -544,6 +544,7 @@ def test_a_crash_between_the_move_and_the_end_of_the_job_leaves_no_unknown_file(
     def die(path: Path) -> object:
         raise Killed
 
+    ours(world, name)
     world.files.read_dates = die  # type: ignore[method-assign]
     with pytest.raises(Killed):
         world.downloader.work_once()
@@ -597,3 +598,156 @@ def test_a_channel_removed_while_its_video_downloads_breaks_nothing(world: World
 
     assert world.repository.video(FIRST) is None
     assert world.downloader.work_once() is False
+
+
+# --- after the file is in its place (review of M3, H1 and H2)
+
+
+def ours(world: World, name: str) -> None:
+    """Make the fake media tools read a file in the channel folder as the app's own download."""
+    world.media.facts[folder_of(world) / name] = dataclasses.replace(GOOD, tags={"video_id": FIRST})
+
+
+def test_a_side_file_that_fails_leaves_the_video_synced_and_is_written_later(world: World) -> None:
+    """R-QA-06, R-MD-02: a full disk at the info JSON keeps the synced video; it is retried."""
+    write = world.files.write_file
+    full = {"disk": True}
+
+    def write_unless_full(path: Path, data: bytes, *, overwrite: bool) -> bool:
+        if full["disk"] and path.name == f"{FIRST}.info.json":
+            raise AppError(ErrorCode.DISK_FULL, {"file": str(path)})
+        return write(path, data, overwrite=overwrite)
+
+    world.files.write_file = write_unless_full  # type: ignore[method-assign]
+    world.downloader.mirror([FIRST])
+
+    with capture_logs() as logs:
+        world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    name = f"{title_of(world, FIRST)}.mkv"
+    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.SYNCED, name, None)
+    assert visible(world) == [name]
+    assert log_lines(logs, "download.side_file_failed")[0]["file"].endswith(".info.json")
+    assert not world.files.exists(folder_of(world) / ".yt-mirror" / f"{FIRST}.info.json")
+    full["disk"] = False
+    world.downloader.retry_side_files()
+    assert world.files.exists(folder_of(world) / ".yt-mirror" / f"{FIRST}.info.json")
+    assert world.jobs.pending_side_files() == ()
+
+
+def test_a_thumbnail_next_to_the_video_that_fails_leaves_nothing_and_the_video_synced(
+    world: World,
+) -> None:
+    """R-MD-05, R-QA-06: the visible thumbnail never stands in the folder with wrong dates."""
+    world.settings_repository.save(Settings(thumbnail_next_to_video=True))
+    set_dates = world.files.set_dates
+
+    def refuse_pictures(path: Path, moment: int) -> None:
+        if path.suffix == ".jpg":
+            raise AppError(ErrorCode.DATES_NOT_APPLIED, {"file": str(path)})
+        set_dates(path, moment)
+
+    world.files.set_dates = refuse_pictures  # type: ignore[method-assign]
+    world.downloader.mirror([FIRST])
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+    assert visible(world) == [f"{title_of(world, FIRST)}.mkv"]
+    world.files.set_dates = set_dates  # type: ignore[method-assign]
+    world.downloader.retry_side_files()
+    assert visible(world) == sorted(
+        [f"{title_of(world, FIRST)}.mkv", f"{title_of(world, FIRST)}.jpg"]
+    )
+
+
+def test_dates_that_cannot_even_be_read_take_the_file_out_again(world: World) -> None:
+    """R-DT-07, R-QA-06: an OSError while reading the dates back also moves the file out."""
+
+    def unreadable(path: Path) -> object:
+        raise OSError(5, "Input/output error", str(path))
+
+    world.files.read_dates = unreadable  # type: ignore[method-assign]
+    world.downloader.mirror([FIRST])
+    world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.FAILED, None, None)
+    assert video.last_error_code is ErrorCode.DATES_NOT_APPLIED
+    assert visible(world) == []
+
+
+def test_a_failure_while_the_video_is_stored_as_synced_takes_the_file_out_again(
+    world: World,
+) -> None:
+    """R-QA-06: any failure after the move but the side files leaves no file in the folder."""
+    record = world.jobs.record
+
+    def refuse_synced(job: Job, video: object = None, change: object = None) -> None:
+        if getattr(change, "to_status", None) is VideoStatus.SYNCED:
+            raise RuntimeError("the database is locked")
+        record(job, video, change)  # type: ignore[arg-type]
+
+    world.jobs.record = refuse_synced  # type: ignore[method-assign]
+    world.downloader.mirror([FIRST])
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.FAILED
+    assert visible(world) == []
+
+
+def test_a_trash_that_refuses_at_start_never_stops_the_app(world: World) -> None:
+    """R-QA-06, R-ER-03: the start goes on, logs it, and ends the job anyway."""
+    world.downloader.mirror([FIRST])
+    name = f"{title_of(world, FIRST)}.mkv"
+    ours(world, name)
+    read_dates = world.files.read_dates
+
+    def die(path: Path) -> object:
+        raise Killed
+
+    world.files.read_dates = die  # type: ignore[method-assign]
+    with pytest.raises(Killed):
+        world.downloader.work_once()
+    world.files.read_dates = read_dates  # type: ignore[method-assign]
+
+    def refuse(path: Path) -> None:
+        raise AppError(ErrorCode.PERMISSION_DENIED, {"file": str(path)})
+
+    world.files.trash = refuse  # type: ignore[method-assign]
+    with capture_logs() as logs:
+        world.downloader.start()
+        world.downloader.start()
+
+    assert log_lines(logs, "file.trash_failed")[0]["error_code"] == "PERMISSION_DENIED"
+    assert world.jobs.jobs([JobState.WAITING, JobState.RUNNING]) == ()
+    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
+
+
+def test_a_start_trashes_only_a_file_the_app_was_placing_and_that_is_its_own(
+    world: World,
+) -> None:
+    """R-QA-06: the marker says what the app moved; a file that is not this video stays."""
+    world.downloader.mirror([FIRST])
+    name = f"{title_of(world, FIRST)}.mkv"
+    world.media.facts[folder_of(world) / name] = dataclasses.replace(
+        GOOD, tags={"video_id": "someoneelse"}
+    )
+    read_dates = world.files.read_dates
+
+    def die(path: Path) -> object:
+        raise Killed
+
+    world.files.read_dates = die  # type: ignore[method-assign]
+    with pytest.raises(Killed):
+        world.downloader.work_once()
+    world.files.read_dates = read_dates  # type: ignore[method-assign]
+    assert world.repository.video(FIRST).placing_file == name  # pyright: ignore[reportOptionalMemberAccess]
+
+    world.downloader.start()
+
+    assert world.files.trashed == []
+    assert world.files.exists(folder_of(world) / name)
+    assert world.repository.video(FIRST).placing_file is None  # pyright: ignore[reportOptionalMemberAccess]

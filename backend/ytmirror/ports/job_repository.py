@@ -14,7 +14,7 @@ from collections.abc import Collection
 from typing import Protocol
 
 from ytmirror.core.channels import Video
-from ytmirror.core.jobs import Job, JobState, VideoEvent
+from ytmirror.core.jobs import Job, JobState, PendingSideFile, VideoEvent
 from ytmirror.core.status import StatusChange
 
 
@@ -67,6 +67,28 @@ class JobRepository(Protocol):
 
         Args:
             video_id: The video.
+        """
+        ...
+
+    def add_pending_side_file(self, video_id: str, path: str, data: bytes) -> None:
+        """Keep a side file that could not be written, to write it later.
+
+        Args:
+            video_id: The video.
+            path: Where it goes, relative to the channel folder.
+            data: Its content.
+        """
+        ...
+
+    def pending_side_files(self) -> tuple[PendingSideFile, ...]:
+        """Return the side files still to be written, oldest first."""
+        ...
+
+    def remove_pending_side_file(self, number: int) -> None:
+        """Forget a side file that was written, or is no longer wanted.
+
+        Args:
+            number: Its ``id``.
         """
         ...
 

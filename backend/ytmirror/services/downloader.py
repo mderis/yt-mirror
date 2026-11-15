@@ -178,7 +178,17 @@ class DownloaderService:
         R-QU-06).
         """
         for job in self._jobs.jobs(ACTIVE_STATES):
-            self._end_left_over(job)
+            try:
+                self._end_left_over(job)
+            except Exception:  # noqa: BLE001  (one broken job must not stop the start)
+                _log.error(
+                    "download.failed",
+                    msg="A job left by the last run could not be ended. The start goes on",
+                    job_id=job.id,
+                    error_code=ErrorCode.INTERNAL.value,
+                    exc_info=True,
+                )
+        self._retry_side_files_quietly()
         self._youtube.when_asking_again(self._wake_up)
         for _ in range(self._workers):
             self._run_in_background(self._work_until_stopped)
@@ -249,6 +259,7 @@ class DownloaderService:
             )
             self._give_up(job)
         finally:
+            self._retry_side_files_quietly()
             with self._wake:
                 self._running.pop(job.id, None)
                 self._videos.pop(job.id, None)
@@ -514,24 +525,9 @@ class DownloaderService:
             raise DownloadCancelledError("cancelled before the file was put in its place")
         name = self._move_into_place(job, video, place, result.file)
         target = place.folder / name
-        try:
-            self._verify_dates(target, published, log)
-        except AppError:
-            # A file with wrong dates must not look finished (R-QA-06): back to the temp folder.
-            self._files.move(target, place.work / "dates-not-applied.mkv")
-            raise
-        self._files.write_file(
-            place.hidden / f"{video.id}.info.json", result.info_json.encode(), overwrite=True
-        )
-        cover = None if result.thumbnail is None else self._files.read_bytes(result.thumbnail)
-        if cover is not None:
-            self._files.write_file(place.hidden / f"{video.id}.jpg", cover, overwrite=True)
-        if cover is not None and self._settings.current().thumbnail_next_to_video:
-            self._put_cover_next_to(place, name, cover, published)
         synced = replace(
             video,
             file_name=name,
-            file_size=self._files.size_of(target),
             height=facts.height,
             vcodec=facts.vcodec,
             acodec=facts.acodec,
@@ -544,8 +540,24 @@ class DownloaderService:
             last_error_at=None,
             attempts=0,
         )
-        done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
-        self._end(done, synced, JobState.DONE, VideoStatus.SYNCED, "verified")
+        try:
+            self._verify_dates(target, published, log)
+            synced = replace(synced, file_size=self._files.size_of(target))
+            done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
+            # The file is recorded and its marker cleared in the same write (R-QA-06).
+            self._end(done, synced, JobState.DONE, VideoStatus.SYNCED, "verified")
+        except BaseException as error:
+            if not isinstance(error, Exception):
+                raise  # the end of the process: the next start cleans up by the marker
+            # Until the video is recorded as synced, a file in the folder must not stay
+            # unknown to the app (R-QA-06): it goes back to the temp folder of the job.
+            self._files.move(target, place.work / "not-finished.mkv")
+            if isinstance(error, AppError):
+                raise
+            if isinstance(error, OSError):
+                raise AppError(ErrorCode.DATES_NOT_APPLIED, {"reason": str(error)}) from error
+            raise
+        self._write_side_files(video, place, name, result, published, log)
         log.info(
             "download.finished",
             msg="Download finished",
@@ -558,10 +570,12 @@ class DownloaderService:
     def _move_into_place(self, job: Job, video: Video, place: _Place, file: Path) -> str:
         """Step 2 and 7: choose the name and move the file in one step, never overwriting.
 
-        The name is stored before the move. A crash between the move and the end
-        of the job leaves a file the app knows: the next start moves it to the
-        Trash, so that no unknown file is left and Mirror gets the name again.
+        The marker ``placing_file`` is stored before the move, and the name
+        itself only when the video is recorded as synced. A crash between the
+        two leaves a file the app knows by its marker: the next start moves it
+        to the Trash once the video ID inside it shows it is this download.
         """
+        tried: list[str] = []
         for _ in range(2):
             taken = [
                 *self._files.file_names(place.folder),
@@ -570,12 +584,16 @@ class DownloaderService:
                     for other in self._repository.videos(video.channel_id)
                     if other.id != video.id and other.file_name
                 ),
+                *tried,
             ]
             name = video_file_name(video.title, video.id, taken)
-            self._jobs.record(job, replace(self._videos.get(job.id, video), file_name=name))
+            current = self._videos.get(job.id, video)
+            self._jobs.record(job, replace(current, placing_file=name))
             if self._files.move(file, place.folder / name):
                 _log.info("file.moved", msg="File moved into its place", file=name)
                 return name
+            self._jobs.record(job, replace(current, placing_file=None))
+            tried.append(name)
         raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken twice while moving"})
 
     def _verify_dates(self, target: Path, published: int, log: FilteringBoundLogger) -> None:
@@ -596,13 +614,90 @@ class DownloaderService:
             )
         log.info("dates.applied", msg="File dates set to the published time", published=published)
 
-    def _put_cover_next_to(self, place: _Place, name: str, cover: bytes, published: int) -> None:
-        """Save the thumbnail next to the video when the setting asks for it (R-MD-05)."""
-        cover_name = str(Path(name).with_suffix(".jpg"))
-        staged = place.work / "cover.jpg"
-        self._files.write_file(staged, cover, overwrite=True)
-        if self._files.move(staged, place.folder / cover_name):
-            self._files.set_dates(place.folder / cover_name, published)
+    # --- side files: the info JSON, the original thumbnail, the thumbnail next to the video
+
+    def _write_side_files(
+        self,
+        video: Video,
+        place: _Place,
+        name: str,
+        result: DownloadResult,
+        published: int,
+        log: FilteringBoundLogger,
+    ) -> None:
+        """Write the side files of a synced video. One that fails waits to be written later."""
+        files: list[tuple[str, bytes]] = [
+            (f"{HIDDEN_DIR}/{video.id}.info.json", result.info_json.encode())
+        ]
+        cover = None if result.thumbnail is None else self._files.read_bytes(result.thumbnail)
+        if cover is not None:
+            files.append((f"{HIDDEN_DIR}/{video.id}.jpg", cover))
+            if self._settings.current().thumbnail_next_to_video:
+                files.append((str(Path(name).with_suffix(".jpg")), cover))
+        for path, data in files:
+            if self._write_side_file(video.id, place.folder, path, data, published):
+                continue
+            log.warning(
+                "download.side_file_failed",
+                msg="A side file of a synced video could not be written. It is tried again later",
+                file=path,
+            )
+            self._jobs.add_pending_side_file(video.id, path, data)
+
+    def _write_side_file(
+        self, video_id: str, folder: Path, path: str, data: bytes, published: int
+    ) -> bool:
+        """Write one side file. Returns False when it could not be written now.
+
+        A file of the hidden folder is replaced. A thumbnail next to the video is
+        made in a temp folder with its dates, then moved, and never replaces a
+        file that is there. It waits for the original thumbnail in the hidden
+        folder, by which a removal recognises it as the app's own (R-CH-32).
+        """
+        target = folder / path
+        try:
+            if path.startswith(f"{HIDDEN_DIR}/"):
+                self._files.write_file(target, data, overwrite=True)
+                return True
+            if self._files.read_bytes(folder / HIDDEN_DIR / f"{video_id}.jpg") != data:
+                return False
+            stage = folder / HIDDEN_DIR / TEMP_DIR / self._new_job_id()
+            try:
+                self._files.write_file(stage / target.name, data, overwrite=True)
+                self._files.set_dates(stage / target.name, published)
+                if not self._files.move(stage / target.name, target):
+                    _log.info(
+                        "download.side_file_skipped",
+                        msg="A file of that name is there: the thumbnail is not put next to it",
+                        file=path,
+                    )
+            finally:
+                self._files.remove_temp_folder(stage)
+        except AppError, OSError:
+            return False
+        return True
+
+    def retry_side_files(self) -> None:
+        """Write the side files that waited (R-MD-02, R-MD-05). One that fails again waits on."""
+        for pending in self._jobs.pending_side_files():
+            video = self._repository.video(pending.video_id)
+            channel = None if video is None else self._repository.channel(video.channel_id)
+            if video is None or channel is None or video.status is not VideoStatus.SYNCED:
+                self._jobs.remove_pending_side_file(pending.id)
+                continue
+            folder = self._views.folder_of(channel)
+            if not self._files.folder_exists(folder) or video.published_at is None:
+                continue
+            if self._write_side_file(
+                video.id, folder, pending.path, pending.data, video.published_at
+            ):
+                self._jobs.remove_pending_side_file(pending.id)
+                _log.info(
+                    "download.side_file_written",
+                    msg="A side file that waited was written",
+                    video_id=video.id,
+                    file=pending.path,
+                )
 
     # --- the end of a job
 
@@ -671,6 +766,7 @@ class DownloaderService:
             return
         change: StatusChange | None = None
         if video is not None and current is not None and status is not None:
+            video = replace(video, placing_file=None)
             if status is not VideoStatus.SYNCED:
                 video = replace(video, file_name=None, file_size=None)
             if current.status is not status:
@@ -698,21 +794,29 @@ class DownloaderService:
             self._views.publish(video.channel_id)
 
     def _end_left_over(self, job: Job) -> None:
-        """Clean up a job that a quit or a crash left waiting or running (R-QA-06)."""
+        """Clean up a job that a quit or a crash left waiting or running (R-QA-06).
+
+        Its temp folder goes. A file it was moving into the channel folder (its
+        marker) goes to the Trash, but only when the video ID inside the file
+        shows it is this download: a file of the user's is never touched. A
+        failure is logged, and the job ends anyway: the start goes on.
+        """
         video = self._repository.video(job.video_id)
         channel = None if video is None else self._repository.channel(video.channel_id)
-        if channel is not None and video is not None:
-            place = self._place_of(channel, job)
-            self._files.remove_temp_folder(place.work)
-            if video.status is not VideoStatus.SYNCED and video.file_name:
-                # It was moved into place, but the job did not end: the app's own file goes
-                # to the Trash, so no unknown file is left and Mirror gets its name again.
-                moved = place.folder / video.file_name
-                if self._files.exists(moved):
-                    self._files.trash(moved)
-                    _log.info(
-                        "file.trashed", msg="File of an interrupted download", file=str(moved)
-                    )
+        try:
+            if channel is not None and video is not None:
+                place = self._place_of(channel, job)
+                self._files.remove_temp_folder(place.work)
+                if video.placing_file:
+                    self._trash_own_download(video, place.folder / video.placing_file)
+        except (AppError, OSError, ValueError) as error:
+            _log.warning(
+                "file.trash_failed",
+                msg="A file of an interrupted download could not be cleaned up",
+                job_id=job.id,
+                video_id=job.video_id,
+                error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
+            )
         self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "app quit")
         _log.info(
             "download.cancelled",
@@ -720,6 +824,36 @@ class DownloaderService:
             job_id=job.id,
             video_id=job.video_id,
         )
+
+    def _trash_own_download(self, video: Video, moved: Path) -> None:
+        """Move a file an interrupted download put in place to the Trash, if it is that video."""
+        if not self._files.exists(moved):
+            return
+        try:
+            own = self._media.probe(moved).tags.get("video_id") == video.id
+        except AppError:
+            own = False
+        if not own:
+            _log.warning(
+                "file.kept",
+                msg="A file has the name of an interrupted download but is not that video",
+                video_id=video.id,
+                file=str(moved),
+            )
+            return
+        self._files.trash(moved)
+        _log.info("file.trashed", msg="File of an interrupted download", file=str(moved))
+
+    def _retry_side_files_quietly(self) -> None:
+        try:
+            self.retry_side_files()
+        except Exception:  # noqa: BLE001  (side files never stop a start or the queue)
+            _log.error(
+                "download.side_file_failed",
+                msg="Side files that waited could not be tried again",
+                error_code=ErrorCode.INTERNAL.value,
+                exc_info=True,
+            )
 
     def _give_up(self, job: Job) -> None:
         """End a job that broke in an unexpected way, as far as that is still possible."""

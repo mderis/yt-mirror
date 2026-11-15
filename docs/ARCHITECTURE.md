@@ -204,6 +204,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | avatar_url | text, null | The address at YouTube. The picture itself is in the image cache |
 | folder | text | Absolute path, or relative to the library when not custom |
 | folder_is_custom | bool | |
+| folder_created | bool | true when the app created the folder. Only such a folder may go to the Trash when a removal leaves it empty (R-CH-32). Migration 0007 |
 | quality | text, null | null means "use default" |
 | auto_mirror | bool | |
 | mirror_after | int, null | Only auto-mirror videos published after this time |
@@ -237,7 +238,8 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | first_seen_at | int | |
 | last_seen_at | int | The last successful check that listed it (R-DT-01) |
 | seen_in_first_listing | bool | false means it can be "new" (R-CH-15) |
-| file_name | text, null | Relative to the channel folder |
+| file_name | text, null | Relative to the channel folder. Stored only when the video is recorded as synced |
+| placing_file | text, null | The marker of a file being moved into the channel folder: set before the move, cleared in the same write that records the video as synced or ends the job (R-QA-06). Migration 0007 |
 | file_size | int, null | |
 | height | int, null | Downloaded height |
 | vcodec, acodec | text, null | |
@@ -267,6 +269,9 @@ One row per queued or running piece of work on a video. Created by migration 000
 
 ### video_events
 Append-only history required by R-LG-03: `id`, `video_id`, `at`, `from_status`, `to_status`, `reason`, `job_id`. Created by migration 0006. A status change is written in the same transaction as the job and the video (the JobRepository port). The JobRepository writes only the columns of a video that a download owns (status, file, exact date, last failure), and a check writes only the others, so that a check that runs during a download never undoes it.
+
+### pending_side_files
+A side file of a synced video that could not be written: `id`, `video_id` (removed with the video), `path` (relative to the channel folder), `data`, `created_at`, `updated_at`. Created by migration 0008. The downloader writes it again at start and after every job, and removes the row once it is written or its video is no longer synced.
 
 ### exclude_rules
 `id`, `channel_id`, `kind` (`title_contains`, `shorter_than`), `value`, `enabled`.
@@ -353,7 +358,11 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 9. Update the video row, record the event, write activity, emit the update.
 10. On any failure: classify the exception into an error code, clean up temp files except resumable partial downloads, set `failed` or re-queue according to the retry policy (R-QU-07).
 
-What milestone M3 builds of this flow (`services/downloader.py`): one worker, which takes jobs in the order of their priority under a lock and keeps everything about a job by its ID, so that M5 can run more. Step 1 checks only that the folder is available; the disk guard (R-QU-10) and the retry policy of step 10 (R-QU-07) arrive with M5. Cancel is asked by the hooks of yt-dlp and before the move of step 7, which is the point of no return (R-QU-02). After a cancel, a failure or a quit, the temp folder of the job is deleted; a start cleans up jobs that a crash left waiting or running, and their videos are "not downloaded" again. M5 replaces this with R-QU-05 (resume from the partial file) and R-QU-06 (queued again at start). YouTube's "not a bot" check (R-ER-05) puts a running job back in line, and the worker takes no job while the app pauses. A subtitle failure is tried once more without subtitles (R-MD-04). A file whose dates do not read back the same is moved out of the channel folder again, so that it never looks finished (R-QA-06).
+What milestone M3 builds of this flow (`services/downloader.py`): one worker, which takes jobs in the order of their priority under a lock and keeps everything about a job by its ID, so that M5 can run more. Step 1 checks only that the folder is available; the disk guard (R-QU-10) and the retry policy of step 10 (R-QU-07) arrive with M5. Cancel is asked by the hooks of yt-dlp and before the move of step 7, which is the point of no return (R-QU-02). After a cancel, a failure or a quit, the temp folder of the job is deleted; a start cleans up jobs that a crash left waiting or running, and their videos are "not downloaded" again. M5 replaces this with R-QU-05 (resume from the partial file) and R-QU-06 (queued again at start). YouTube's "not a bot" check (R-ER-05) puts a running job back in line, and the worker takes no job while the app pauses. A subtitle failure is tried once more without subtitles (R-MD-04). Every file the app puts in a channel folder is known to it at once (R-QA-06):
+- Before the move of step 7 the video gets the marker `placing_file`. The name goes into `file_name` only in the write of step 9, which clears the marker.
+- Any failure between the move and that write, an error of the file system included, moves the file out of the channel folder again, so it never looks finished.
+- The side files (the info JSON, the thumbnail in the hidden folder, the thumbnail next to the video) are written after step 9. One that fails is logged, the video stays synced, and the file waits in `pending_side_files`.
+- A start ends the jobs a quit or a crash left, one at a time. A marked file goes to the Trash only when the video ID inside it is the one of the job; a Trash that refuses is logged and the start goes on.
 
 ### 7.3 yt-dlp configuration (in `ytdlp_gateway.py` only)
 

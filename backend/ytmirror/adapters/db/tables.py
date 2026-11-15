@@ -7,7 +7,7 @@ in ``backend/ytmirror/migrations/versions/`` in the same commit.
 Tests: backend/tests/migrations/test_schema_matches_tables.py
 """
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, Text, false
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -151,5 +151,20 @@ class VideoEventRow(Base):
     to_status: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     job_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PendingSideFileRow(Base):
+    """A side file of a synced video that is still to be written (R-MD-02, R-MD-05)."""
+
+    __tablename__ = "pending_side_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False
+    )
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)

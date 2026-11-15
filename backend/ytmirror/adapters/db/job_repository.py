@@ -11,13 +11,21 @@ Tests: backend/tests/integration/db/test_job_repository.py
 from collections.abc import Collection
 from typing import Any
 
-from sqlalchemy import Engine, func, select, update
+from sqlalchemy import Engine, delete, func, select, update
 from sqlalchemy.orm import Session
 
-from ytmirror.adapters.db.tables import JobRow, VideoEventRow, VideoRow
+from ytmirror.adapters.db.tables import JobRow, PendingSideFileRow, VideoEventRow, VideoRow
 from ytmirror.core.channels import Quality, Video
 from ytmirror.core.errors import ErrorCode
-from ytmirror.core.jobs import ACTIVE_STATES, Job, JobKind, JobState, Stage, VideoEvent
+from ytmirror.core.jobs import (
+    ACTIVE_STATES,
+    Job,
+    JobKind,
+    JobState,
+    PendingSideFile,
+    Stage,
+    VideoEvent,
+)
 from ytmirror.core.status import StatusChange
 from ytmirror.ports.clock import Clock
 
@@ -166,6 +174,40 @@ class SqlJobRepository:
                 )
                 for row in rows
             )
+
+    def add_pending_side_file(self, video_id: str, path: str, data: bytes) -> None:
+        """Keep a side file that could not be written, to write it later.
+
+        Args:
+            video_id: The video.
+            path: Where it goes, relative to the channel folder.
+            data: Its content.
+        """
+        now = self._now()
+        with Session(self._engine) as session, session.begin():
+            session.add(
+                PendingSideFileRow(
+                    video_id=video_id, path=path, data=data, created_at=now, updated_at=now
+                )
+            )
+
+    def pending_side_files(self) -> tuple[PendingSideFile, ...]:
+        """Return the side files still to be written, oldest first."""
+        with Session(self._engine) as session:
+            rows = session.scalars(select(PendingSideFileRow).order_by(PendingSideFileRow.id))
+            return tuple(
+                PendingSideFile(id=row.id, video_id=row.video_id, path=row.path, data=row.data)
+                for row in rows
+            )
+
+    def remove_pending_side_file(self, number: int) -> None:
+        """Forget a side file that was written, or is no longer wanted.
+
+        Args:
+            number: Its ``id``.
+        """
+        with Session(self._engine) as session, session.begin():
+            session.execute(delete(PendingSideFileRow).where(PendingSideFileRow.id == number))
 
     def tracked_files(self, channel_id: str) -> tuple[str, ...]:
         """Return the file names the catalogue has for the videos of a channel.

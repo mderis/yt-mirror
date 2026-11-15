@@ -288,3 +288,21 @@ class SubtitlesFailedError(Exception):
 
     The download is tried once more without subtitles.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class PendingSideFile:
+    """A side file of a synced video that is still to be written (R-MD-02, R-MD-05).
+
+    Attributes:
+        id: Its number in the store.
+        video_id: The video.
+        path: Where it goes, relative to the channel folder, for example
+            ``.yt-mirror/<id>.info.json`` or ``<title>.jpg``.
+        data: Its content.
+    """
+
+    id: int
+    video_id: str
+    path: str
+    data: bytes
