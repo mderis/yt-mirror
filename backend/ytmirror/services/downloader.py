@@ -22,7 +22,7 @@ backend/tests/integration/test_download_end_to_end.py
 
 import json
 import threading
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -578,12 +578,17 @@ class DownloaderService:
             last_error_at=None,
             attempts=0,
         )
+        side_files = self._side_files_of(video, name, result)
         try:
             self._verify_dates(target, published, log)
             synced = replace(synced, file_size=self._files.size_of(target))
             done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
-            # The file is recorded and its marker cleared in the same write (R-QA-06).
-            self._end(done, synced, JobState.DONE, VideoStatus.SYNCED, "verified")
+            # The file is recorded, its marker cleared and its side files kept in one
+            # write (R-QA-06). That commit is the point of no return: nothing after it
+            # moves, trashes or deletes the file.
+            stored = self._store_end(
+                done, synced, JobState.DONE, VideoStatus.SYNCED, "verified", side_files
+            )
         except BaseException as error:
             if not isinstance(error, Exception):
                 raise  # the end of the process: the next start cleans up by the marker
@@ -595,7 +600,8 @@ class DownloaderService:
             if isinstance(error, OSError):
                 raise AppError(ErrorCode.DATES_NOT_APPLIED, {"reason": str(error)}) from error
             raise
-        self._write_side_files(video, place, name, result, published, log)
+        self._announce_quietly(stored)
+        self._write_side_files_of(synced, place.folder, log)
         log.info(
             "download.finished",
             msg="Download finished",
@@ -654,16 +660,10 @@ class DownloaderService:
 
     # --- side files: the info JSON, the original thumbnail, the thumbnail next to the video
 
-    def _write_side_files(
-        self,
-        video: Video,
-        place: _Place,
-        name: str,
-        result: DownloadResult,
-        published: int,
-        log: FilteringBoundLogger,
-    ) -> None:
-        """Write the side files of a synced video. One that fails waits to be written later."""
+    def _side_files_of(
+        self, video: Video, name: str, result: DownloadResult
+    ) -> list[tuple[str, bytes]]:
+        """The side files of a download: the info JSON, the original thumbnail, the cover."""
         files: list[tuple[str, bytes]] = [
             (f"{HIDDEN_DIR}/{video.id}.info.json", result.info_json.encode())
         ]
@@ -672,15 +672,25 @@ class DownloaderService:
             files.append((f"{HIDDEN_DIR}/{video.id}.jpg", cover))
             if self._settings.current().thumbnail_next_to_video:
                 files.append((str(Path(name).with_suffix(".jpg")), cover))
-        for path, data in files:
-            if self._write_side_file(video.id, place.folder, path, data, published):
+        return files
+
+    def _write_side_files_of(self, video: Video, folder: Path, log: FilteringBoundLogger) -> None:
+        """Write the side files a synced video keeps waiting. One that fails waits on."""
+        if video.published_at is None:
+            return
+        for pending in self._jobs.pending_side_files():
+            if pending.video_id != video.id:
+                continue
+            if self._write_side_file(
+                video.id, folder, pending.path, pending.data, video.published_at
+            ):
+                self._jobs.remove_pending_side_file(pending.id)
                 continue
             log.warning(
                 "download.side_file_failed",
                 msg="A side file of a synced video could not be written. It is tried again later",
-                file=path,
+                file=pending.path,
             )
-            self._jobs.add_pending_side_file(video.id, path, data)
 
     def _write_side_file(
         self, video_id: str, folder: Path, path: str, data: bytes, published: int
@@ -801,6 +811,18 @@ class DownloaderService:
         reason: str,
     ) -> None:
         """Store how a job ended, with its video and the status change, and tell everyone."""
+        self._announce(self._store_end(job, video, state, status, reason))
+
+    def _store_end(
+        self,
+        job: Job,
+        video: Video | None,
+        state: JobState,
+        status: VideoStatus | None,
+        reason: str,
+        side_files: Sequence[tuple[str, bytes]] = (),
+    ) -> Video | None:
+        """Store how a job ended, in one transaction. Returns the video to tell about, or None."""
         ended = replace(
             job,
             state=state,
@@ -811,7 +833,7 @@ class DownloaderService:
         if video is not None and current is None:
             # The video went with its channel: its job and history went with it (R-CH-32).
             self._state.ended(video.id)
-            return
+            return None
         change: StatusChange | None = None
         if video is not None and current is not None and status is not None:
             video = replace(video, placing_file=None)
@@ -833,13 +855,28 @@ class DownloaderService:
                     video = current
                 else:
                     video = replace(video, status=status)
-        self._jobs.record(ended, video, change)
-        if state is JobState.WAITING:
-            return
+        self._jobs.record(ended, video, change, side_files)
+        return None if state is JobState.WAITING else video
+
+    def _announce(self, video: Video | None) -> None:
+        """Tell the interface how a video is after its job ended."""
         if video is not None:
             self._state.ended(video.id)
             self._tell(video)
             self._views.publish(video.channel_id)
+
+    def _announce_quietly(self, video: Video | None) -> None:
+        """Tell the interface after the synced commit. A failure is logged, nothing more."""
+        try:
+            self._announce(video)
+        except Exception:  # noqa: BLE001  (the file is stored: nothing may undo it)
+            _log.error(
+                "download.tell_failed",
+                msg="The interface could not be told about a synced video. The file stays",
+                video_id=None if video is None else video.id,
+                error_code=ErrorCode.INTERNAL.value,
+                exc_info=True,
+            )
 
     def _end_left_over(self, job: Job) -> None:
         """Clean up a job that a quit or a crash left waiting or running (R-QA-06).

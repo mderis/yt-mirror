@@ -19,6 +19,7 @@ from ytmirror.core.jobs import (
     JobProgressed,
     JobState,
     Stage,
+    VideoUpdated,
 )
 from ytmirror.core.models import Settings
 
@@ -688,10 +689,12 @@ def test_a_failure_while_the_video_is_stored_as_synced_takes_the_file_out_again(
     """R-QA-06: any failure after the move but the side files leaves no file in the folder."""
     record = world.jobs.record
 
-    def refuse_synced(job: Job, video: object = None, change: object = None) -> None:
+    def refuse_synced(
+        job: Job, video: object = None, change: object = None, side_files: object = ()
+    ) -> None:
         if getattr(change, "to_status", None) is VideoStatus.SYNCED:
             raise RuntimeError("the database is locked")
-        record(job, video, change)  # type: ignore[arg-type]
+        record(job, video, change, side_files)  # type: ignore[arg-type]
 
     world.jobs.record = refuse_synced  # type: ignore[method-assign]
     world.downloader.mirror([FIRST])
@@ -882,3 +885,58 @@ def test_quitting_stops_the_tools_so_a_running_download_ends_at_once(world: Worl
     assert go.is_set()
     assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
     assert world.files.file_names(folder_of(world)) == []
+
+
+# --- the synced commit is the point of no return (second review of M3, H1 and L3)
+
+
+def test_a_listener_that_fails_after_the_synced_commit_never_touches_the_file(
+    world: World,
+) -> None:
+    """R-QA-06, AGENTS rule 7: once stored as synced, the file stays, whatever fails next."""
+
+    def fail_on_synced(event: object) -> None:
+        if isinstance(event, VideoUpdated) and event.view.video.status is VideoStatus.SYNCED:
+            raise RuntimeError("a listener failed")
+
+    world.bus.subscribe(fail_on_synced)
+    world.downloader.mirror([FIRST])
+
+    with capture_logs() as logs:
+        world.download_all()
+
+    name = f"{title_of(world, FIRST)}.mkv"
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.file_name) == (VideoStatus.SYNCED, name)
+    assert world.files.exists(folder_of(world) / name)
+    assert world.files.trashed == []
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.DONE]
+    assert log_lines(logs, "download.tell_failed")[0]["video_id"] == FIRST
+
+
+def test_a_crash_right_after_the_synced_commit_keeps_the_side_files_to_write(
+    world: World,
+) -> None:
+    """R-QA-06, R-MD-02: the side files are stored with the synced video, in one transaction."""
+    write = world.files.write_file
+
+    def crash_at_the_side_files(path: Path, data: bytes, *, overwrite: bool, inside: Path) -> bool:
+        if path.name.endswith(".info.json"):
+            raise Killed
+        return write(path, data, overwrite=overwrite, inside=inside)
+
+    world.files.write_file = crash_at_the_side_files  # type: ignore[method-assign]
+    world.downloader.mirror([FIRST])
+    with pytest.raises(Killed):
+        world.downloader.work_once()
+
+    waiting = {pending.path for pending in world.jobs.pending_side_files()}
+    assert world.repository.video(FIRST).status is VideoStatus.SYNCED  # type: ignore[union-attr]
+    assert waiting == {f".yt-mirror/{FIRST}.info.json", f".yt-mirror/{FIRST}.jpg"}
+
+    world.files.write_file = write  # type: ignore[method-assign]
+    world.downloader.retry_side_files()
+
+    assert world.jobs.pending_side_files() == ()
+    assert world.files.exists(folder_of(world) / ".yt-mirror" / f"{FIRST}.info.json")

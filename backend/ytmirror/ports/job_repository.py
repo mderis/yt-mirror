@@ -10,7 +10,7 @@ CatalogueRepository, so the two never undo each other.
 Tests: backend/tests/integration/db/test_job_repository.py
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from typing import Protocol
 
 from ytmirror.core.channels import Video
@@ -22,7 +22,11 @@ class JobRepository(Protocol):
     """Stores jobs and what they change."""
 
     def record(
-        self, job: Job, video: Video | None = None, change: StatusChange | None = None
+        self,
+        job: Job,
+        video: Video | None = None,
+        change: StatusChange | None = None,
+        side_files: Sequence[tuple[str, bytes]] = (),
     ) -> None:
         """Store a job, and with it what it changed of its video, in one transaction.
 
@@ -31,6 +35,9 @@ class JobRepository(Protocol):
             video: The video with its new status and file facts, or None when
                 the video does not change.
             change: The status change to record, with the job's ID, or None.
+            side_files: Side files of the video to keep for writing, as (path
+                relative to the channel folder, content). They are stored with
+                the synced video, so a crash right after loses none (R-QA-06).
         """
         ...
 

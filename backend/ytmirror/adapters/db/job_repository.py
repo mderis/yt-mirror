@@ -8,7 +8,7 @@ section 7.7).
 Tests: backend/tests/integration/db/test_job_repository.py
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from typing import Any
 
 from sqlalchemy import Engine, delete, func, select, update
@@ -65,7 +65,11 @@ class SqlJobRepository:
         self._clock = clock
 
     def record(
-        self, job: Job, video: Video | None = None, change: StatusChange | None = None
+        self,
+        job: Job,
+        video: Video | None = None,
+        change: StatusChange | None = None,
+        side_files: Sequence[tuple[str, bytes]] = (),
     ) -> None:
         """Store a job, and with it what it changed of its video, in one transaction.
 
@@ -73,9 +77,17 @@ class SqlJobRepository:
             job: The job as it is now. It is added when it is new.
             video: The video with its new status and file facts, or None.
             change: The status change to record, with the job's ID, or None.
+            side_files: Side files of the video to keep for writing, as (path, content).
         """
         now = self._now()
         with Session(self._engine) as session, session.begin():
+            for path, data in side_files:
+                assert video is not None, "side files belong to a video"
+                session.add(
+                    PendingSideFileRow(
+                        video_id=video.id, path=path, data=data, created_at=now, updated_at=now
+                    )
+                )
             row = session.get(JobRow, job.id)
             values = _job_values(job)
             if row is None:
