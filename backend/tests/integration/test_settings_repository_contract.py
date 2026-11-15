@@ -11,6 +11,7 @@ from tests.fixtures.fakes.settings_repository import InMemorySettingsRepository
 from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.schema import AlembicSchema
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
+from ytmirror.core.channels import Quality
 from ytmirror.core.models import LogDetail, Settings
 from ytmirror.ports.settings_repository import SettingsRepository
 
@@ -147,3 +148,48 @@ def test_an_unreadable_library_folder_falls_back_to_the_default(
         connection.execute(text("UPDATE settings SET value = '12' WHERE key = 'library_folder'"))
 
     assert SqlSettingsRepository(engine, clock).load().library_folder == "~/Movies/YouTube"
+
+
+def test_the_settings_of_downloads_have_the_defaults_of_the_spec(
+    repository: SettingsRepository,
+) -> None:
+    """R-SE-04, R-QL-02, R-MD-03, R-MD-05: Best available, both subtitles on, no visible cover."""
+    settings = repository.load()
+
+    assert settings.default_quality is Quality.BEST
+    assert (settings.embed_subtitles, settings.auto_subtitles) == (True, True)
+    assert settings.thumbnail_next_to_video is False
+
+
+def test_the_settings_of_downloads_are_stored(repository: SettingsRepository) -> None:
+    """R-SE-03, R-QL-02, R-MD-03, R-MD-05: each setting of downloads comes back as saved."""
+    chosen = Settings(
+        default_quality=Quality.P720,
+        embed_subtitles=False,
+        auto_subtitles=False,
+        thumbnail_next_to_video=True,
+    )
+
+    repository.save(chosen)
+
+    assert repository.load() == chosen
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("default_quality", '"4320"'), ("embed_subtitles", '"yes"'), ("thumbnail_next_to_video", "1")],
+)
+def test_an_unreadable_setting_of_downloads_has_its_default(
+    engine: Engine, clock: FakeClock, key: str, value: str
+) -> None:
+    """R-SE-04: a stored value that cannot be read has its default."""
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO settings (key, value, created_at, updated_at)"
+                " VALUES (:key, :value, 0, 0)"
+            ),
+            {"key": key, "value": value},
+        )
+
+    assert SqlSettingsRepository(engine, clock).load() == Settings()
