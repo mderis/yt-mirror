@@ -27,6 +27,7 @@ from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
 from ytmirror.services.diagnostics import DiagnosticsService
+from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
@@ -71,6 +72,7 @@ class ApiServices:
         catalogue: Runs the checks.
         views: The channels and videos as the interface shows them.
         thumbnails: The cached pictures.
+        downloader: Puts videos in line and downloads them.
     """
 
     diagnostics: DiagnosticsService
@@ -82,6 +84,7 @@ class ApiServices:
     catalogue: CatalogueService
     views: ChannelViews
     thumbnails: ThumbnailService
+    downloader: DownloaderService
 
 
 def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAPI:
@@ -119,7 +122,10 @@ def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAP
         ),
         prefix=API_PREFIX,
     )
-    app.include_router(videos.build_router(services.views, services.thumbnails), prefix=API_PREFIX)
+    app.include_router(
+        videos.build_router(services.views, services.thumbnails, services.downloader),
+        prefix=API_PREFIX,
+    )
     _add_favicon(app, config)
     _add_frontend(app, config)
     install_error_handlers(app)

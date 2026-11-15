@@ -26,7 +26,14 @@ from pathlib import Path
 from typing import Any
 
 from ytmirror.core.errors import AppError, ErrorCode
-from ytmirror.ports.file_system import TEMP_FOLDER_PARTS, VIDEO_FILE_ENDINGS, Disk, FileDates
+from ytmirror.ports.file_system import (
+    JOB_LOG_FOLDER,
+    JOB_LOG_NAME,
+    TEMP_FOLDER_PARTS,
+    VIDEO_FILE_ENDINGS,
+    Disk,
+    FileDates,
+)
 
 type Run = Callable[[Sequence[str]], object]
 """Starts a program of macOS with its arguments."""
@@ -337,6 +344,24 @@ class MacFileSystem:
         if folder.parent.parts[-2:] != TEMP_FOLDER_PARTS or folder.is_symlink():
             raise ValueError(f"not the temp folder of a job: {folder}")
         shutil.rmtree(folder, ignore_errors=True)
+
+    def remove_job_log(self, path: Path) -> None:
+        """Delete the log of one job for good (R-LG-01).
+
+        Args:
+            path: The log file.
+
+        Raises:
+            ValueError: When the file is not the log of a job.
+        """
+        if (
+            path.parent.name != JOB_LOG_FOLDER
+            or not JOB_LOG_NAME.fullmatch(path.name)
+            or path.is_symlink()
+            or not path.is_file()
+        ):
+            raise ValueError(f"not the log of a job: {path}")
+        path.unlink()
 
     def reveal(self, path: Path) -> None:
         """Show a file selected in Finder (R-UI-10).

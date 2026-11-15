@@ -7,14 +7,18 @@ and pass fakes for the ports they want to control.
 Tests: backend/tests/integration/app/test_container.py
 """
 
+import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+
+from ulid import ULID
 
 from ytmirror import __version__
 from ytmirror.adapters.db.app_meta_repository import SqlAppMetaRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
 from ytmirror.adapters.db.engine import create_db_engine
+from ytmirror.adapters.db.job_repository import SqlJobRepository
 from ytmirror.adapters.db.schema import AlembicSchema
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.adapters.filesystem_mac import MacFileSystem
@@ -22,17 +26,18 @@ from ytmirror.adapters.fixture_youtube import FixtureYouTube
 from ytmirror.adapters.folder_picker_webview import WebviewFolderPicker
 from ytmirror.adapters.image_cache import FileImageCache
 from ytmirror.adapters.image_renderer_mac import MacImageRenderer
+from ytmirror.adapters.media_tools import FfprobeMediaTools
 from ytmirror.adapters.native_app_mac import MacNativeApp
 from ytmirror.adapters.system_clock import SystemClock
 from ytmirror.adapters.system_probe import MacSystemProbe
 from ytmirror.adapters.tool_box import LocalToolBox
-from ytmirror.adapters.ytdlp_gateway import YtDlpGateway
+from ytmirror.adapters.ytdlp_gateway import GatewayTools, YtDlpGateway
 from ytmirror.app.config import AppPaths, detect_install_kind
 from ytmirror.core.channels import CheckKind
-from ytmirror.core.models import AppInfo
+from ytmirror.core.models import AppInfo, ToolName
 from ytmirror.core.toolchain import parse_manifest
 from ytmirror.ports.clock import Clock
-from ytmirror.ports.file_system import FileSystem
+from ytmirror.ports.file_system import JOB_LOG_FOLDER, FileSystem
 from ytmirror.ports.folder_picker import FolderPicker
 from ytmirror.ports.image_renderer import ImageRenderer
 from ytmirror.ports.native_app import NativeApp
@@ -43,7 +48,10 @@ from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
 from ytmirror.services.diagnostics import DiagnosticsService
+from ytmirror.services.download_state import DownloadState
+from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.job_logs import JobLogsService
 from ytmirror.services.schema import SchemaService
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
@@ -74,6 +82,8 @@ class Container:
         channels: Looks channels up, adds, pauses and removes them.
         state: The snapshot of the app for the window.
         videos: Reads the catalogue of a channel.
+        downloader: Downloads videos, one job after another (milestone M3).
+        job_logs: Deletes the logs of jobs that are no longer kept.
     """
 
     info: AppInfo
@@ -93,6 +103,8 @@ class Container:
     channels: ChannelsService
     state: StateService
     videos: SqlCatalogueRepository
+    downloader: DownloaderService
+    job_logs: JobLogsService
 
 
 def _in_a_thread(work: Callable[[], None]) -> None:
@@ -168,13 +180,17 @@ def build_container(
     repository = SqlCatalogueRepository(engine, used_clock)
     used_files = files if files is not None else MacFileSystem()
     used_picker = picker if picker is not None else WebviewFolderPicker()
-    youtube = YouTubeAccess(_gateway(paths, used_clock, gateway), used_clock, events, _later)
+    youtube = YouTubeAccess(
+        _gateway(paths, used_clock, gateway, used_tool_box), used_clock, events, _later
+    )
+    downloads = DownloadState()
     views = ChannelViews(
         repository,
         settings,
         used_clock,
         events,
         youtube_paused=lambda: youtube.pause() is not None,
+        downloads=downloads,
     )
     thumbnails = ThumbnailService(
         repository, youtube, FileImageCache(paths.cache_dir), views, _in_a_thread
@@ -189,6 +205,22 @@ def build_container(
             channel_id, renew_avatar=kind is CheckKind.FULL
         ),
     )
+    jobs = SqlJobRepository(engine, used_clock)
+    downloader = DownloaderService(
+        repository=repository,
+        jobs=jobs,
+        youtube=youtube,
+        files=used_files,
+        media=FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe")),
+        settings=settings,
+        views=views,
+        state=downloads,
+        events=events,
+        clock=used_clock,
+        new_job_id=lambda: str(ULID()),
+        job_logs=paths.logs_dir / JOB_LOG_FOLDER,
+        run_in_background=_in_a_thread,
+    )
     channels = ChannelsService(
         repository,
         youtube,
@@ -200,6 +232,7 @@ def build_container(
         thumbnails,
         used_clock,
         _in_a_thread,
+        cancel_downloads=downloader.cancel_channel,
     )
     state = StateService(
         views, settings, used_files, used_picker, SqlAppMetaRepository(engine, used_clock), youtube
@@ -222,13 +255,30 @@ def build_container(
         channels=channels,
         state=state,
         videos=repository,
+        downloader=downloader,
+        job_logs=JobLogsService(
+            paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
+        ),
     )
 
 
-def _gateway(paths: AppPaths, clock: Clock, given: YouTubeGateway | None) -> YouTubeGateway:
-    """Return the gateway to YouTube: a given one, the fake from files, or the real one."""
+def _gateway(
+    paths: AppPaths, clock: Clock, given: YouTubeGateway | None, tools: ToolBox
+) -> YouTubeGateway:
+    """Return the gateway to YouTube: a given one, the fake from files, or the real one.
+
+    Both write video files with the ffmpeg of the app folder. Deno keeps its
+    cache in the app folder too, not in the user's Library (R-PL-15, D-078).
+    """
     if given is not None:
         return given
+    ffmpeg = tools.program_path(ToolName.FFMPEG, "ffmpeg")
     if paths.fake_youtube is not None:
-        return FixtureYouTube(paths.fake_youtube)
-    return YtDlpGateway(clock)
+        return FixtureYouTube(paths.fake_youtube, ffmpeg=ffmpeg)
+    os.environ["DENO_DIR"] = str(paths.cache_dir / "deno")
+    return YtDlpGateway(
+        clock,
+        tools=GatewayTools(
+            ffmpeg_folder=ffmpeg.parent, deno=tools.program_path(ToolName.DENO, "deno")
+        ),
+    )

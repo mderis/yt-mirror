@@ -74,6 +74,7 @@ def services_around(tmp_path: Path, toolchain: ToolchainService, world: World) -
         catalogue=world.catalogue,
         views=world.views,
         thumbnails=world.thumbnails,
+        downloader=world.downloader,
     )
 
 

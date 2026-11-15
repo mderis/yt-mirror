@@ -4,7 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ytmirror.core.errors import AppError, ErrorCode
-from ytmirror.ports.file_system import TEMP_FOLDER_PARTS, VIDEO_FILE_ENDINGS, Disk, FileDates
+from ytmirror.ports.file_system import (
+    JOB_LOG_FOLDER,
+    JOB_LOG_NAME,
+    TEMP_FOLDER_PARTS,
+    VIDEO_FILE_ENDINGS,
+    Disk,
+    FileDates,
+)
 
 _NEW_FILE_TIME = 1_794_000_000
 
@@ -165,6 +172,16 @@ class FakeFileSystem:
         self.folders = {
             folder for folder in self.folders if folder != path and not folder.is_relative_to(path)
         }
+
+    def remove_job_log(self, path: Path) -> None:
+        """Delete a job log, or refuse any other file."""
+        if (
+            path.parent.name != JOB_LOG_FOLDER
+            or not JOB_LOG_NAME.fullmatch(path.name)
+            or path not in self.files
+        ):
+            raise ValueError(f"not the log of a job: {path}")
+        del self.files[path]
 
     def reveal(self, path: Path) -> None:
         """Remember that the file was shown in Finder."""

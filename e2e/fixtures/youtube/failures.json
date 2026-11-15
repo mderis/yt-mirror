@@ -1,0 +1,114 @@
+{
+  "id": "UCfailures00000000000008",
+  "title": "Failing Downloads",
+  "handle": "@failingdownloads",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 13,
+  "videos": [
+    {
+      "id": "fail0000ok0",
+      "title": "This one works",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-11-13T09:15:00Z",
+      "published_at": "2026-11-13T09:15:22Z"
+    },
+    {
+      "id": "fail0000001",
+      "title": "Fails with MEMBERS_ONLY",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-02",
+      "download_fails": "MEMBERS_ONLY"
+    },
+    {
+      "id": "fail0000002",
+      "title": "Fails with VIDEO_PRIVATE",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-03",
+      "download_fails": "VIDEO_PRIVATE"
+    },
+    {
+      "id": "fail0000003",
+      "title": "Fails with VIDEO_REMOVED",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-04",
+      "download_fails": "VIDEO_REMOVED"
+    },
+    {
+      "id": "fail0000004",
+      "title": "Fails with AGE_RESTRICTED",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-05",
+      "download_fails": "AGE_RESTRICTED"
+    },
+    {
+      "id": "fail0000005",
+      "title": "Fails with GEO_BLOCKED",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-06",
+      "download_fails": "GEO_BLOCKED"
+    },
+    {
+      "id": "fail0000006",
+      "title": "Fails with NOT_YET_AVAILABLE",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-07",
+      "download_fails": "NOT_YET_AVAILABLE"
+    },
+    {
+      "id": "fail0000007",
+      "title": "Fails with NO_FORMATS",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-08",
+      "download_fails": "NO_FORMATS"
+    },
+    {
+      "id": "fail0000008",
+      "title": "Fails with NETWORK_UNREACHABLE",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-09",
+      "download_fails": "NETWORK_UNREACHABLE"
+    },
+    {
+      "id": "fail0000009",
+      "title": "Fails with RATE_LIMITED",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-10",
+      "download_fails": "RATE_LIMITED"
+    },
+    {
+      "id": "fail0000010",
+      "title": "Fails with FFMPEG_FAILED",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-11",
+      "download_fails": "FFMPEG_FAILED"
+    },
+    {
+      "id": "fail0000011",
+      "title": "Fails with YOUTUBE_CHANGED",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-10-12",
+      "download_fails": "YOUTUBE_CHANGED"
+    },
+    {
+      "id": "failsubs001",
+      "title": "Its subtitles fail",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-09-30",
+      "published_at": "2026-09-30T11:00:00Z",
+      "subtitles_fail": true
+    }
+  ]
+}

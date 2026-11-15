@@ -1,0 +1,28 @@
+{
+  "id": "UCautosubtitles000000011",
+  "title": "Auto Subtitles Channel",
+  "handle": "@autosubtitles",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 2,
+  "download": {
+    "subtitles": "auto"
+  },
+  "videos": [
+    {
+      "id": "autosubs001",
+      "title": "A video with automatic subtitles",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-11-12",
+      "published_at": "2026-11-12T08:00:00Z"
+    },
+    {
+      "id": "autosubs002",
+      "title": "Another with automatic subtitles",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-11-03",
+      "published_at": "2026-11-03T08:00:00Z"
+    }
+  ]
+}

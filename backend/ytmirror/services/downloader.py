@@ -20,19 +20,22 @@ Tests: backend/tests/unit/services/test_downloader.py,
 backend/tests/integration/test_download_end_to_end.py
 """
 
+import json
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any, cast
 
 import structlog
 from structlog.typing import FilteringBoundLogger
 
-from ytmirror.core.channels import Channel, Video, VideoStatus
+from ytmirror.core.channels import Channel, Video, VideoStatus, VideoView
 from ytmirror.core.dates import published_time
 from ytmirror.core.errors import AppError, ErrorCode, ErrorKind
 from ytmirror.core.jobs import (
     ACTIVE_STATES,
+    Chapter,
     DownloadCancelledError,
     DownloadProgress,
     DownloadRequest,
@@ -46,7 +49,7 @@ from ytmirror.core.jobs import (
     SubtitlesFailedError,
     VideoUpdated,
 )
-from ytmirror.core.media import verification_problem
+from ytmirror.core.media import MediaFacts, verification_problem
 from ytmirror.core.naming import HIDDEN_DIR, TEMP_DIR, video_file_name
 from ytmirror.core.quality import effective_quality
 from ytmirror.core.status import StatusChange, change_status
@@ -68,6 +71,29 @@ PROGRESS_EVERY_S = 0.25
 
 MIRRORABLE = frozenset({VideoStatus.NOT_DOWNLOADED, VideoStatus.FILE_MISSING})
 """The statuses from which "Mirror" puts a video in line (ARCHITECTURE section 6.1)."""
+
+
+@dataclass(frozen=True, slots=True)
+class VideoDetails:
+    """One video as the details panel shows it (R-UI-08).
+
+    Attributes:
+        view: The video as a list shows it.
+        folder: The channel folder.
+        file: The file of a synced video, or None.
+        media: What the file contains, or None without a readable file.
+        description: The description from the saved metadata, or None.
+        chapters: The chapters from the saved metadata.
+        thumbnail_saved: Whether the original thumbnail is in the hidden folder.
+    """
+
+    view: VideoView
+    folder: Path
+    file: Path | None
+    media: MediaFacts | None
+    description: str | None
+    chapters: tuple[Chapter, ...]
+    thumbnail_saved: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +332,41 @@ class DownloaderService:
         if channel is None or video.file_name is None:
             raise AppError(ErrorCode.NOT_FOUND, {"video": video_id})
         return self._views.folder_of(channel) / video.file_name
+
+    def details(self, video_id: str) -> VideoDetails:
+        """Return a video with everything the details panel shows (R-UI-08).
+
+        Args:
+            video_id: The video.
+
+        Raises:
+            AppError: ``NOT_FOUND`` for an unknown video.
+        """
+        view = self._views.video(video_id)
+        channel = None if view is None else self._repository.channel(view.video.channel_id)
+        if view is None or channel is None:
+            raise AppError(ErrorCode.NOT_FOUND, {"video": video_id})
+        folder = self._views.folder_of(channel)
+        hidden = folder / HIDDEN_DIR
+        file = None if view.video.file_name is None else folder / view.video.file_name
+        media = None
+        if file is not None and self._files.exists(file):
+            try:
+                media = self._media.probe(file)
+            except AppError:
+                media = None
+        description, chapters = _saved_metadata(
+            self._files.read_bytes(hidden / f"{video_id}.info.json")
+        )
+        return VideoDetails(
+            view=view,
+            folder=folder,
+            file=file,
+            media=media,
+            description=description,
+            chapters=chapters,
+            thumbnail_saved=self._files.exists(hidden / f"{video_id}.jpg"),
+        )
 
     def play(self, video_id: str) -> None:
         """Open the file of a video in the default player of macOS (R-UI-10).
@@ -696,3 +757,31 @@ class DownloaderService:
 
     def _ms_since(self, started: float) -> int:
         return round((self._clock.monotonic() - started) * 1000)
+
+
+def _saved_metadata(info_json: bytes | None) -> tuple[str | None, tuple[Chapter, ...]]:
+    """Return the description and the chapters of the saved raw metadata (R-MD-02)."""
+    if info_json is None:
+        return None, ()
+    try:
+        info = json.loads(info_json)
+    except ValueError:
+        return None, ()
+    if not isinstance(info, dict):
+        return None, ()
+    facts = cast(dict[str, Any], info)
+    description = facts.get("description")
+    chapters = [
+        cast(dict[str, Any], chapter)
+        for chapter in facts.get("chapters") or ()
+        if isinstance(chapter, dict)
+    ]
+    return (
+        description if isinstance(description, str) else None,
+        tuple(
+            Chapter(
+                start_s=float(chapter.get("start_time") or 0), title=str(chapter.get("title") or "")
+            )
+            for chapter in chapters
+        ),
+    )

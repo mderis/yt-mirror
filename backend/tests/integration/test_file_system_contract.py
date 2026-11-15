@@ -398,3 +398,21 @@ def test_failed_file_operations_get_their_error_codes(tmp_path: Path) -> None:
     assert missing.value.code is ErrorCode.FOLDER_UNAVAILABLE
     assert trash.value.code is ErrorCode.PERMISSION_DENIED
     assert files.size_of(tmp_path / "gone.mkv") == 0
+
+
+def test_only_the_log_of_a_job_is_ever_deleted_from_the_log_folder(
+    subject: Subject, tmp_path: Path
+) -> None:
+    """R-LG-01: a file named like a job log, in the jobs folder, and nothing else."""
+    logs = tmp_path / "logs" / "jobs"
+    job_log = "01JD0000000000000000000001.log"
+    put_files(subject, logs, [job_log, "notes.txt"])
+    put_files(subject, tmp_path / "logs", [job_log])
+
+    subject.files.remove_job_log(logs / job_log)
+    for not_a_job_log in (logs / "notes.txt", tmp_path / "logs" / job_log):
+        with pytest.raises(ValueError, match="not the log of a job"):
+            subject.files.remove_job_log(not_a_job_log)
+
+    assert subject.files.file_names(logs) == ["notes.txt"]
+    assert subject.files.file_names(tmp_path / "logs") == [job_log, "jobs"]

@@ -25,6 +25,7 @@ from ytmirror.core.channels import (
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.jobs import JobProgress, Stage
 from ytmirror.services.channels import ChannelLookup, ChosenFolder
+from ytmirror.services.downloader import VideoDetails
 from ytmirror.services.state import AppState
 
 
@@ -260,6 +261,152 @@ class Video(BaseModel):
             height=video.height,
             file_size=video.file_size,
             error_code=video.last_error_code,
+        )
+
+
+class MirrorRequest(BaseModel):
+    """The body of ``POST /api/videos/mirror`` (R-MI-01).
+
+    Attributes:
+        ids: The videos to put in line, in this order.
+    """
+
+    ids: list[str]
+
+
+class QueuedJob(BaseModel):
+    """A download that was put in line.
+
+    Attributes:
+        job_id: The job.
+        video_id: The video.
+    """
+
+    job_id: str
+    video_id: str
+
+
+class MirrorResponse(BaseModel):
+    """The answer of ``POST /api/videos/mirror``.
+
+    Attributes:
+        jobs: The downloads that were put in line. A video that waits, runs or is
+            synced already is left out.
+    """
+
+    jobs: list[QueuedJob]
+
+
+class CancelJobResponse(BaseModel):
+    """The answer of ``POST /api/jobs/{id}/cancel`` (R-QU-02).
+
+    Attributes:
+        cancelled: Whether there was a download that waited or ran.
+    """
+
+    cancelled: bool
+
+
+class ChapterInfo(BaseModel):
+    """One chapter of a video (R-UI-08).
+
+    Attributes:
+        start_s: Where it starts, in seconds.
+        title: Its title.
+    """
+
+    start_s: float
+    title: str
+
+
+class FileFacts(BaseModel):
+    """The file of a synced video, as the details panel shows it (R-UI-08).
+
+    Attributes:
+        name: The file name.
+        size: Its size in bytes.
+        width: The width of the video, or None.
+        height: The height of the video, or None.
+        fps: Frames per second, or None.
+        vcodec: The video codec, or None.
+        acodec: The audio codec, or None.
+        audio_channels: The number of audio channels, or None.
+        subtitles: ``manual``, ``auto`` or None.
+        cover_embedded: Whether the thumbnail is inside the file.
+    """
+
+    name: str
+    size: int | None
+    width: int | None
+    height: int | None
+    fps: float | None
+    vcodec: str | None
+    acodec: str | None
+    audio_channels: int | None
+    subtitles: str | None
+    cover_embedded: bool
+
+
+class VideoDetailsResponse(BaseModel):
+    """The answer of ``GET /api/videos/{id}``: everything the details panel shows (R-UI-08).
+
+    Attributes:
+        video: The video as a list shows it.
+        channel_id: Its channel.
+        folder: The channel folder.
+        file: The file of a synced video, or None.
+        downloaded_at: When the file was completed, or None.
+        description: The description from the saved metadata, or None.
+        chapters: The chapters from the saved metadata.
+        thumbnail_saved: Whether the original thumbnail is in the hidden folder.
+        url: The address of the video on YouTube.
+    """
+
+    video: Video
+    channel_id: str
+    folder: str
+    file: FileFacts | None
+    downloaded_at: int | None
+    description: str | None
+    chapters: list[ChapterInfo]
+    thumbnail_saved: bool
+    url: str
+
+    @classmethod
+    def of(cls, details: VideoDetails) -> VideoDetailsResponse:
+        """Return the wire form of the details of a video."""
+        video = details.view.video
+        media = details.media
+        file = (
+            None
+            if details.file is None
+            else FileFacts(
+                name=details.file.name,
+                size=video.file_size,
+                width=None if media is None else media.width,
+                height=video.height if media is None else media.height,
+                fps=None if media is None else media.fps,
+                vcodec=video.vcodec if media is None else media.vcodec,
+                acodec=video.acodec if media is None else media.acodec,
+                audio_channels=None if media is None else media.audio_channels,
+                subtitles=video.has_subtitles,
+                cover_embedded=media is not None
+                and any(name.startswith("cover") for name in media.attachments),
+            )
+        )
+        return cls(
+            video=Video.of(details.view),
+            channel_id=video.channel_id,
+            folder=str(details.folder),
+            file=file,
+            downloaded_at=video.downloaded_at,
+            description=details.description,
+            chapters=[
+                ChapterInfo(start_s=chapter.start_s, title=chapter.title)
+                for chapter in details.chapters
+            ],
+            thumbnail_saved=details.thumbnail_saved,
+            url=f"https://www.youtube.com/watch?v={video.id}",
         )
 
 

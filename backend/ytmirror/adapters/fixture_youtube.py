@@ -199,6 +199,9 @@ class FixtureYouTube:
         if not found:
             raise AppError(ErrorCode.VIDEO_REMOVED, {"video": request.video_id})
         channel, plan = found[0]
+        request.log_file.parent.mkdir(parents=True, exist_ok=True)
+        with request.log_file.open("a", encoding="utf-8") as log:
+            log.write(f"info [fixture] Downloading {request.video_id} at {request.quality.value}\n")
         if plan.fails is not None:
             raise AppError(plan.fails, {"message": f"the fixture fails {request.video_id}"})
         subtitles = _chosen_subtitles(plan.subtitles, request)

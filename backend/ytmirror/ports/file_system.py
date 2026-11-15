@@ -10,6 +10,7 @@ the app's own (R-FI-03).
 Tests: backend/tests/integration/test_file_system_contract.py
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -34,6 +35,10 @@ class Disk:
 
 
 TEMP_FOLDER_PARTS = (HIDDEN_DIR, TEMP_DIR)
+JOB_LOG_FOLDER = "jobs"
+"""The folder of the logs of jobs, inside the logs folder (docs/LOGGING.md section 3)."""
+JOB_LOG_NAME = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}\.log$")
+"""The name of the log of a job: its ULID and ``.log``. No other file is ever deleted there."""
 """Where the temp folders of jobs are, inside a channel folder (R-FI-03)."""
 
 
@@ -231,6 +236,20 @@ class FileSystem(Protocol):
 
         Raises:
             ValueError: When the folder is not the temp folder of a job.
+        """
+        ...
+
+    def remove_job_log(self, path: Path) -> None:
+        """Delete the log of one job for good (R-LG-01).
+
+        Only a file directly in a ``jobs`` folder whose name is a ULID and
+        ``.log`` is ever deleted.
+
+        Args:
+            path: The log file.
+
+        Raises:
+            ValueError: When the file is not the log of a job.
         """
         ...
 
