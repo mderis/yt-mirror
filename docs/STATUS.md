@@ -20,7 +20,7 @@ This file is the single source of truth for where the project stands. Read it at
 | M10 | Website and documentation | Not started | | | |
 | M11 | Hardening and release | Not started | | | |
 
-Status values: `Not started`, `In progress`, `In review` (pull request open), `Done` (merged).
+Status values: `Not started`, `In progress` (branch and draft pull request), `In review` (pull request marked ready for review), `Done` (merged).
 
 ## Notes carried between sessions
 

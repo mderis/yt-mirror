@@ -12,7 +12,7 @@ How work moves from "next milestone" to "merged". This applies to every contribu
 |---|---|
 | A milestone is `In review` and its pull request is open with no new review comments | Do nothing on that milestone. Tell the maintainer it is waiting for review. Do not start the next milestone |
 | A milestone is `In review` and its pull request has review comments or failing checks | Check out its branch, address every comment, push, reply on the pull request, and stop |
-| A milestone is `In progress` (branch exists, no pull request) | Check out its branch and continue it |
+| A milestone is `In progress` (its branch and a draft pull request exist) | Check out its branch and continue it |
 | No milestone is `In progress` or `In review`, and the working tree is clean | Start the milestone named in "Next milestone to start" |
 | Anything else (dirty tree on `main`, unknown branches, status that does not match git) | Stop and ask the maintainer |
 
@@ -22,22 +22,23 @@ Never work on two milestones at once. Never skip a milestone.
 
 1. `git switch main && git pull`, then create the branch `m<N>-<short-name>`, for example `m3-download-one-video`.
 2. First commit on the branch: set the milestone to `In progress` in `docs/STATUS.md` with the branch name.
-3. Resolve the milestone's open questions first (`docs/OPEN-QUESTIONS.md`). Record the answers.
-4. Implement requirement by requirement: tests and code together, small commits, all checks passing at every commit (`docs/CODING-STANDARDS.md`).
-5. Push the branch early and often (`git push -u origin <branch>`), so the work is never only on one machine.
-6. When the milestone's acceptance list in `docs/IMPLEMENTATION-PLAN.md` passes locally, do the self-review in section 4.
+3. Push the branch and open a **draft** pull request against `main` at once: `gh pr create --draft`, with the repository's template and the title `M<N>: <milestone title>`. Its description starts as the plan of the milestone. Add its number to `docs/STATUS.md` in the next commit. From then on CI checks every push, so every commit is checked against the real tools. A draft is not a request for review.
+4. Resolve the milestone's open questions first (`docs/OPEN-QUESTIONS.md`). Record the answers.
+5. Implement requirement by requirement: tests and code together, small commits, all checks passing at every commit (`docs/CODING-STANDARDS.md`).
+6. Push the branch early and often (`git push -u origin <branch>`), so the work is never only on one machine.
+7. When the milestone's acceptance list in `docs/IMPLEMENTATION-PLAN.md` passes locally, do the self-review in section 4.
 
-## 3. Opening the pull request
+## 3. Marking the pull request ready for review
 
 1. Last commit before the pull request: in `docs/STATUS.md` set the milestone to `In review`, set "Next milestone to start" to the following one, and add any notes for later sessions. Update `CHANGELOG.md`.
-2. Open the pull request against `main` with `gh pr create`, using the repository's template. The title is `M<N>: <milestone title>`. The description lists:
+2. Rewrite the description of the draft pull request (`gh pr edit`) so that it lists:
    - the requirement IDs implemented,
    - how each acceptance item was verified,
    - what could not be verified and why,
    - open questions that were resolved, and any new ones,
    - anything the maintainer must test by hand.
-3. Add the pull request number to `docs/STATUS.md` in a follow-up commit on the same branch.
-4. Wait for the automated checks. If any fail, fix them before asking for review.
+3. Wait for the automated checks. If any fail, fix them before asking for review.
+4. Mark the pull request ready for review: `gh pr ready`.
 5. Tell the maintainer the pull request is ready, with its link. Then **stop**. Do not merge. Do not start the next milestone.
 
 ## 4. Self-review before asking for review
