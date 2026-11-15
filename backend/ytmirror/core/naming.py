@@ -98,7 +98,13 @@ def video_file_name(title: str, video_id: str, taken: Collection[str]) -> str:
     """
     suffix = f" [{video_id}]"
     title_part = safe_name(title)
-    if not title_part.strip(_KEPT_VISIBLE + _HIDDEN_PREFIX + " "):
+    # Dots and spaces alone leave no name. Asked of the title before a leading dot gets its "_".
+    printable = "".join(
+        character
+        for character in unicodedata.normalize("NFC", title)
+        if unicodedata.category(character) != "Cc"
+    )
+    if not printable.strip(_HIDDEN_PREFIX + " "):
         title_part = video_id
     whole = title_part + VIDEO_EXTENSION
     taken_names = {other.casefold() for other in taken}

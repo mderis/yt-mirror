@@ -64,6 +64,10 @@ def test_one_real_video_is_downloaded_at_480p_with_metadata_and_dates(tmp_path: 
     assert facts.tags["published_at"].startswith("2005-04-2")
     assert facts.chapters >= 1
     assert "info.json" in facts.attachments
+    assert any(name.startswith("cover") for name in facts.attachments)
+    assert [track.language for track in facts.subtitles] == ["eng"]
+    assert facts.tags["title"] == video.title
+    assert facts.tags["artist"] == looked_up.facts.title
     assert video.published_exact is True
     stat = file.stat()
     assert (int(stat.st_birthtime), int(stat.st_mtime)) == (video.published_at, video.published_at)

@@ -235,3 +235,9 @@ def test_a_taken_name_never_comes_back(title: str, video_id: str) -> None:
     second = video_file_name(title, video_id, taken=[first.upper()])
 
     assert second.casefold() != first.casefold() or first.endswith(f" [{video_id}].mkv")
+
+
+def test_a_title_of_underscores_keeps_its_name() -> None:
+    """R-FN-01: only dots and spaces leave nothing; underscores are a name."""
+    assert video_file_name("___", VIDEO_ID, taken=()) == "___.mkv"
+    assert video_file_name("_.", VIDEO_ID, taken=()) == "_..mkv"

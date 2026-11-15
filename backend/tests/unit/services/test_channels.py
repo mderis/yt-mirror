@@ -494,14 +494,38 @@ def test_delete_the_files_moves_tracked_files_to_the_trash_and_keeps_the_users_o
     world.channels.remove(SMALL_ID, keep_files=False)
 
     assert found.files == 2
+    hidden = folder / ".yt-mirror"
     assert set(world.files.trashed) == {
         folder / "Video 1.mkv",
         folder / "Video 2.mkv",
-        folder / ".yt-mirror",
+        *(
+            hidden / f"{video}{ending}"
+            for video in ("sm000000001", "sm000000002")
+            for ending in (".info.json", ".jpg")
+        ),
+        hidden,
     }
-    assert world.files.trashed[-1] == folder / ".yt-mirror"
+    assert world.files.trashed[-1] == hidden
     assert world.files.file_names(folder, hidden=True) == ["Video 2.jpg", "my notes.txt"]
     assert world.repository.channels() == ()
+
+
+def test_a_folder_shared_with_another_channel_keeps_what_belongs_to_it(tmp_path: Path) -> None:
+    """R-CH-32: only this channel's files leave a folder two channels share."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv"})
+    world.files.add_files(folder, ["Their video.mkv"])
+    world.files.add_files(folder / ".yt-mirror", ["other00001.info.json", "other00001.jpg"])
+
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.files.file_names(folder / ".yt-mirror") == [
+        "other00001.info.json",
+        "other00001.jpg",
+    ]
+    assert world.files.exists(folder / "Their video.mkv")
+    assert folder / ".yt-mirror" not in world.files.trashed
 
 
 def test_a_folder_left_empty_goes_to_the_trash_too(tmp_path: Path) -> None:

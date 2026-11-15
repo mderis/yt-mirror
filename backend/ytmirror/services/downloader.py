@@ -52,7 +52,7 @@ from ytmirror.core.jobs import (
 from ytmirror.core.media import MediaFacts, verification_problem
 from ytmirror.core.naming import HIDDEN_DIR, TEMP_DIR, video_file_name
 from ytmirror.core.quality import effective_quality
-from ytmirror.core.status import StatusChange, change_status
+from ytmirror.core.status import InvalidTransitionError, StatusChange, change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.file_system import FileSystem
@@ -187,12 +187,14 @@ class DownloaderService:
         with self._wake:
             self._wake.notify_all()
 
-    def stop(self, wait_s: float = 10.0) -> None:
+    def stop(self, wait_s: float = 2.0) -> None:
         """Stop: a running download is cancelled and cleaned up before this returns.
 
         Args:
             wait_s: How long to wait for a running download to end. A running
-                ffmpeg step is not interrupted, so this can take a moment.
+                ffmpeg step is not interrupted. The wait is short, so a logout is
+                never held (D-052); a job that has not ended by then is cleaned up
+                at the next start.
         """
         with self._wake:
             self._stopped = True
@@ -205,7 +207,16 @@ class DownloaderService:
                 self._wake.wait_for(lambda: self._stopped or self._has_waiting())
                 if self._stopped:
                     return
-            self.work_once()
+            try:
+                self.work_once()
+            except Exception:  # noqa: BLE001  (the one worker must never die)
+                # The one worker must never die: the queue would stop until the next start.
+                _log.error(
+                    "download.failed",
+                    msg="The download worker hit an unexpected error and goes on",
+                    error_code=ErrorCode.INTERNAL.value,
+                    exc_info=True,
+                )
 
     def _has_waiting(self) -> bool:
         """Whether a job can start now. While YouTube is paused, waiting jobs wait (R-ER-05)."""
@@ -227,6 +238,16 @@ class DownloaderService:
         try:
             with structlog.contextvars.bound_contextvars(job_id=job.id):
                 self._run(job)
+        except Exception:  # noqa: BLE001  (a broken job must not stop the queue)
+            _log.error(
+                "download.failed",
+                msg="A download ended with an unexpected error. Its job is marked failed",
+                job_id=job.id,
+                video_id=job.video_id,
+                error_code=ErrorCode.INTERNAL.value,
+                exc_info=True,
+            )
+            self._give_up(job)
         finally:
             with self._wake:
                 self._running.pop(job.id, None)
@@ -254,10 +275,12 @@ class DownloaderService:
         """
         queued: list[Job] = []
         for video_id in video_ids:
-            video = self._known(video_id)
-            if video.status not in MIRRORABLE or self._jobs.active_job_of(video_id) is not None:
-                continue
-            queued.append(self._put_in_line(video, "mirror"))
+            # Two presses that arrive together must not give two jobs for one video.
+            with self._wake:
+                video = self._known(video_id)
+                if video.status not in MIRRORABLE or self._jobs.active_job_of(video_id) is not None:
+                    continue
+                queued.append(self._put_in_line(video, "mirror"))
         return queued
 
     def retry(self, video_id: str) -> Job:
@@ -270,10 +293,16 @@ class DownloaderService:
             AppError: ``NOT_FOUND`` for an unknown video, ``INVALID_REQUEST`` for
                 a video that did not fail.
         """
-        video = self._known(video_id)
-        if video.status is not VideoStatus.FAILED:
-            raise AppError(ErrorCode.INVALID_REQUEST, {"video": video_id, "status": video.status})
-        return self._put_in_line(video, "retry")
+        with self._wake:
+            video = self._known(video_id)
+            if (
+                video.status is not VideoStatus.FAILED
+                or self._jobs.active_job_of(video_id) is not None
+            ):
+                raise AppError(
+                    ErrorCode.INVALID_REQUEST, {"video": video_id, "status": video.status}
+                )
+            return self._put_in_line(video, "retry")
 
     def cancel(self, job_id: str) -> bool:
         """Cancel a download that waits or runs (R-QU-02, R-ER-03).
@@ -398,9 +427,9 @@ class DownloaderService:
         started = self._clock.monotonic()
         log.info("download.started", msg="Download started", quality=job.quality.value)
         running = replace(job, state=JobState.RUNNING, stage=Stage.VIDEO, started_at=self._now())
-        video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
-        self._videos[job.id] = video
         try:
+            video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
+            self._videos[job.id] = video
             self._files.make_folder(place.work)
             result = self._download(running, video, place, log)
             video = self._processing(running)
@@ -478,22 +507,25 @@ class DownloaderService:
         published = published_time(result.release_time, result.upload_time)
         if published is None:
             raise AppError(ErrorCode.DATES_NOT_APPLIED, {"reason": "YouTube gave no exact time"})
+        # The dates are set while the file is still in the temp folder: a move keeps them, so
+        # the file never stands in the channel folder with other dates (R-DT-07, R-QA-06).
+        self._files.set_dates(result.file, published)
+        if self._is_cancelled(job.id):
+            raise DownloadCancelledError("cancelled before the file was put in its place")
+        name = self._move_into_place(job, video, place, result.file)
+        target = place.folder / name
+        try:
+            self._verify_dates(target, published, log)
+        except AppError:
+            # A file with wrong dates must not look finished (R-QA-06): back to the temp folder.
+            self._files.move(target, place.work / "dates-not-applied.mkv")
+            raise
         self._files.write_file(
             place.hidden / f"{video.id}.info.json", result.info_json.encode(), overwrite=True
         )
         cover = None if result.thumbnail is None else self._files.read_bytes(result.thumbnail)
         if cover is not None:
             self._files.write_file(place.hidden / f"{video.id}.jpg", cover, overwrite=True)
-        if self._is_cancelled(job.id):
-            raise DownloadCancelledError("cancelled before the file was put in its place")
-        name = self._move_into_place(video, place, result.file)
-        target = place.folder / name
-        try:
-            self._apply_dates(target, published, log)
-        except AppError:
-            # A file with wrong dates must not look finished (R-QA-06): back to the temp folder.
-            self._files.move(target, place.work / "dates-not-applied.mkv")
-            raise
         if cover is not None and self._settings.current().thumbnail_next_to_video:
             self._put_cover_next_to(place, name, cover, published)
         synced = replace(
@@ -523,8 +555,13 @@ class DownloaderService:
             duration_ms=self._ms_since(started),
         )
 
-    def _move_into_place(self, video: Video, place: _Place, file: Path) -> str:
-        """Step 2 and 7: choose the name and move the file in one step, never overwriting."""
+    def _move_into_place(self, job: Job, video: Video, place: _Place, file: Path) -> str:
+        """Step 2 and 7: choose the name and move the file in one step, never overwriting.
+
+        The name is stored before the move. A crash between the move and the end
+        of the job leaves a file the app knows: the next start moves it to the
+        Trash, so that no unknown file is left and Mirror gets the name again.
+        """
         for _ in range(2):
             taken = [
                 *self._files.file_names(place.folder),
@@ -535,14 +572,14 @@ class DownloaderService:
                 ),
             ]
             name = video_file_name(video.title, video.id, taken)
+            self._jobs.record(job, replace(self._videos.get(job.id, video), file_name=name))
             if self._files.move(file, place.folder / name):
                 _log.info("file.moved", msg="File moved into its place", file=name)
                 return name
         raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken twice while moving"})
 
-    def _apply_dates(self, target: Path, published: int, log: FilteringBoundLogger) -> None:
-        """Step 8: set both dates to the published time, and read them back (R-DT-07)."""
-        self._files.set_dates(target, published)
+    def _verify_dates(self, target: Path, published: int, log: FilteringBoundLogger) -> None:
+        """Step 8: read both dates back in the channel folder (R-DT-07)."""
         dates = self._files.read_dates(target)
         if (dates.created, dates.modified) != (published, published):
             log.error(
@@ -627,12 +664,31 @@ class DownloaderService:
             stage=None,
             finished_at=None if state is JobState.WAITING else self._now(),
         )
+        current = None if video is None else self._repository.video(video.id)
+        if video is not None and current is None:
+            # The video went with its channel: its job and history went with it (R-CH-32).
+            self._state.ended(video.id)
+            return
         change: StatusChange | None = None
-        if video is not None and status is not None and video.status is not status:
-            current = self._repository.video(video.id)
-            stored = current.status if current is not None else video.status
-            change = change_status(video.id, stored, status, reason)
-            video = replace(video, status=status)
+        if video is not None and current is not None and status is not None:
+            if status is not VideoStatus.SYNCED:
+                video = replace(video, file_name=None, file_size=None)
+            if current.status is not status:
+                try:
+                    change = change_status(video.id, current.status, status, reason)
+                except InvalidTransitionError:
+                    _log.error(
+                        "download.failed",
+                        msg="A download ended in a status its video cannot take. Kept as it is",
+                        job_id=job.id,
+                        video_id=video.id,
+                        from_status=current.status.value,
+                        to_status=status.value,
+                        error_code=ErrorCode.INTERNAL.value,
+                    )
+                    video = current
+                else:
+                    video = replace(video, status=status)
         self._jobs.record(ended, video, change)
         if state is JobState.WAITING:
             return
@@ -642,11 +698,21 @@ class DownloaderService:
             self._views.publish(video.channel_id)
 
     def _end_left_over(self, job: Job) -> None:
-        """Clean up a job that a quit left waiting or running."""
+        """Clean up a job that a quit or a crash left waiting or running (R-QA-06)."""
         video = self._repository.video(job.video_id)
         channel = None if video is None else self._repository.channel(video.channel_id)
-        if channel is not None:
-            self._files.remove_temp_folder(self._place_of(channel, job).work)
+        if channel is not None and video is not None:
+            place = self._place_of(channel, job)
+            self._files.remove_temp_folder(place.work)
+            if video.status is not VideoStatus.SYNCED and video.file_name:
+                # It was moved into place, but the job did not end: the app's own file goes
+                # to the Trash, so no unknown file is left and Mirror gets its name again.
+                moved = place.folder / video.file_name
+                if self._files.exists(moved):
+                    self._files.trash(moved)
+                    _log.info(
+                        "file.trashed", msg="File of an interrupted download", file=str(moved)
+                    )
         self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "app quit")
         _log.info(
             "download.cancelled",
@@ -654,6 +720,26 @@ class DownloaderService:
             job_id=job.id,
             video_id=job.video_id,
         )
+
+    def _give_up(self, job: Job) -> None:
+        """End a job that broke in an unexpected way, as far as that is still possible."""
+        try:
+            video = self._repository.video(job.video_id)
+            self._end(
+                replace(job, error_code=ErrorCode.INTERNAL, finished_at=self._now()),
+                video,
+                JobState.FAILED,
+                VideoStatus.FAILED,
+                ErrorCode.INTERNAL.value,
+            )
+        except Exception:  # noqa: BLE001  (the next start cleans it up)
+            _log.error(
+                "download.failed",
+                msg="A broken job could not be ended. The next start cleans it up",
+                job_id=job.id,
+                error_code=ErrorCode.INTERNAL.value,
+                exc_info=True,
+            )
 
     # --- helpers
 

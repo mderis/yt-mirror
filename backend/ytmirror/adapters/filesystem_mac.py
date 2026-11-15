@@ -331,6 +331,11 @@ class MacFileSystem:
             self._trash(path)
         except OSError as error:
             raise _error_of(error, path) from error
+        except Exception as error:
+            # The file manager of macOS can fail in ways that are no OSError.
+            raise AppError(
+                ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path), "reason": str(error)}
+            ) from error
 
     def remove_temp_folder(self, folder: Path) -> None:
         """Delete the temp folder of one job with everything in it (R-FI-03).

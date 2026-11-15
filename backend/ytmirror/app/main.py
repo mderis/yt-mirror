@@ -261,8 +261,9 @@ def run_app(
         # The checks and the pictures are background work: it starts with the app.
         container.catalogue.start()
         container.thumbnails.start()
-        container.job_logs.clean()
         container.downloader.start()
+        # After the start of the downloader: the jobs it cleaned up count by when they ended.
+        container.job_logs.clean()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
             set_verbose(True)
         server = _start_server(options, paths, container, token)

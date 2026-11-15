@@ -87,12 +87,12 @@ def test_a_mirrored_video_is_a_valid_mkv_with_metadata_cover_subtitles_and_dates
     app: Container, paths: AppPaths, zone: str
 ) -> None:
     """R-MI-01, R-FN-01, R-QL-03, R-MD-01, R-MD-02, R-MD-03, R-MD-05, R-DT-07, R-DT-08, R-LG-02."""
-    folder = mirrored(app, "@samplechannelone", "small000012")
+    folder = mirrored(app, "@failingdownloads", "fail0000ok0")
 
-    video = app.videos.video("small000012")
+    video = app.videos.video("fail0000ok0")
     assert video is not None
-    published = moment("2026-11-13T18:00:00Z")
-    file = folder / "Building a cabin in the woods, part 12.mkv"
+    published = moment("2026-11-13T09:15:22Z")
+    file = folder / "This one works.mkv"
     facts = probe(file)
     birth = file.stat()
     assert video.status is VideoStatus.SYNCED
@@ -100,23 +100,23 @@ def test_a_mirrored_video_is_a_valid_mkv_with_metadata_cover_subtitles_and_dates
     assert "matroska" in facts.container
     assert facts.vcodec is not None
     assert facts.acodec is not None
-    assert facts.tags["title"] == "Building a cabin in the woods, part 12"
-    assert facts.tags["artist"] == "Sample Channel One"
-    assert facts.tags["video_id"] == "small000012"
-    assert facts.tags["published_at"] == "2026-11-13T18:00:00Z"
+    assert facts.tags["title"] == "This one works"
+    assert facts.tags["artist"] == "Failing Downloads"
+    assert facts.tags["video_id"] == "fail0000ok0"
+    assert facts.tags["published_at"] == "2026-11-13T09:15:22Z"
     assert facts.chapters == 2
     assert [track.title for track in facts.subtitles] == ["English"]
     assert set(facts.attachments) == {"info.json", "cover.jpg"}
     assert (int(birth.st_birthtime), int(birth.st_mtime)) == (published, published)
     assert video.published_at == published
-    assert json.loads((folder / ".yt-mirror" / "small000012.info.json").read_text())["id"] == (
-        "small000012"
+    assert json.loads((folder / ".yt-mirror" / "fail0000ok0.info.json").read_text())["id"] == (
+        "fail0000ok0"
     )
-    assert (folder / ".yt-mirror" / "small000012.jpg").read_bytes().startswith(b"\xff\xd8")
+    assert (folder / ".yt-mirror" / "fail0000ok0.jpg").read_bytes().startswith(b"\xff\xd8")
     assert sorted(entry.name for entry in folder.iterdir()) == [".yt-mirror", file.name]
     assert sorted(entry.name for entry in (folder / ".yt-mirror").iterdir()) == [
-        "small000012.info.json",
-        "small000012.jpg",
+        "fail0000ok0.info.json",
+        "fail0000ok0.jpg",
         "tmp",
     ]
     assert list((folder / ".yt-mirror" / "tmp").iterdir()) == []

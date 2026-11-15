@@ -25,7 +25,7 @@ from ytmirror.core.channels import (
     ReferenceKind,
 )
 from ytmirror.core.errors import AppError, ErrorCode
-from ytmirror.core.naming import HIDDEN_DIR, channel_folder_name
+from ytmirror.core.naming import HIDDEN_DIR, TEMP_DIR, channel_folder_name
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.file_system import FileSystem
@@ -358,9 +358,11 @@ class ChannelsService:
         """Return what "Delete the files" would move to the Trash (R-CH-32).
 
         That is every file the app tracks for the channel: the video files,
-        a thumbnail next to a video that is the app's own copy, and the hidden
-        folder with its metadata and temp files. A file of the user's own
-        stays, and so does anything a symlink leads to outside the folder.
+        a thumbnail next to a video that is the app's own copy, and the
+        metadata and thumbnails of its videos in the hidden folder. A file of
+        the user's own stays, and so does anything a symlink leads to outside
+        the folder. Two channels can share a custom folder, so only what
+        belongs to this channel is taken from the hidden folder.
 
         Args:
             channel_id: The channel ID.
@@ -372,7 +374,9 @@ class ChannelsService:
         folder = self._views.folder_of(channel)
         hidden = folder / HIDDEN_DIR
         candidates: list[Path] = []
+        hidden_files: list[Path] = []
         for video in self._repository.videos(channel_id):
+            hidden_files += [hidden / f"{video.id}.info.json", hidden / f"{video.id}.jpg"]
             if not video.file_name:
                 continue
             candidates.append(folder / video.file_name)
@@ -380,7 +384,7 @@ class ChannelsService:
             own_copy = self._files.read_bytes(hidden / f"{video.id}.jpg")
             if own_copy is not None and self._files.read_bytes(cover) == own_copy:
                 candidates.append(cover)
-        candidates.append(hidden)
+        candidates += hidden_files
         paths: list[Path] = []
         for path in candidates:
             if not self._files.exists(path):
@@ -396,7 +400,7 @@ class ChannelsService:
             paths.append(path)
         return FilesToTrash(
             paths=tuple(paths),
-            files=sum(1 for path in paths if path != hidden),
+            files=sum(1 for path in paths if path.parent != hidden),
             size_bytes=sum(self._files.size_of(path) for path in paths),
         )
 
@@ -451,13 +455,28 @@ class ChannelsService:
                 continue
             moved += 1
             _log.info("file.trashed", msg="File moved to the Trash", file=str(path))
-        left = [name for name in self._files.file_names(folder, hidden=True) if name != ".DS_Store"]
-        if not left and self._files.folder_exists(folder):
+        hidden = folder / HIDDEN_DIR
+        if self._is_empty(hidden, ignore=(TEMP_DIR,)) and self._files.exists(hidden):
+            self._files.trash(hidden)
+            _log.info(
+                "file.trashed", msg="The empty hidden folder went to the Trash", file=str(hidden)
+            )
+        if self._is_empty(folder) and self._files.folder_exists(folder):
             self._files.trash(folder)
             _log.info(
                 "file.trashed", msg="Empty channel folder moved to the Trash", file=str(folder)
             )
         return moved
+
+    def _is_empty(self, folder: Path, ignore: tuple[str, ...] = ()) -> bool:
+        """Whether a folder holds nothing but .DS_Store and empty folders named in ``ignore``."""
+        for name in self._files.file_names(folder, hidden=True):
+            if name == ".DS_Store":
+                continue
+            if name in ignore and self._is_empty(folder / name):
+                continue
+            return False
+        return True
 
     def open_folder(self, channel_id: str) -> None:
         """Show the folder of a channel in Finder (R-CH-30).

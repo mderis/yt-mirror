@@ -336,15 +336,18 @@ def test_a_file_that_fails_verification_is_never_put_in_place(world: World) -> N
     assert visible(world) == []
 
 
-def test_a_file_whose_dates_cannot_be_set_is_taken_out_again(world: World) -> None:
-    """R-DT-07, R-QA-06: a mismatch fails the job with DATES_NOT_APPLIED; the file does not stay."""
-    world.files.refuse_dates.add(folder_of(world) / f"{title_of(world, FIRST)}.mkv")
+def test_a_file_whose_dates_cannot_be_set_never_reaches_the_folder(world: World) -> None:
+    """R-DT-07, R-QA-06: the dates are set in the temp folder; a refusal fails the job there."""
+    work = folder_of(world) / ".yt-mirror" / "tmp" / "01JOB00001" / f"{FIRST}.mkv"
+    world.files.refuse_dates.add(work)
     world.downloader.mirror([FIRST])
 
     world.download_all()
 
-    assert world.repository.video(FIRST).last_error_code is ErrorCode.DATES_NOT_APPLIED  # pyright: ignore[reportOptionalMemberAccess]
-    assert everything(world) == [f".yt-mirror/{FIRST}.info.json", f".yt-mirror/{FIRST}.jpg"]
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.last_error_code, video.file_name) == (ErrorCode.DATES_NOT_APPLIED, None)
+    assert everything(world) == []
 
 
 def test_dates_that_read_back_different_fail_the_job(world: World) -> None:
@@ -443,11 +446,13 @@ def test_cancel_after_the_merge_and_before_the_move_leaves_nothing(world: World)
         world.downloader.cancel(job.id)
         return probe(path)
 
+    world.files.add_files(folder_of(world), ["Another video.mkv"], data=b"keep me")
+    before = everything(world)
     world.media.probe = probe_and_cancel  # type: ignore[method-assign]
     world.download_all()
 
     assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
-    assert visible(world) == []
+    assert everything(world) == before
 
 
 def test_quitting_during_a_download_leaves_the_same_clean_state(world: World) -> None:
@@ -510,3 +515,76 @@ def test_a_video_without_a_file_can_be_neither_played_nor_shown(world: World) ->
         world.downloader.play(FIRST)
 
     assert failure.value.code is ErrorCode.NOT_FOUND
+
+
+# --- what a crash or a broken job leaves
+
+
+class Killed(BaseException):
+    """Stands for the end of the process: nothing after it runs in the job."""
+
+
+def test_a_crash_between_the_move_and_the_end_of_the_job_leaves_no_unknown_file(
+    world: World,
+) -> None:
+    """R-QA-06, R-FN-05: the next start trashes the moved file; Mirror gets the name again."""
+    world.downloader.mirror([FIRST])
+    name = f"{title_of(world, FIRST)}.mkv"
+    read_dates = world.files.read_dates
+
+    def die(path: Path) -> object:
+        raise Killed
+
+    world.files.read_dates = die  # type: ignore[method-assign]
+    with pytest.raises(Killed):
+        world.downloader.work_once()
+    world.files.read_dates = read_dates  # type: ignore[method-assign]
+
+    world.downloader.start()
+
+    assert world.files.trashed == [folder_of(world) / name]
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.file_name) == (VideoStatus.NOT_DOWNLOADED, None)
+    world.downloader.mirror([FIRST])
+    world.download_all()
+    assert visible(world) == [name]
+
+
+def test_two_jobs_for_one_video_do_not_stop_the_queue(world: World) -> None:
+    """R-ER-03: a job that cannot run ends, and the jobs behind it still run."""
+    first = world.downloader.mirror([FIRST])[0]
+    duplicate = dataclasses.replace(first, id="01JOBDUPLICATE", priority=first.priority + 1)
+    world.jobs.record(duplicate)
+    world.downloader.mirror([SECOND])
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+    assert status_of(world, SECOND) is VideoStatus.SYNCED
+    assert world.jobs.jobs([JobState.WAITING, JobState.RUNNING]) == ()
+
+
+def test_a_second_press_of_mirror_or_retry_gives_no_second_job(world: World) -> None:
+    """R-MI-01, R-QU-08: a job per video, however often it is pressed."""
+    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE)
+    world.downloader.mirror([FIRST])
+    world.download_all()
+
+    world.downloader.retry(FIRST)
+    with pytest.raises(AppError):
+        world.downloader.retry(FIRST)
+
+    assert len(world.jobs.jobs([JobState.WAITING])) == 1
+
+
+def test_a_channel_removed_while_its_video_downloads_breaks_nothing(world: World) -> None:
+    """R-CH-32, R-ER-03: the job ends with its video, and the worker goes on."""
+    world.downloader.mirror([FIRST])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = lambda: world.repository.remove_channel(SMALL_ID)
+
+    world.download_all()
+
+    assert world.repository.video(FIRST) is None
+    assert world.downloader.work_once() is False
