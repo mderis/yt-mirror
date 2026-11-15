@@ -56,7 +56,7 @@ from ytmirror.core.quality import effective_quality
 from ytmirror.core.status import InvalidTransitionError, StatusChange, change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
-from ytmirror.ports.file_system import FileSystem
+from ytmirror.ports.file_system import JOB_ID, FileSystem
 from ytmirror.ports.job_repository import JobRepository
 from ytmirror.ports.media_tools import MediaTools
 from ytmirror.services.channel_views import ChannelViews
@@ -197,6 +197,16 @@ class DownloaderService:
                     "download.failed",
                     msg="A job left by the last run could not be ended. The start goes on",
                     job_id=job.id,
+                    error_code=ErrorCode.INTERNAL.value,
+                    exc_info=True,
+                )
+        for cleanup in (self._clean_markers, self._sweep_temp_folders):
+            try:
+                cleanup()
+            except Exception:  # noqa: BLE001  (a cleanup never stops the start)
+                _log.error(
+                    "download.failed",
+                    msg="A cleanup at start failed. The start goes on",
                     error_code=ErrorCode.INTERNAL.value,
                     exc_info=True,
                 )
@@ -867,9 +877,14 @@ class DownloaderService:
         state: JobState,
         status: VideoStatus | None,
         reason: str,
+        *,
+        keep_marker: bool = False,
     ) -> None:
-        """Store how a job ended, with its video and the status change, and tell everyone."""
-        self._announce(self._store_end(job, video, state, status, reason))
+        """Store how a job ended, with its video and the status change, and tell everyone.
+
+        ``keep_marker`` keeps the marker of a placed file that could not be cleaned up.
+        """
+        self._announce(self._store_end(job, video, state, status, reason, keep_marker=keep_marker))
 
     def _store_end(
         self,
@@ -879,6 +894,8 @@ class DownloaderService:
         status: VideoStatus | None,
         reason: str,
         side_files: Sequence[tuple[str, bytes]] = (),
+        *,
+        keep_marker: bool = False,
     ) -> Video | None:
         """Store how a job ended, in one transaction. Returns the video to tell about, or None."""
         ended = replace(
@@ -894,7 +911,8 @@ class DownloaderService:
             return None
         change: StatusChange | None = None
         if video is not None and current is not None and status is not None:
-            video = replace(video, placing_file=None)
+            if not keep_marker:
+                video = replace(video, placing_file=None)
             if status is not VideoStatus.SYNCED:
                 video = replace(video, file_name=None, file_size=None)
             if current.status is not status:
@@ -942,31 +960,103 @@ class DownloaderService:
         Its temp folder goes. A file it was moving into the channel folder (its
         marker) goes to the Trash, but only when the video ID inside the file
         shows it is this download: a file of the user's is never touched. A
-        failure is logged, and the job ends anyway: the start goes on.
+        failure is logged, and the job ends anyway: the start goes on. When the
+        folder could not be reached, the marker stays, and a later start cleans
+        up once it can (``_clean_markers``).
         """
         video = self._repository.video(job.video_id)
         channel = None if video is None else self._repository.channel(video.channel_id)
-        try:
-            if channel is not None and video is not None:
-                place = self._place_of(channel, job)
+        cleaned = True
+        if channel is not None and video is not None:
+            place = self._place_of(channel, job)
+            try:
                 self._files.remove_temp_folder(place.work)
-                if video.placing_file:
-                    self._trash_own_download(video, place.folder / video.placing_file)
-        except (AppError, OSError, ValueError) as error:
-            _log.warning(
-                "file.trash_failed",
-                msg="A file of an interrupted download could not be cleaned up",
-                job_id=job.id,
-                video_id=job.video_id,
-                error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
-            )
-        self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "app quit")
+            except (AppError, OSError, ValueError) as error:
+                self._cleanup_failed(job.video_id, error, job_id=job.id)
+            cleaned = self._clean_placed(video, place.folder, job_id=job.id)
+        self._end(
+            job,
+            video,
+            JobState.CANCELLED,
+            VideoStatus.NOT_DOWNLOADED,
+            "app quit",
+            keep_marker=not cleaned,
+        )
         _log.info(
             "download.cancelled",
             msg="A download that the last quit interrupted was cleaned up",
             job_id=job.id,
             video_id=job.video_id,
         )
+
+    def _clean_placed(self, video: Video, folder: Path, job_id: str | None = None) -> bool:
+        """Clean up the file a video's marker names. Returns whether it is done.
+
+        Not done while the channel folder cannot be reached, for example on a
+        drive that is not connected, or when the Trash refused.
+        """
+        if not video.placing_file:
+            return True
+        if not self._files.folder_exists(folder):
+            _log.warning(
+                "file.unreachable",
+                msg="The folder of an interrupted download is not there. It is cleaned up later",
+                video_id=video.id,
+                folder=str(folder),
+            )
+            return False
+        try:
+            self._trash_own_download(video, folder / video.placing_file)
+        except (AppError, OSError) as error:
+            self._cleanup_failed(video.id, error, job_id=job_id)
+            return False
+        return True
+
+    def _cleanup_failed(self, video_id: str, error: Exception, job_id: str | None = None) -> None:
+        _log.warning(
+            "file.trash_failed",
+            msg="A file of an interrupted download could not be cleaned up",
+            job_id=job_id,
+            video_id=video_id,
+            error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
+        )
+
+    def _clean_markers(self) -> None:
+        """Clean up the files that marked videos left, once their folder is there again."""
+        for channel in self._repository.channels():
+            folder = self._views.folder_of(channel)
+            for video in self._repository.videos(channel.id):
+                if not video.placing_file or self._jobs.active_job_of(video.id) is not None:
+                    continue
+                if self._clean_placed(video, folder):
+                    self._jobs.clear_placing_file(video.id)
+
+    def _sweep_temp_folders(self) -> None:
+        """Remove the temp folders of jobs that are no longer active (R-FI-03, R-QA-06).
+
+        A quit can end a job before its temp folder went. Only a folder named
+        like a job ID is removed, through the guard of ``remove_temp_folder``;
+        anything else in the temp folder stays.
+        """
+        active = {job.id for job in self._jobs.jobs(ACTIVE_STATES)}
+        for channel in self._repository.channels():
+            temp = self._views.folder_of(channel) / HIDDEN_DIR / TEMP_DIR
+            if not self._files.folder_exists(temp):
+                continue
+            for name in self._files.file_names(temp, hidden=True):
+                if not JOB_ID.fullmatch(name) or name in active:
+                    continue
+                try:
+                    self._files.remove_temp_folder(temp / name)
+                except (AppError, OSError, ValueError) as error:
+                    self._cleanup_failed("", error, job_id=name)
+                    continue
+                _log.info(
+                    "download.temp_swept",
+                    msg="The temp folder of a job that ended was removed",
+                    job_id=name,
+                    channel_id=channel.id,
+                )
 
     def _trash_own_download(self, video: Video, moved: Path) -> None:
         """Move a file an interrupted download put in place to the Trash, if it is that video."""

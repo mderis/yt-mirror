@@ -214,6 +214,19 @@ class SqlJobRepository:
                 for row in rows
             )
 
+    def clear_placing_file(self, video_id: str) -> None:
+        """Forget the marker of a placed file, once its cleanup is done (R-QA-06).
+
+        Args:
+            video_id: The video.
+        """
+        with Session(self._engine) as session, session.begin():
+            session.execute(
+                update(VideoRow)
+                .where(VideoRow.id == video_id)
+                .values(placing_file=None, updated_at=self._now())
+            )
+
     def remove_pending_side_file(self, number: int) -> None:
         """Forget a side file that was written, or is no longer wanted.
 

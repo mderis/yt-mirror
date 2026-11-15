@@ -87,6 +87,14 @@ class JobRepository(Protocol):
         """
         ...
 
+    def clear_placing_file(self, video_id: str) -> None:
+        """Forget the marker of a placed file, once its cleanup is done (R-QA-06).
+
+        Args:
+            video_id: The video.
+        """
+        ...
+
     def pending_side_files(self) -> tuple[PendingSideFile, ...]:
         """Return the side files still to be written, oldest first."""
         ...

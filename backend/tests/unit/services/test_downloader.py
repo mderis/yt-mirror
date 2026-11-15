@@ -1007,3 +1007,51 @@ def test_cancel_stops_the_ffmpeg_of_its_own_job(world: World) -> None:
 
     work = folder_of(world) / ".yt-mirror" / "tmp" / job.id
     assert world.stopped_job_tools == [work]
+
+
+# --- the start cleans up what a quit left (second review of M3, L1 and L2)
+
+
+def test_a_marker_stays_until_its_folder_can_be_reached(world: World) -> None:
+    """R-QA-06: a drive that is not connected at start keeps the marker; a later start cleans up."""
+    world.downloader.mirror([FIRST])
+    name = f"{title_of(world, FIRST)}.mkv"
+    ours(world, name)
+    read_dates = world.files.read_dates
+
+    def die(path: Path) -> object:
+        raise Killed
+
+    world.files.read_dates = die  # type: ignore[method-assign]
+    with pytest.raises(Killed):
+        world.downloader.work_once()
+    world.files.read_dates = read_dates  # type: ignore[method-assign]
+    folder = folder_of(world)
+    exists = world.files.folder_exists
+    world.files.folder_exists = lambda path: path != folder and exists(path)  # type: ignore[method-assign]
+
+    world.downloader.start()
+
+    assert world.repository.video(FIRST).placing_file == name  # type: ignore[union-attr]
+    assert world.files.trashed == []
+
+    world.files.folder_exists = exists  # type: ignore[method-assign]
+    world.downloader.start()
+
+    assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
+    assert world.files.trashed == [folder / name]
+
+
+def test_a_start_sweeps_the_temp_folders_of_jobs_that_ended(world: World) -> None:
+    """R-FI-03, R-QA-06: a temp folder a quit left behind goes; anything else there stays."""
+    temp = folder_of(world) / ".yt-mirror" / "tmp"
+    stale = job_id(90)
+    world.files.add_files(temp / stale, ["part.mkv"])
+    world.files.add_files(temp / "not a job", ["mine.txt"])
+
+    with capture_logs() as logs:
+        world.downloader.start()
+
+    assert not world.files.exists(temp / stale)
+    assert world.files.exists(temp / "not a job" / "mine.txt")
+    assert log_lines(logs, "download.temp_swept")[0]["job_id"] == stale
