@@ -1,6 +1,7 @@
 """Tests of the channel endpoints."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +12,9 @@ from structlog.testing import capture_logs
 
 from tests.api.conftest import Api
 from tests.fixtures.world import SMALL_ID, World, log_lines
-from ytmirror.core.channels import CheckKind
+from ytmirror.core.channels import CheckKind, Quality, VideoStatus
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.jobs import Job, JobKind, JobState
 
 PNG = b"\x89PNG\r\n\x1a\n"
 
@@ -479,3 +481,44 @@ def test_every_new_endpoint_needs_the_session_token(api: Api, method: str, path:
 
     assert answer.status_code == 401
     assert error_code(answer) == "UNAUTHORIZED"
+
+
+def test_the_files_to_trash_are_counted_and_moved_on_request(
+    client: TestClient, world: World
+) -> None:
+    """R-CH-32: the dialog learns what "Delete the files" moves, and removal moves exactly that."""
+    added(client, world)
+    folder = world.library / "Small Channel"
+    video = world.repository.video("sm000000001")
+    assert video is not None
+    world.jobs.record(
+        Job(
+            id="01JOBAPI",
+            video_id=video.id,
+            kind=JobKind.DOWNLOAD,
+            state=JobState.DONE,
+            priority=1,
+            quality=Quality.BEST,
+            created_at=world.now(),
+        ),
+        replace(video, status=VideoStatus.SYNCED, file_name="Video 1.mkv"),
+    )
+    world.files.add_files(folder, ["Video 1.mkv", "mine.txt"], data=b"12345")
+
+    counted = client.get(f"/api/channels/{SMALL_ID}/files-to-trash")
+    removed = client.delete(f"/api/channels/{SMALL_ID}", params={"keep_files": "false"})
+
+    assert counted.json() == {"files": 1, "size_bytes": 5}
+    assert removed.status_code == 204
+    assert world.files.trashed == [folder / "Video 1.mkv"]
+    assert world.files.exists(folder / "mine.txt")
+
+
+def test_removing_keeps_the_files_unless_told_otherwise(client: TestClient, world: World) -> None:
+    """R-CH-32: "Keep the files" is the default."""
+    added(client, world)
+    world.files.add_files(world.library / "Small Channel", ["Video 1.mkv"])
+
+    client.delete(f"/api/channels/{SMALL_ID}")
+
+    assert world.files.trashed == []

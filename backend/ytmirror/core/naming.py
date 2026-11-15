@@ -23,6 +23,10 @@ MAX_NAME_BYTES = 255
 # FULLWIDTH COLON (U+FF1A) for the colon.
 _SUBSTITUTES = {"/": "\u29f8", ":": "\uff1a"}
 _HIDDEN_PREFIX = "."
+HIDDEN_DIR = ".yt-mirror"
+"""The hidden folder inside a channel folder: metadata, thumbnails and temp files (R-FI-02)."""
+TEMP_DIR = "tmp"
+"""The folder of the temp folders of jobs, inside the hidden folder (R-FI-03)."""
 VIDEO_EXTENSION = ".mkv"
 """The extension of every video file: the container is always MKV (R-QL-03)."""
 _KEPT_VISIBLE = "_"

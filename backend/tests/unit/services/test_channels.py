@@ -1,13 +1,15 @@
 """Tests of ``ytmirror.services.channels``: look up, add, pause, remove, open the folder."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines
-from ytmirror.core.channels import ChannelStatus, CheckKind, Quality
+from ytmirror.core.channels import ChannelStatus, CheckKind, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import Job, JobKind, JobState
 from ytmirror.services.channels import COUNT_TIME_LIMIT_S, NewChannel
 
 BIG = channel_file(BIG_ID, title="Big Channel", handle="@big", videos=40, prefix="big")
@@ -454,6 +456,108 @@ def test_a_removed_channel_can_be_added_again(tmp_path: Path) -> None:
     channel_id = world.add_and_list()
 
     assert len(world.ids(channel_id)) == 5
+
+
+def synced_files(world: World, names: dict[str, str]) -> Path:
+    """Give videos of the small channel a file on disk, by video ID. Returns the channel folder."""
+    folder = world.library / "Small Channel"
+    for video_id, name in names.items():
+        video = world.repository.video(video_id)
+        assert video is not None
+        world.jobs.record(
+            Job(
+                id=f"01JOB{video_id}",
+                video_id=video_id,
+                kind=JobKind.DOWNLOAD,
+                state=JobState.DONE,
+                priority=1,
+                quality=Quality.BEST,
+                created_at=world.now(),
+            ),
+            replace(video, status=VideoStatus.SYNCED, file_name=name),
+        )
+        world.files.add_files(folder, [name], data=b"video")
+        world.files.add_files(folder / ".yt-mirror", [f"{video_id}.info.json", f"{video_id}.jpg"])
+    return folder
+
+
+def test_delete_the_files_moves_tracked_files_to_the_trash_and_keeps_the_users_own(
+    tmp_path: Path,
+) -> None:
+    """R-CH-32: tracked files and the hidden folder go to the Trash, the user's own file stays."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv", "sm000000002": "Video 2.mkv"})
+    world.files.add_files(folder, ["my notes.txt", "Video 2.jpg"], data=b"the user's own")
+
+    found = world.channels.files_to_trash(SMALL_ID)
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert found.files == 2
+    assert set(world.files.trashed) == {
+        folder / "Video 1.mkv",
+        folder / "Video 2.mkv",
+        folder / ".yt-mirror",
+    }
+    assert world.files.trashed[-1] == folder / ".yt-mirror"
+    assert world.files.file_names(folder, hidden=True) == ["Video 2.jpg", "my notes.txt"]
+    assert world.repository.channels() == ()
+
+
+def test_a_folder_left_empty_goes_to_the_trash_too(tmp_path: Path) -> None:
+    """R-CH-32: when only tracked files were in the folder, the folder goes to the Trash as well."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv"})
+    world.files.add_files(folder, [".DS_Store"])
+
+    world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert world.files.trashed[-1] == folder
+    assert world.files.folder_exists(folder) is False
+
+
+def test_the_thumbnail_next_to_a_video_goes_only_when_it_is_the_apps_own_copy(
+    tmp_path: Path,
+) -> None:
+    """R-CH-32, R-MD-05: a visible thumbnail is tracked when it equals the app's saved original."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv"})
+    world.files.add_files(folder, ["Video 1.jpg"])
+
+    found = world.channels.files_to_trash(SMALL_ID)
+
+    assert folder / "Video 1.jpg" in found.paths
+    assert found.files == 2
+    assert found.size_bytes == len(b"video") + 1 + 2
+
+
+def test_a_file_that_leads_out_of_the_folder_is_never_moved(tmp_path: Path) -> None:
+    """R-CH-32: a symlink out of the channel folder is not followed, its target stays."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv", "sm000000002": "Video 2.mkv"})
+    world.files.outside.add(folder / "Video 2.mkv")
+
+    with capture_logs() as logs:
+        world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert folder / "Video 2.mkv" not in world.files.trashed
+    assert world.files.exists(folder / "Video 2.mkv")
+    assert log_lines(logs, "file.kept")[0]["file"] == str(folder / "Video 2.mkv")
+
+
+def test_keep_the_files_leaves_everything_in_place(tmp_path: Path) -> None:
+    """R-CH-32: "Keep the files" is the default and moves nothing."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv"})
+
+    world.channels.remove(SMALL_ID)
+
+    assert world.files.trashed == []
+    assert world.files.exists(folder / "Video 1.mkv")
 
 
 # --- open folder, unknown channels

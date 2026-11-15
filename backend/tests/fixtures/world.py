@@ -19,6 +19,7 @@ from tests.fixtures.fakes.folder_picker import FakeFolderPicker
 from tests.fixtures.fakes.image_cache import InMemoryImageCache
 from tests.fixtures.fakes.settings_repository import InMemorySettingsRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
+from ytmirror.adapters.db.job_repository import SqlJobRepository
 from ytmirror.adapters.fixture_youtube import FixtureYouTube
 from ytmirror.core.channels import (
     ChannelFacts,
@@ -182,7 +183,9 @@ class World:
         self.cache = InMemoryImageCache()
         self.meta = InMemoryAppMetaRepository()
         self.settings_repository = InMemorySettingsRepository()
-        self.repository = SqlCatalogueRepository(migrated_engine(folder), self.clock)
+        engine = migrated_engine(folder)
+        self.repository = SqlCatalogueRepository(engine, self.clock)
+        self.jobs = SqlJobRepository(engine, self.clock)
         self.settings = SettingsService(self.settings_repository, self.library)
         self.youtube = YouTubeAccess(
             self.gateway, self.clock, self.bus, lambda delay, work: self.later.append((delay, work))

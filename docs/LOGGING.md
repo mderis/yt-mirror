@@ -62,7 +62,7 @@ Each job writes the complete output of yt-dlp and ffmpeg to `data/logs/jobs/<job
 | dates | `dates.fetch.batch`, `dates.fetch.backoff`, `dates.applied`, `dates.repaired`, `dates.verify_failed` |
 | queue | `queue.enqueued`, `queue.paused`, `queue.resumed`, `queue.reordered`, `queue.disk_guard` |
 | download | `download.started`, `download.stage`, `download.retry`, `download.finished`, `download.failed`, `download.cancelled` |
-| file | `file.renamed`, `file.moved`, `file.trashed`, `file.missing` |
+| file | `file.renamed`, `file.moved`, `file.trashed`, `file.missing`, `file.kept` (a file of a removed channel leads out of its folder through a symlink and is not moved to the Trash, R-CH-32), `file.trash_failed` (a file of a removed channel could not be moved to the Trash, with `error_code`) |
 | exclude | `exclude.manual`, `exclude.rule`, `exclude.restored` |
 | adopt | `adopt.scan`, `adopt.matched`, `adopt.ambiguous`, `adopt.fixed`, `adopt.failed` |
 | update | `update.available`, `update.started`, `update.backup`, `update.migrated`, `update.finished`, `update.rolled_back` |

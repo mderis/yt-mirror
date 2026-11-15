@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from ytmirror.core.naming import HIDDEN_DIR, TEMP_DIR
+
 VIDEO_FILE_ENDINGS = (".mkv", ".mp4", ".webm", ".mov", ".m4v", ".avi")
 """What the name of a video file ends in (R-CH-06), compared without regard to case."""
 
@@ -31,7 +33,7 @@ class Disk:
     free_bytes: int
 
 
-TEMP_FOLDER_PARTS = (".yt-mirror", "tmp")
+TEMP_FOLDER_PARTS = (HIDDEN_DIR, TEMP_DIR)
 """Where the temp folders of jobs are, inside a channel folder (R-FI-03)."""
 
 
@@ -102,14 +104,14 @@ class FileSystem(Protocol):
         """
         ...
 
-    def file_names(self, folder: Path) -> list[str]:
-        """Return the names of the visible files and folders directly in a folder.
+    def file_names(self, folder: Path, *, hidden: bool = False) -> list[str]:
+        """Return the names of the files and folders directly in a folder, sorted.
 
-        Hidden names (starting with a dot) are left out. A folder that does
-        not exist or cannot be read has none.
+        A folder that does not exist or cannot be read has none.
 
         Args:
             folder: The folder.
+            hidden: Whether hidden names (starting with a dot) are given too.
         """
         ...
 
@@ -122,10 +124,12 @@ class FileSystem(Protocol):
         ...
 
     def size_of(self, path: Path) -> int:
-        """Return the size of a file in bytes, or 0 when it does not exist.
+        """Return the size of a file, or of a folder with everything in it, in bytes.
+
+        Symlinks are not followed. Something that does not exist has 0.
 
         Args:
-            path: The file.
+            path: The file or folder.
         """
         ...
 
@@ -138,6 +142,14 @@ class FileSystem(Protocol):
         Args:
             path: The file or folder.
             folder: The folder it must stay in.
+        """
+        ...
+
+    def read_bytes(self, path: Path) -> bytes | None:
+        """Return the content of a file, or None when it cannot be read.
+
+        Args:
+            path: The file.
         """
         ...
 

@@ -120,7 +120,7 @@ export interface paths {
     post?: never
     /**
      * Remove Channel
-     * @description Remove a channel with its catalogue. Its folder and files stay (R-CH-32).
+     * @description Remove a channel with its catalogue, and its files or not (R-CH-32).
      */
     delete: operations['removeChannel']
     options?: never
@@ -186,6 +186,26 @@ export interface paths {
      * @description Cancel the full check of a channel that waits or runs (R-CH-27).
      */
     post: operations['cancelCheck']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/files-to-trash': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Files To Trash
+     * @description Say how many files and how much room "Delete the files" moves to the Trash (R-CH-32).
+     */
+    get: operations['getFilesToTrash']
+    put?: never
+    post?: never
     delete?: never
     options?: never
     head?: never
@@ -715,6 +735,20 @@ export interface components {
       | components['schemas']['ChannelUpdatedEvent']
       | components['schemas']['TaskProgressEvent']
       | components['schemas']['BannerChangedEvent']
+    /**
+     * FilesToTrashResponse
+     * @description The answer of ``GET /api/channels/{id}/files-to-trash`` (R-CH-32).
+     *
+     *     Attributes:
+     *         files: How many visible files "Delete the files" moves to the Trash.
+     *         size_bytes: How much room they take, the hidden folder of the app included.
+     */
+    FilesToTrashResponse: {
+      /** Files */
+      files: number
+      /** Size Bytes */
+      size_bytes: number
+    }
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
@@ -1374,7 +1408,9 @@ export interface operations {
   }
   removeChannel: {
     parameters: {
-      query?: never
+      query?: {
+        keep_files?: boolean
+      }
       header?: never
       path: {
         channel_id: string
@@ -1626,6 +1662,64 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['CancelCheckResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  getFilesToTrash: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['FilesToTrashResponse']
         }
       }
       /** @description Unauthorized */

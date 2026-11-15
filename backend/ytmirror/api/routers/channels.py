@@ -18,6 +18,7 @@ from ytmirror.api.catalogue_schemas import (
     CheckAllResponse,
     CheckRequest,
     ChosenFolderResponse,
+    FilesToTrashResponse,
     LookupRequest,
     LookupResponse,
     VideoCountResponse,
@@ -98,10 +99,15 @@ def build_router(
         """Pause or resume a channel (R-CH-31)."""
         return Channel.of(channels.set_paused(channel_id, body.paused))
 
-    def remove_channel(channel_id: str) -> Response:
-        """Remove a channel with its catalogue. Its folder and files stay (R-CH-32)."""
-        channels.remove(channel_id)
+    def remove_channel(channel_id: str, keep_files: bool = True) -> Response:
+        """Remove a channel with its catalogue, and its files or not (R-CH-32)."""
+        channels.remove(channel_id, keep_files=keep_files)
         return Response(status_code=_NO_CONTENT)
+
+    def files_to_trash(channel_id: str) -> FilesToTrashResponse:
+        """Say how many files and how much room "Delete the files" moves to the Trash (R-CH-32)."""
+        found = channels.files_to_trash(channel_id)
+        return FilesToTrashResponse(files=found.files, size_bytes=found.size_bytes)
 
     def check_channel(channel_id: str, body: CheckRequest | None = None) -> Channel:
         """Start a quick or a full check of a channel (R-CH-23)."""
@@ -193,6 +199,13 @@ def build_router(
         status_code=_NO_CONTENT,
         response_class=Response,
         operation_id="removeChannel",
+    )
+    add(
+        "/channels/{channel_id}/files-to-trash",
+        files_to_trash,
+        methods=["GET"],
+        response_model=FilesToTrashResponse,
+        operation_id="getFilesToTrash",
     )
     add(
         "/channels/{channel_id}/check",

@@ -86,19 +86,27 @@ class FakeFileSystem:
         """Return the configured disk."""
         return self.disk
 
-    def file_names(self, folder: Path) -> list[str]:
-        """Return the visible names directly in the folder."""
+    def file_names(self, folder: Path, *, hidden: bool = False) -> list[str]:
+        """Return the names directly in the folder, the hidden ones only when asked."""
         names = {path.name for path in [*self.files, *self.folders] if path.parent == folder}
-        return sorted(name for name in names if not name.startswith("."))
+        return sorted(name for name in names if hidden or not name.startswith("."))
 
     def exists(self, path: Path) -> bool:
         """Return whether a file or folder is there."""
         return path in self.files or path in self.folders
 
     def size_of(self, path: Path) -> int:
-        """Return the size of the file, or 0."""
+        """Return the size of the file, or of everything in the folder, or 0."""
+        return sum(
+            len(file.data)
+            for place, file in self.files.items()
+            if place == path or place.is_relative_to(path)
+        )
+
+    def read_bytes(self, path: Path) -> bytes | None:
+        """Return the content of the file, or None."""
         file = self.files.get(path)
-        return len(file.data) if file is not None else 0
+        return None if file is None else file.data
 
     def is_inside(self, path: Path, folder: Path) -> bool:
         """Return whether the path is in the folder and not marked as leading out."""

@@ -12,6 +12,7 @@ it overwrites only when it is told to.
 Tests: backend/tests/integration/test_file_system_contract.py
 """
 
+import contextlib
 import ctypes
 import ctypes.util
 import errno
@@ -153,15 +154,16 @@ class MacFileSystem:
             existing = existing.parent
         return Disk(name=_volume_name(existing), free_bytes=shutil.disk_usage(existing).free)
 
-    def file_names(self, folder: Path) -> list[str]:
-        """Return the names of the visible files and folders directly in a folder.
+    def file_names(self, folder: Path, *, hidden: bool = False) -> list[str]:
+        """Return the names of the files and folders directly in a folder, sorted.
 
         Args:
             folder: The folder.
+            hidden: Whether hidden names are given too.
         """
         try:
             return sorted(
-                entry.name for entry in folder.iterdir() if not entry.name.startswith(".")
+                entry.name for entry in folder.iterdir() if hidden or not entry.name.startswith(".")
             )
         except OSError:
             return []
@@ -175,15 +177,34 @@ class MacFileSystem:
         return os.path.lexists(path)
 
     def size_of(self, path: Path) -> int:
-        """Return the size of a file in bytes, or 0 when it does not exist.
+        """Return the size of a file, or of a folder with everything in it, in bytes.
+
+        Args:
+            path: The file or folder.
+        """
+        try:
+            facts = path.lstat()
+        except OSError:
+            return 0
+        if path.is_symlink() or not path.is_dir():
+            return facts.st_size
+        total = 0
+        for root, _folders, names in os.walk(path):
+            for name in names:
+                with contextlib.suppress(OSError):
+                    total += (Path(root) / name).lstat().st_size
+        return total
+
+    def read_bytes(self, path: Path) -> bytes | None:
+        """Return the content of a file, or None when it cannot be read.
 
         Args:
             path: The file.
         """
         try:
-            return path.stat().st_size
+            return path.read_bytes()
         except OSError:
-            return 0
+            return None
 
     def is_inside(self, path: Path, folder: Path) -> bool:
         """Return whether a path stays inside a folder once every symlink is followed.

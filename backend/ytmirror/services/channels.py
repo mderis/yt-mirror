@@ -25,7 +25,7 @@ from ytmirror.core.channels import (
     ReferenceKind,
 )
 from ytmirror.core.errors import AppError, ErrorCode
-from ytmirror.core.naming import channel_folder_name
+from ytmirror.core.naming import HIDDEN_DIR, channel_folder_name
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.file_system import FileSystem
@@ -43,6 +43,21 @@ COUNT_TIME_LIMIT_S = 8.0
 
 MOST_PLAUSIBLE_VIDEOS = 1_000_000
 """A count above this is not believed."""
+
+
+@dataclass(frozen=True, slots=True)
+class FilesToTrash:
+    """What "Delete the files" moves to the Trash when a channel is removed (R-CH-32).
+
+    Attributes:
+        paths: The files and the hidden folder, in the order they are moved.
+        files: How many visible files: videos and their thumbnails.
+        size_bytes: How much room they take, the hidden folder included.
+    """
+
+    paths: tuple[Path, ...]
+    files: int
+    size_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,8 +350,13 @@ class ChannelsService:
             self._views.publish(channel_id)
         return self._view(channel_id)
 
-    def remove(self, channel_id: str) -> None:
-        """Remove a channel with its catalogue. Its folder and files stay (R-CH-32).
+    def files_to_trash(self, channel_id: str) -> FilesToTrash:
+        """Return what "Delete the files" would move to the Trash (R-CH-32).
+
+        That is every file the app tracks for the channel: the video files,
+        a thumbnail next to a video that is the app's own copy, and the hidden
+        folder with its metadata and temp files. A file of the user's own
+        stays, and so does anything a symlink leads to outside the folder.
 
         Args:
             channel_id: The channel ID.
@@ -345,6 +365,54 @@ class ChannelsService:
             AppError: ``NOT_FOUND`` for an unknown channel.
         """
         channel = self._known(channel_id)
+        folder = self._views.folder_of(channel)
+        hidden = folder / HIDDEN_DIR
+        candidates: list[Path] = []
+        for video in self._repository.videos(channel_id):
+            if not video.file_name:
+                continue
+            candidates.append(folder / video.file_name)
+            cover = (folder / video.file_name).with_suffix(".jpg")
+            own_copy = self._files.read_bytes(hidden / f"{video.id}.jpg")
+            if own_copy is not None and self._files.read_bytes(cover) == own_copy:
+                candidates.append(cover)
+        candidates.append(hidden)
+        paths: list[Path] = []
+        for path in candidates:
+            if not self._files.exists(path):
+                continue
+            if not self._files.is_inside(path, folder):
+                _log.warning(
+                    "file.kept",
+                    msg="A file leads out of the channel folder and is not moved to the Trash",
+                    channel_id=channel_id,
+                    file=str(path),
+                )
+                continue
+            paths.append(path)
+        return FilesToTrash(
+            paths=tuple(paths),
+            files=sum(1 for path in paths if path != hidden),
+            size_bytes=sum(self._files.size_of(path) for path in paths),
+        )
+
+    def remove(self, channel_id: str, *, keep_files: bool = True) -> None:
+        """Remove a channel with its catalogue (R-CH-32).
+
+        With ``keep_files`` its folder and files stay. Otherwise the files the
+        app tracks go to the Trash, never away for good, and the folder goes
+        too when nothing else is left in it.
+
+        Args:
+            channel_id: The channel ID.
+            keep_files: Whether the files stay where they are.
+
+        Raises:
+            AppError: ``NOT_FOUND`` for an unknown channel.
+        """
+        channel = self._known(channel_id)
+        folder = self._views.folder_of(channel)
+        trashed = 0 if keep_files else self._trash_files(channel_id, folder)
         self._catalogue.forget(channel_id)
         video_ids = self._repository.video_ids(channel_id)
         self._repository.remove_channel(channel_id)
@@ -352,11 +420,39 @@ class ChannelsService:
         self._views.forget(channel_id)
         _log.info(
             "channel.removed",
-            msg="Channel removed. Its folder was left as it is",
+            msg="Channel removed. Its folder was left as it is"
+            if keep_files
+            else "Channel removed. Its files went to the Trash",
             channel_id=channel_id,
             videos=len(video_ids),
-            folder=str(self._views.folder_of(channel)),
+            folder=str(folder),
+            files_trashed=trashed,
         )
+
+    def _trash_files(self, channel_id: str, folder: Path) -> int:
+        """Move the tracked files of a channel to the Trash. Returns how many paths went."""
+        moved = 0
+        for path in self.files_to_trash(channel_id).paths:
+            try:
+                self._files.trash(path)
+            except AppError as error:
+                _log.warning(
+                    "file.trash_failed",
+                    msg="A file of the channel could not be moved to the Trash",
+                    channel_id=channel_id,
+                    file=str(path),
+                    error_code=error.code.value,
+                )
+                continue
+            moved += 1
+            _log.info("file.trashed", msg="File moved to the Trash", file=str(path))
+        left = [name for name in self._files.file_names(folder, hidden=True) if name != ".DS_Store"]
+        if not left and self._files.folder_exists(folder):
+            self._files.trash(folder)
+            _log.info(
+                "file.trashed", msg="Empty channel folder moved to the Trash", file=str(folder)
+            )
+        return moved
 
     def open_folder(self, channel_id: str) -> None:
         """Show the folder of a channel in Finder (R-CH-30).

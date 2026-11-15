@@ -409,6 +409,18 @@ class CheckAllResponse(BaseModel):
     channels: int
 
 
+class FilesToTrashResponse(BaseModel):
+    """The answer of ``GET /api/channels/{id}/files-to-trash`` (R-CH-32).
+
+    Attributes:
+        files: How many visible files "Delete the files" moves to the Trash.
+        size_bytes: How much room they take, the hidden folder of the app included.
+    """
+
+    files: int
+    size_bytes: int
+
+
 class CancelCheckResponse(BaseModel):
     """The answer of ``POST /api/channels/{id}/check/cancel``.
 
