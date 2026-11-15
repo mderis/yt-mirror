@@ -8,6 +8,7 @@ fail, or make a program refuse to run.
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import ArchiveKind, InstalledTool, ToolFile, ToolName
@@ -37,6 +38,10 @@ class FakeToolBox:
     def installed(self, tool: ToolName) -> InstalledTool | None:
         """Return the marker of a tool that is in place, or None."""
         return self._markers.get(tool)
+
+    def program_path(self, tool: ToolName, program: str) -> Path:
+        """Return a made-up place of the program: the fake runs nothing from disk."""
+        return Path("/fake-tools") / tool.value / program
 
     def run(self, tool: ToolName, program: str, arguments: Sequence[str]) -> str | None:
         """Return what the program prints, or None when it is missing or refuses to run."""

@@ -313,3 +313,14 @@ def test_a_folder_that_cannot_be_written_is_reported_with_a_code(
         LocalToolBox(blocked).fetch(FFMPEG, file, lambda _done, _total: None)
 
     assert failure.value.code is ErrorCode.INTERNAL
+
+
+def test_every_program_has_one_place_inside_its_tool(world: World) -> None:
+    """R-PL-15: yt-dlp gets ffmpeg and Deno by their place in the tool, never from PATH."""
+    ffmpeg = world.box.program_path(FFMPEG, "ffmpeg")
+    ffprobe = world.box.program_path(FFMPEG, "ffprobe")
+
+    assert ffmpeg.name == "ffmpeg"
+    assert ffprobe.parent == ffmpeg.parent
+    assert ffmpeg.parent.name == FFMPEG.value
+    assert ffmpeg.is_absolute()
