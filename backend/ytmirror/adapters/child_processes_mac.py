@@ -31,7 +31,7 @@ _ARGUMENTS_SIZE = 1024 * 1024
 """More than the longest command line macOS accepts (kern.argmax is 1 MiB)."""
 
 
-def _names(arguments: list[str], folder: Path) -> bool:
+def names_folder(arguments: list[str], folder: Path) -> bool:
     """Whether one of the arguments is a path in the folder, or the folder itself."""
     places = {str(folder), str(folder.resolve())}
     return any(place in argument for argument in arguments for place in places)
@@ -63,7 +63,7 @@ class MacChildProcesses:
             pid
             for pid in self._children()
             if self._program_of(pid) in wanted
-            and (mentioning is None or _names(self._arguments(pid), mentioning))
+            and (mentioning is None or names_folder(self._arguments(pid), mentioning))
         ]
         for pid in found:
             self._signal(pid, signal.SIGTERM)

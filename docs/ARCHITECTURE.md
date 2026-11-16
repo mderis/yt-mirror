@@ -95,7 +95,7 @@ yt-mirror/
         youtube_api.py       Optional Data API client (exact dates)
         media_tools.py       Reads a finished file with ffprobe (the MediaTools port)
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
-        child_processes_mac.py  Stops the tools the app started, at quit (the ChildProcesses port)
+        child_processes_mac.py  Stops the tools the app started: all at quit, the ffmpeg of one job at Cancel (the ChildProcesses port)
         notifier_mac.py      macOS notifications
         folder_picker_webview.py  The folder dialog of the app window (section 7.8)
         tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
@@ -568,7 +568,7 @@ Every external dependency is behind a port, and each port has a fake in `backend
 | ExactDateSource | Returns dates from fixtures, simulates quota errors |
 | MediaTools | Creates tiny real MKV files with ffmpeg in integration tests, a pure fake in unit tests |
 | FileSystem | Real temp directories on macOS runners, an in-memory fake in unit tests |
-| ChildProcesses | No fake: the downloader is given a function to call at quit, which unit tests replace. The adapter is tested with processes the test starts itself |
+| ChildProcesses | No fake: the downloader is given a function to call at quit, which unit tests replace. The adapter is tested with processes the test starts itself. Cancel finds the ffmpeg of a job by the job's temp folder in its arguments; a media test runs real yt-dlp through every ffmpeg step the app uses (merge, thumbnail, subtitles, metadata, cover) and checks that each call names that folder (yt-dlp passes it as `file:<path>`) |
 | Releases | Serves fake release archives for updater tests |
 | Notifier, Clock, Random | Recorders and controllable values |
 
