@@ -1032,6 +1032,68 @@ def test_quitting_while_the_finished_file_is_checked_cancels_and_never_fails(
     assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
 
 
+# --- a cancel is told only once nothing of its download is left (CI run 43843836595)
+
+
+def test_a_cancelled_download_is_told_only_after_its_temp_folder_is_gone(world: World) -> None:
+    """R-QU-02, R-QA-06: when the window hears "not downloaded", nothing of the job is left."""
+    [job] = world.downloader.mirror([FIRST])
+    work = folder_of(world) / ".yt-mirror" / "tmp" / job.id
+    left_when_told: list[bool] = []
+
+    def note(event: object) -> None:
+        if (
+            isinstance(event, VideoUpdated)
+            and event.view.video.status is VideoStatus.NOT_DOWNLOADED
+        ):
+            left_when_told.append(world.files.exists(work))
+
+    world.bus.subscribe(note)
+    held, go = held_at_audio(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.downloader.cancel(job.id)
+    go.set()
+    worker.join(10)
+
+    assert left_when_told == [False]
+
+
+def test_a_temp_folder_that_cannot_be_removed_never_changes_how_a_cancel_ends(
+    world: World,
+) -> None:
+    """R-QU-02, R-FI-03: the job ends cancelled without an error; the next start sweeps it."""
+    [job] = world.downloader.mirror([FIRST])
+    work = folder_of(world) / ".yt-mirror" / "tmp" / job.id
+    remove = world.files.remove_temp_folder
+
+    def refuse(folder: Path) -> None:
+        raise AppError(ErrorCode.PERMISSION_DENIED, {"folder": str(folder)})
+
+    world.files.remove_temp_folder = refuse  # type: ignore[method-assign]
+    held, go = held_at_audio(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    with capture_logs() as logs:
+        world.downloader.cancel(job.id)
+        go.set()
+        worker.join(10)
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+    assert log_lines(logs, "download.temp_left")[0]["error_code"] == "PERMISSION_DENIED"
+    assert world.files.exists(work)
+
+    world.files.remove_temp_folder = remove  # type: ignore[method-assign]
+    world.downloader.start()
+
+    assert not world.files.exists(work)
+
+
 # --- Cancel stops the ffmpeg of its job (second review of M3, M3)
 
 

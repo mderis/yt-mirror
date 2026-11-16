@@ -550,6 +550,9 @@ class DownloaderService:
         except Exception as error:  # noqa: BLE001  (a cancel is asked before any error is read)
             # A file of the job that could not leave the channel folder keeps its marker.
             keep_marker = job.id not in self._nothing_placed
+            # The temp folder goes before the end is stored and told: a video shown as
+            # ended has nothing of its download left (R-QU-02, R-QA-06).
+            self._remove_work(place, log)
             # A job that was cancelled, or an app that quits, stopped the tools: the error
             # that follows is the cancel, never a failure nor a retry (R-QU-02, R-PL-13).
             if isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id):
@@ -573,7 +576,23 @@ class DownloaderService:
             else:
                 self._failed_unexpectedly(running, video, log, started, keep_marker=keep_marker)
         finally:
+            self._remove_work(place, log)
+
+    def _remove_work(self, place: _Place, log: FilteringBoundLogger) -> None:
+        """Remove the temp folder of a job. A failure is a warning, never how the job ends.
+
+        The folder stays for the sweep of the next start (R-FI-03): a cancel the user
+        asked for never turns into an error because of it.
+        """
+        try:
             self._files.remove_temp_folder(place.work)
+        except (AppError, OSError, ValueError) as error:
+            log.warning(
+                "download.temp_left",
+                msg="The temp folder of a download could not be removed. The next start removes it",
+                folder=str(place.work),
+                error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
+            )
 
     def _failed_unexpectedly(
         self,
