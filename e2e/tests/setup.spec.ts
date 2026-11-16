@@ -138,9 +138,9 @@ for (const theme of ['light', 'dark'] as const) {
       await freshApp.failDownload('ffmpeg.zip')
       await freshApp.failDownload('both.tar.xz')
       await openFirstRun(page, freshApp)
-      await expect(row(page, 'ffmpeg')).toContainText('Download failed')
-      // Deno is installed after both sources of ffmpeg failed: on a busy CI runner that took
-      // longer than the default 5 s once (run 43841427970).
+      // A fresh app installs while it starts up. On a busy CI runner, with many such apps at
+      // once, both waits took longer than the default 5 s (runs 43841427970, 43854266063).
+      await expect(row(page, 'ffmpeg')).toContainText('Download failed', { timeout: 30_000 })
       await expect(row(page, 'deno')).toContainText('Installed', { timeout: 30_000 })
       await page.evaluate(() => document.fonts.ready)
 
