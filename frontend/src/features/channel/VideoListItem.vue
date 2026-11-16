@@ -7,7 +7,8 @@
  * status (R-UI-09): Mirror a video that is not downloaded and still on YouTube
  * (R-MI-01, R-CH-14), Cancel
  * one that waits, downloads or is processed, up to the move of its file into
- * place (R-QU-02; Main.html shows no Cancel while processing), Retry a failed one (R-QU-08), Play
+ * place (R-QU-02; Main.html shows no Cancel while processing), Retry a failed one
+ * still on YouTube (R-QU-08, R-CH-14), Play
  * and Show in Finder a synced one (R-UI-10). The title opens the details
  * (R-UI-08). Selecting several videos arrives with milestone M5.
  *
@@ -218,7 +219,7 @@ function cancel(): void {
           {{ t('channel.list.mirror') }}
         </AppButton>
         <AppButton
-          v-else-if="video.status === 'failed'"
+          v-else-if="video.status === 'failed' && !video.gone"
           icon="retry"
           @press="ui.run(videos.retry(video.id))"
         >

@@ -71,6 +71,9 @@ PROGRESS_EVERY_S = 0.25
 """The shortest time between two progress events of one job: at most four a second."""
 
 MIRRORABLE = frozenset({VideoStatus.NOT_DOWNLOADED, VideoStatus.FILE_MISSING})
+
+_GONE = "removed from YouTube"
+"""The reason a queued download of a video removed from YouTube ends (R-CH-14)."""
 """The statuses from which "Mirror" puts a video in line (ARCHITECTURE section 6.1)."""
 
 
@@ -341,7 +344,11 @@ class DownloaderService:
             # Two presses that arrive together must not give two jobs for one video.
             with self._wake:
                 video = self._known(video_id)
-                if video.status not in MIRRORABLE or self._jobs.active_job_of(video_id) is not None:
+                if (
+                    video.status not in MIRRORABLE
+                    or video.gone  # YouTube no longer has it (R-CH-14)
+                    or self._jobs.active_job_of(video_id) is not None
+                ):
                     continue
                 queued.append(self._put_in_line(video, "mirror"))
         return queued
@@ -360,6 +367,7 @@ class DownloaderService:
             video = self._known(video_id)
             if (
                 video.status is not VideoStatus.FAILED
+                or video.gone  # YouTube no longer has it (R-CH-14)
                 or self._jobs.active_job_of(video_id) is not None
             ):
                 raise AppError(
@@ -533,6 +541,15 @@ class DownloaderService:
             self._end(job, video, JobState.CANCELLED, None, "gone")
             return
         log = log.bind(channel_id=channel.id)
+        if video.gone:
+            # A check found it removed from YouTube while it waited: it does not start (R-CH-14).
+            self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, _GONE)
+            log.info(
+                "download.cancelled",
+                msg="The video is gone from YouTube. Its download did not start",
+                reason=_GONE,
+            )
+            return
         place = self._place_of(channel, job)
         with self._wake:
             self._work_of[job.id] = place.work

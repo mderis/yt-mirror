@@ -12,6 +12,7 @@ from structlog.testing import capture_logs
 
 from tests.fixtures.fakes.media_tools import GOOD
 from tests.fixtures.world import SMALL_ID, World, job_id, log_lines, own_file
+from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import ChannelStatus, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import (
@@ -1030,6 +1031,74 @@ def test_quitting_while_the_finished_file_is_checked_cancels_and_never_fails(
     assert video is not None
     assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
     assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+
+
+# --- a video removed from YouTube is not downloaded (R-CH-14)
+
+
+def mark_gone(world: World, video_id: str, gone: bool = True) -> None:
+    """Store what a full check finds: the video removed from YouTube, or listed again."""
+    video = world.repository.video(video_id)
+    assert video is not None
+    channel = world.repository.channel(video.channel_id)
+    assert channel is not None
+    world.repository.apply_check(
+        channel,
+        CheckChanges(
+            inserted=(),
+            updated=(dataclasses.replace(video, gone=gone),),
+            new=0,
+            changed=0,
+            removed=int(gone),
+            returned=int(not gone),
+            read=0,
+        ),
+    )
+
+
+def test_a_queued_download_of_a_video_removed_meanwhile_ends_instead_of_starting(
+    world: World,
+) -> None:
+    """R-CH-14: a check marked the video as removed while it waited; nothing is asked of YouTube."""
+    [job] = world.downloader.mirror([FIRST])
+    mark_gone(world, FIRST)
+
+    with capture_logs() as logs:
+        world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.gone) == (VideoStatus.NOT_DOWNLOADED, True)
+    assert world.jobs.job(job.id).state is JobState.CANCELLED  # type: ignore[union-attr]
+    assert world.download.calls == []
+    assert world.jobs.events(FIRST)[-1].reason == "removed from YouTube"
+    assert log_lines(logs, "download.cancelled")[0]["reason"] == "removed from YouTube"
+
+
+def test_a_removal_found_while_a_video_downloads_is_kept_when_it_is_synced(
+    world: World,
+) -> None:
+    """R-CH-14: the end of a download never undoes what a check found meanwhile."""
+    world.downloader.mirror([FIRST])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = lambda: mark_gone(world, FIRST)
+
+    world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.gone) == (VideoStatus.SYNCED, True)
+
+
+def test_mirror_and_retry_refuse_a_video_removed_from_youtube(world: World) -> None:
+    """R-CH-14: the API follows the window: no Mirror and no Retry for a removed video."""
+    mark_gone(world, FIRST)
+
+    assert world.downloader.mirror([FIRST]) == []
+    with pytest.raises(AppError) as refused:
+        world.downloader.retry(FIRST)
+
+    assert refused.value.code is ErrorCode.INVALID_REQUEST
 
 
 # --- a cancel is told only once nothing of its download is left (CI run 43843836595)

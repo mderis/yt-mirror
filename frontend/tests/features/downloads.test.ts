@@ -202,6 +202,32 @@ describe('downloading videos', () => {
     await waitFor(() => expect(app.requests()).toContain(`POST /api/videos/${ID}/retry`))
   })
 
+  it('R-CH-14: a failed video removed from YouTube keeps its reason but offers no Retry', async () => {
+    await openWith({ status: 'failed', error_code: 'VIDEO_REMOVED', gone: true })
+
+    expect(within(row()).getByText('Failed')).toBeTruthy()
+    expect(part('[data-reason]').textContent).toBe('The video is gone from YouTube')
+    expect(within(row()).getByText('Removed from YouTube')).toBeTruthy()
+    expect(within(row()).queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(within(row()).queryByRole('button', { name: 'Mirror' })).toBeNull()
+  })
+
+  it.each([
+    ['not_downloaded', 'Mirror'],
+    ['failed', 'Retry'],
+  ] as const)(
+    'R-CH-14: once a check finds the video on YouTube again, %s offers %s again',
+    async (status, button) => {
+      const app = await openWith({ status, gone: true })
+      expect(within(row()).queryByRole('button', { name: button })).toBeNull()
+
+      app.stream().videoUpdated(CHANNEL_ID, video(1, { status, gone: false }))
+
+      await waitFor(() => expect(within(row()).getByRole('button', { name: button })).toBeTruthy())
+      expect(within(row()).queryByText('Removed from YouTube')).toBeNull()
+    },
+  )
+
   it('R-DT-13: an exact date that arrives replaces the approximate one with a highlight', async () => {
     const app = await openWith({
       published_at: null,
