@@ -147,6 +147,9 @@ jobs:
 
   e2e:
     name: End-to-end tests (WebKit and Chromium)
+    # Pinned: the screenshots are made and compared on this macOS (docs/TESTING.md
+    # section 6). Moving it means making every image again in one pull request, with
+    # the pixel counts against the old images.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -181,6 +184,25 @@ jobs:
           YTM_REQUIRE_FFMPEG: "1"
           YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
         run: npm --prefix e2e test
+      # Playwright says how many pixels differ only when an image fails. This makes every
+      # screenshot again into a folder and counts each against the stored image, passing or
+      # not, in the summary of the job. An image that was not made fails the step.
+      - name: Count the differing pixels of every screenshot
+        if: success() || failure()
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
+          YTM_SCREENSHOT_DIR: ${{ runner.temp }}/screenshots
+        run: |
+          npm --prefix e2e test -- --grep R-TH-09
+          node e2e/screenshot-counts.ts "$YTM_SCREENSHOT_DIR" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the screenshots this run made
+        if: success() || failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshots-made
+          path: ${{ runner.temp }}/screenshots
+          retention-days: 14
       - name: Keep the report and the screenshots when a test failed
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

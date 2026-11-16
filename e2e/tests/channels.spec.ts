@@ -11,7 +11,9 @@ import { expect, test, type FreshApp } from './fresh-app'
  * against the fake YouTube of `fixtures/youtube`. Every test starts an app of
  * its own, past its first run, with a library folder of its own.
  */
-test.describe.configure({ mode: 'serial' })
+// One test after another in one worker, as each starts an app of its own. Not 'serial':
+// a failed test must never keep the next ones, and their screenshots, from running.
+test.describe.configure({ mode: 'default' })
 
 const SMALL_ID = 'UCsmallchannel0000000001'
 const CHANGING_ID = 'UCchangingchannel0000005'

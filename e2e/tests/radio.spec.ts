@@ -119,10 +119,11 @@ test('R-UI-13: arrow keys move between options, skip a disabled one, and show th
   const column = page.getByTestId('theme-light')
   const { pick, all, later } = radios(column)
 
-  // Tab from the field before the group comes to the chosen option, as for a keyboard user.
-  await column.getByRole('combobox', { name: 'Quality' }).focus()
-  await page.keyboard.press('Tab')
+  // Whether Tab reaches a radio in WebKit is a setting of macOS ("Keyboard navigation"), so
+  // the test starts on the chosen option. The ring follows :focus, however it came there.
+  await pick.focus()
   await expect(pick).toBeFocused()
+  expect(await style(pick, 'outline-style')).toBe('solid')
   await page.keyboard.press('ArrowDown')
 
   // The ring stays when the arrow keys move it (WebKit drops :focus-visible there).

@@ -16,6 +16,7 @@ import {
   TOOLS_PORT,
   TOOLS_URL,
 } from './settings'
+import { LIMIT_PIXELS, THRESHOLD } from './screenshot-limits.ts'
 
 /**
  * End-to-end tests of yt-mirror (docs/TESTING.md section 6).
@@ -29,18 +30,11 @@ import {
 const chromeChannel = process.env.YTM_E2E_CHROME_CHANNEL
 
 /**
- * How a screenshot is compared (docs/TESTING.md section 6): at most 100 differing pixels,
- * never a share of the image, and a pixel differs from the given colour difference on.
- * Text that differs from machine to machine gets a fixed box while the image is taken.
+ * With YTM_SCREENSHOT_DIR set, every screenshot is written into that folder instead of
+ * being compared, so that screenshot-counts.ts can count each against the stored image,
+ * and CI can make all images (docs/TESTING.md section 6).
  */
-function screenshots(threshold: number) {
-  return {
-    maxDiffPixels: 100,
-    threshold,
-    animations: 'disabled' as const,
-    stylePath: resolve(import.meta.dirname, 'screenshot.css'),
-  }
-}
+const madeScreenshots = process.env.YTM_SCREENSHOT_DIR
 const viewport = { width: 1280, height: 800 }
 
 export default defineConfig({
@@ -51,10 +45,18 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: [['list'], ['html', { open: 'never' }]],
-  // One baseline per browser. They are compared on every platform the tests run on.
-  snapshotPathTemplate: '{testDir}/__screenshots__/{testFileName}/{arg}-{projectName}{ext}',
+  // One image per browser, made and compared on the macOS of CI (TESTING.md section 6).
+  snapshotPathTemplate: `${madeScreenshots ? resolve(madeScreenshots) : '{testDir}/__screenshots__'}/{testFileName}/{arg}-{projectName}{ext}`,
+  ...(madeScreenshots ? { updateSnapshots: 'all' as const } : {}),
   expect: {
-    toHaveScreenshot: screenshots(0.02),
+    // At most so many differing pixels, never a share of the image; a pixel differs from
+    // the threshold on. Text that differs between machines gets a fixed box (screenshot.css).
+    toHaveScreenshot: {
+      maxDiffPixels: LIMIT_PIXELS,
+      threshold: THRESHOLD,
+      animations: 'disabled',
+      stylePath: resolve(import.meta.dirname, 'screenshot.css'),
+    },
   },
   use: {
     baseURL: APP_URL,
@@ -66,10 +68,6 @@ export default defineConfig({
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], viewport },
-      // Its images are made on a developer's Mac and compared on the macOS of CI, which
-      // draws text a little differently: up to 572 pixels apart at 0.02, under 100 at 0.05
-      // (measured 2026-11-16). The limit of pixels stays (TESTING.md section 6).
-      expect: { toHaveScreenshot: screenshots(0.05) },
     },
     {
       name: 'chromium',

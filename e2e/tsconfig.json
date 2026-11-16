@@ -11,7 +11,14 @@
     "noUnusedParameters": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["tests", "playwright.config.ts", "settings.ts"]
+  "include": [
+    "tests",
+    "playwright.config.ts",
+    "settings.ts",
+    "screenshot-counts.ts",
+    "screenshot-limits.ts"
+  ]
 }

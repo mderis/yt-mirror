@@ -71,7 +71,7 @@ Run from the repository root. `uv` here means a uv on your PATH. If you have non
 | Theme lint alone | `npm --prefix frontend run lint:theme` |
 | Regenerate API types | `npm --prefix frontend run gen:api` |
 | End-to-end tests | `npm --prefix e2e test` |
-| Update the stored screenshots | `npm --prefix e2e run test:update-screenshots` |
+| Update the stored screenshots | `gh workflow run update-screenshots.yml --ref <branch>`, then commit the images of its artifact with their pixel counts (`docs/TESTING.md` section 6) |
 | Requirement coverage | `uv run python scripts/requirements_coverage.py` |
 | No em dashes, modules name their tests | `uv run python scripts/check_no_em_dash.py && uv run python scripts/check_docstrings.py` |
 | All pre-commit hooks | `uv run pre-commit run --all-files` (turn them on once with `uv run pre-commit install`) |

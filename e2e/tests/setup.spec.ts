@@ -10,7 +10,9 @@ import { expect, test, type FreshApp } from './fresh-app'
  * The first run and the tools (docs/TESTING.md section 6, flow 1). Every test
  * starts an app of its own on empty folders. The tools are small stand-ins.
  */
-test.describe.configure({ mode: 'serial' })
+// One test after another in one worker, as each starts an app of its own. Not 'serial':
+// a failed test must never keep the next ones, and their screenshots, from running.
+test.describe.configure({ mode: 'default' })
 
 const row = (page: Page, tool: string) => page.locator(`[data-tool="${tool}"]`)
 
