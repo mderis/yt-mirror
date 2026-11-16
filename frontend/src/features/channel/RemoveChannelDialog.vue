@@ -128,7 +128,7 @@ async function remove(): Promise<void> {
       :options="options"
     />
     <p v-if="failureTexts" class="text-err-text" role="alert">
-      {{ failureTexts.happened }} {{ failureTexts.action }}
+      {{ failureTexts.happened }} {{ failureTexts.doing }} {{ failureTexts.action }}
     </p>
     <template #actions>
       <AppButton variant="ghost" @press="emit('close')">{{ t('removeChannel.cancel') }}</AppButton>

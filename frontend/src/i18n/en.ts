@@ -18,8 +18,9 @@ export const en = {
   errors: {
     channel_busy: {
       happened: 'The channel was not removed: a download or a check of it is still finishing.',
-      doing: 'Its downloads were cancelled. Nothing else was changed.',
-      action: 'Try again in a minute.',
+      doing:
+        'Its folder and files are as they were. Its waiting checks were dropped and, once no check was running, its downloads were cancelled.',
+      action: 'Try again in a minute. If you keep the channel, mirror its videos again.',
     },
     local_server_unreachable: {
       happened: 'The window cannot reach yt-mirror.',

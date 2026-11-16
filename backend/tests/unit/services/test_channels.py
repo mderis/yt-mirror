@@ -1001,18 +1001,26 @@ def test_a_file_that_cannot_be_checked_is_kept_named_and_the_removal_goes_on(
 # --- second review of M3, M3: a removal never goes on while something may write
 
 
-def test_a_removal_whose_download_does_not_stop_changes_nothing(tmp_path: Path) -> None:
-    """R-CH-32: when a download has not ended after the wait, nothing is removed or trashed."""
+def test_a_removal_whose_download_does_not_stop_keeps_the_channel_and_its_files(
+    tmp_path: Path,
+) -> None:
+    """R-CH-32: after the wait, the channel and its files stay; what was waiting stays stopped.
+
+    Before the wait the removal dropped the checks that waited and cancelled the
+    downloads: the waiting one at once, the running one with its ffmpeg.
+    """
     world = World(tmp_path)
     world.add_and_list()
     world.close_wait_s = 0.3
-    world.downloader.mirror(["sm000000005"])
+    [running, waiting] = world.downloader.mirror(["sm000000005", "sm000000004"])
+    world.catalogue.request_check(SMALL_ID, CheckKind.QUICK)
     held, go = held_at_audio(world)
     worker = threading.Thread(target=world.downloader.work_once, daemon=True)
     worker.start()
     assert held.wait(10)
     folder = world.library / "Small Channel"
     channel_file_before = world.files.read_bytes(folder / ".yt-mirror" / "channel.json")
+    videos_before = world.ids(SMALL_ID)
 
     with pytest.raises(AppError) as busy:
         world.channels.remove(SMALL_ID, keep_files=False)
@@ -1020,19 +1028,30 @@ def test_a_removal_whose_download_does_not_stop_changes_nothing(tmp_path: Path) 
     worker.join(10)
 
     assert busy.value.code is ErrorCode.CHANNEL_BUSY
+    # Stays: the channel, its catalogue, its folder and its files.
     assert [channel.id for channel in world.repository.channels()] == [SMALL_ID]
+    assert world.ids(SMALL_ID) == videos_before
     assert world.files.trashed == []
     assert world.files.read_bytes(folder / ".yt-mirror" / "channel.json") == channel_file_before
+    # Stopped, and not started again by itself: the check and both downloads.
+    assert world.catalogue.work_once() is False
+    states = {job.id: job.state for job in world.jobs.jobs(list(JobState))}
+    assert states == {running.id: JobState.CANCELLED, waiting.id: JobState.CANCELLED}
+    for video_id in ("sm000000005", "sm000000004"):
+        assert world.repository.video(video_id).status is VideoStatus.NOT_DOWNLOADED  # type: ignore[union-attr]
+    assert world.stopped_job_tools == [folder / ".yt-mirror" / "tmp" / running.id]
+    assert world.downloader.work_once() is False
 
 
-def test_a_removal_whose_check_does_not_stop_changes_nothing(
+def test_a_removal_whose_check_does_not_stop_keeps_everything_but_its_waiting_checks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """R-CH-32: when a check of the channel still runs after the wait, nothing is removed."""
+    """R-CH-32: when a check still runs after the wait, the downloads were never touched."""
     monkeypatch.setattr("ytmirror.services.channels.STOP_WAIT_S", 0.3)
     world = World(tmp_path, BIG)
     channel_id = world.add("@big")
     world.run_background()
+    first = world.ids(channel_id)
     held, go = threading.Event(), threading.Event()
 
     def hold() -> None:
@@ -1044,7 +1063,7 @@ def test_a_removal_whose_check_does_not_stop_changes_nothing(
     checking.start()
     assert held.wait(10)
 
-    with pytest.raises(AppError) as busy:
+    with capture_logs() as logs, pytest.raises(AppError) as busy:
         world.channels.remove(channel_id, keep_files=False)
     go.set()
     checking.join(10)
@@ -1052,3 +1071,8 @@ def test_a_removal_whose_check_does_not_stop_changes_nothing(
     assert busy.value.code is ErrorCode.CHANNEL_BUSY
     assert [channel.id for channel in world.repository.channels()] == [channel_id]
     assert world.files.trashed == []
+    # The running check was cancelled and changed nothing; no download was asked to stop.
+    assert world.ids(channel_id) == first
+    assert world.catalogue.work_once() is False
+    assert world.stopped_job_tools == []
+    assert log_lines(logs, "download.cancelled") == []

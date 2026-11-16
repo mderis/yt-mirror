@@ -49,7 +49,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Once a video is stored as synced its file is never moved or deleted again, even when telling the window about it fails. Its side files are stored with it, so a crash right after loses none.
 - Quitting during a merge or the embedding of subtitles cancels the download; before, the video ended as failed, or a second download started during the quit. Cancel stops the ffmpeg of that download at once.
 - In a folder that several channels share, a new download never takes a name another channel still tracks, and "Delete the files" moves a video file only when the video inside it is the channel's.
-- Removing a channel whose download or check does not stop in time changes nothing and says so.
+- Removing a channel whose download or check does not stop in time keeps the channel and its files, and says so. Its waiting checks are dropped by then and, once no check runs, its downloads are cancelled; they do not start again by themselves.
 - A start cleans up what a quit left on a drive that was not connected once the drive is back, and removes temp folders of downloads that ended.
 - A database file that cannot be read gets its own message; repeated failed starts no longer push older database copies out.
 - Quitting with Cmd+Q, from the Dock, with Ctrl+C or with a termination signal now shuts the app down cleanly. Before, only closing the window did: the other ways ended the app without stopping its server and without the last log line.

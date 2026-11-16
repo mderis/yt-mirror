@@ -96,7 +96,7 @@ Defined once in `backend/ytmirror/core/errors.py`. Each code has: a name, whethe
 | `FFMPEG_FAILED` | transient | Merge or embed step failed |
 | `VERIFY_FAILED` | transient | The finished file did not pass verification |
 | `DATES_NOT_APPLIED` | transient | File dates could not be set or verified |
-| `CHANNEL_BUSY` | transient | A removal found a download or a check of the channel still running after its wait; nothing was removed (R-CH-32) |
+| `CHANNEL_BUSY` | transient | A removal found a download or a check of the channel still running after its wait. The channel and its files stay; its waiting checks were dropped and, once no check ran, its downloads were cancelled (R-CH-32) |
 | `DB_UNREADABLE` | permanent | At start the database file cannot be read, or a copy could not be put back after a failed update: the file itself may be damaged. The app does not start and names the backup if there is one (R-QA-07) |
 | `DB_UPGRADE_FAILED` | permanent | A migration failed at start. The database is left as it was, a backup was made before, and the app does not start (R-QA-07) |
 | `TOOL_MISSING` | transient | ffmpeg, Deno or yt-dlp is not usable |

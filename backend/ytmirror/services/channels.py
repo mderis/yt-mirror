@@ -602,8 +602,9 @@ class ChannelsService:
         Raises:
             AppError: ``NOT_FOUND`` for an unknown channel, ``INVALID_REQUEST``
                 while the channel is being removed already, ``CHANNEL_BUSY`` when
-                a check or a download of the channel did not stop in time: then
-                nothing was removed.
+                a check or a download of the channel did not stop in time: then the
+                channel and its files stay. Its waiting checks were dropped by then
+                and, once no check ran, its downloads were cancelled.
         """
         channel = self._known(channel_id)
         folder = self._views.folder_of(channel)

@@ -126,7 +126,13 @@ describe('the remove channel dialog', () => {
     expect(alert.textContent).toContain(
       'The channel was not removed: a download or a check of it is still finishing.',
     )
-    expect(alert.textContent).toContain('Try again in a minute.')
+    expect(alert.textContent).toContain(
+      'Its folder and files are as they were. Its waiting checks were dropped and, once no check was running, its downloads were cancelled.',
+    )
+    expect(alert.textContent).toContain(
+      'Try again in a minute. If you keep the channel, mirror its videos again.',
+    )
+    expect(alert.textContent).not.toContain('Nothing else was changed')
     expect(screen.getByRole('heading', { level: 1, name: 'Sample Channel' })).toBeTruthy()
   })
 
