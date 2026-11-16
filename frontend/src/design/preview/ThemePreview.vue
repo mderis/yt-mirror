@@ -270,6 +270,27 @@ function ref(name: string): string {
                     hint: t('themePreview.sampleRadioOptions.pickHint'),
                   },
                   { value: 'all', label: t('themePreview.sampleRadioOptions.all') },
+                  {
+                    value: 'later',
+                    label: t('themePreview.sampleRadioOptions.later'),
+                    disabled: true,
+                  },
+                ]"
+              />
+              <RadioGroup
+                model-value="pick"
+                :legend="t('themePreview.sampleRadioDisabled')"
+                :options="[
+                  {
+                    value: 'pick',
+                    label: t('themePreview.sampleRadioOptions.pick'),
+                    disabled: true,
+                  },
+                  {
+                    value: 'all',
+                    label: t('themePreview.sampleRadioOptions.all'),
+                    disabled: true,
+                  },
                 ]"
               />
             </div>

@@ -209,6 +209,8 @@ Targets: interactive elements are at least 44 px high, except dense table and to
 
 The frontend builds these shared components first, each with tests and a story-like demo page used for visual checks: Button, IconButton, Chip (status), ProgressBar, Checkbox, Radio group, Select, TextField, Toggle row, Dialog, Menu, Toast, Banner, Tabs, Sidebar item, Video row, Video card, Details panel, Skeleton, Empty state, Key cap.
 
+**Form controls are drawn from tokens, not by the system.** A radio button or a checkbox is the real input element of the browser (`<input type="radio">`, `<input type="checkbox">`) inside its label, so the keyboard, screen readers and forms work as the system's, but with `appearance: none`, drawn by one shared component with tokens only. Each macOS version draws its own controls, and not for the dark theme: the system's radio was a white disc on a dark dialog. Each control has its unchosen, chosen, hover and disabled states, a focus ring in the accent colour, and follows "Increase contrast" (`prefers-contrast: more`: the ring takes the text colour) and "Reduce motion" (through the duration tokens). Its focus ring follows `:focus`, as the system's did: WebKit drops `:focus-visible` when the arrow keys move between radio buttons, and a mouse click does not focus a control there. The radio group does this since milestone M3 (`RadioGroup.vue`); the checkbox of milestone M5 follows it.
+
 ## 5. App icon and logo
 
 The icon in `AppIcon.html` is a draft and is expected to change. To make changing it a one-file job:
