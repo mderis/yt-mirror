@@ -146,6 +146,7 @@ class YouTubeAccess:
         is_cancelled: Callable[[], bool],
         *,
         by_user: bool,
+        start_writing: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download one video. Unless the user started it, a pause holds it up (D-071).
 
@@ -154,6 +155,7 @@ class YouTubeAccess:
             on_progress: Told how far the download is.
             is_cancelled: Asked while the download runs.
             by_user: Whether the user started this download by hand.
+            start_writing: Called right before the first file is written.
 
         Raises:
             AppError: ``BOT_CHECK`` without asking while the app pauses, or as the
@@ -163,7 +165,9 @@ class YouTubeAccess:
         """
         return self._ask(
             "download",
-            lambda: self._gateway.download(request, on_progress, is_cancelled),
+            lambda: self._gateway.download(
+                request, on_progress, is_cancelled, start_writing=start_writing
+            ),
             by_user=by_user,
         )
 

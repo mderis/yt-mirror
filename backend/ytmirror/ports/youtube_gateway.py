@@ -83,6 +83,8 @@ class YouTubeGateway(Protocol):
         request: DownloadRequest,
         on_progress: Callable[[DownloadProgress], None],
         is_cancelled: Callable[[], bool],
+        *,
+        start_writing: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download one video as an MKV with its metadata, into the temp folder of its job.
 
@@ -91,6 +93,10 @@ class YouTubeGateway(Protocol):
             on_progress: Told how far the download is (R-QU-04).
             is_cancelled: Asked while the download runs. When it says yes, the
                 download ends at its next step.
+            start_writing: Called once, right before the first file of the job is
+                written, after what only reads from YouTube. It raises
+                ``DownloadCancelledError`` when the job was cancelled meanwhile:
+                then nothing is written (R-QU-02).
 
         Raises:
             AppError: With the code of what went wrong, for example ``MEMBERS_ONLY``.

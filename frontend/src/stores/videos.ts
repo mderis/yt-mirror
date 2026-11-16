@@ -21,11 +21,19 @@ import {
   type ErrorCode,
   type Video,
   type VideoDetails,
+  type VideoStatus,
 } from '@/api/client'
 
 export type VideosStatus = 'idle' | 'loading' | 'ready' | 'failed'
 
 const UNKNOWN_ERROR: ErrorCode = 'INTERNAL'
+
+/** The statuses of a video whose download waits or runs. */
+const ACTIVE: ReadonlySet<VideoStatus> = new Set<VideoStatus>([
+  'queued',
+  'downloading',
+  'processing',
+])
 
 export const useVideosStore = defineStore('videos', () => {
   /** The channel whose catalogue is held, or null. */
@@ -37,6 +45,8 @@ export const useVideosStore = defineStore('videos', () => {
   const changed = reactive(new Map<string, Video>())
   /** The downloads that run, by video ID (R-QU-04). */
   const downloads = reactive(new Map<string, Download>())
+  /** The videos whose download the user cancelled, while it still ends (R-QU-02). */
+  const cancelling = reactive(new Set<string>())
   /** The video of the details panel, or null when it is closed (R-UI-08). */
   const openVideoId = ref<string | null>(null)
   /** What the details panel shows, once it arrived. */
@@ -114,6 +124,9 @@ export const useVideosStore = defineStore('videos', () => {
       return
     }
     changed.set(video.id, video)
+    if (!ACTIVE.has(video.status)) {
+      cancelling.delete(video.id)
+    }
     if (video.download === null || video.download === undefined) {
       downloads.delete(video.id)
     } else {
@@ -146,9 +159,26 @@ export const useVideosStore = defineStore('videos', () => {
     await api.retryVideo(videoId)
   }
 
-  /** Cancel the download of a video that waits or runs (R-QU-02). */
-  async function cancel(jobId: string): Promise<void> {
-    await api.cancelJob(jobId)
+  /**
+   * Cancel the download of a video that waits or runs (R-QU-02).
+   *
+   * Until its end arrives the video counts as cancelling: a job that has
+   * written files ends only once its temp folder is gone. A job that only
+   * asked YouTube ends at once, and its end arrives with the answer.
+   */
+  async function cancel(jobId: string, videoId: string): Promise<void> {
+    cancelling.add(videoId)
+    try {
+      await api.cancelJob(jobId)
+    } catch (error) {
+      cancelling.delete(videoId)
+      throw error
+    }
+  }
+
+  /** Whether the user cancelled the download of a video that has not ended yet. */
+  function isCancelling(video: Video): boolean {
+    return cancelling.has(video.id) && ACTIVE.has(current(video).status)
   }
 
   /** Open the file of a video in the default player (R-UI-10). */
@@ -200,6 +230,7 @@ export const useVideosStore = defineStore('videos', () => {
     mirror,
     retry,
     cancel,
+    isCancelling,
     play,
     reveal,
     openDetails,

@@ -171,6 +171,8 @@ class FixtureYouTube:
         request: DownloadRequest,
         on_progress: Callable[[DownloadProgress], None],
         is_cancelled: Callable[[], bool],
+        *,
+        start_writing: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Write a few seconds of real MKV for a fixture video, as yt-dlp would.
 
@@ -183,6 +185,8 @@ class FixtureYouTube:
             request: What to download, and where to.
             on_progress: Told how far the download is.
             is_cancelled: Asked before every step.
+            start_writing: Called after the metadata lookup (which a fixture video
+                can make slow with ``metadata_delay_ms``), before anything is written.
 
         Raises:
             AppError: ``VIDEO_REMOVED`` for an unknown video, the code the
@@ -199,6 +203,10 @@ class FixtureYouTube:
         if not found:
             raise AppError(ErrorCode.VIDEO_REMOVED, {"video": request.video_id})
         channel, plan = found[0]
+        if plan.metadata_delay_s:
+            # The metadata lookup of yt-dlp: it reads only, and is not interrupted by a cancel.
+            self._sleep(plan.metadata_delay_s)
+        start_writing()
         request.log_file.parent.mkdir(parents=True, exist_ok=True)
         with request.log_file.open("a", encoding="utf-8") as log:
             log.write(f"info [fixture] Downloading {request.video_id} at {request.quality.value}\n")
@@ -511,6 +519,7 @@ class _FixtureChannel:
             subtitles_fail=bool(entry.get("subtitles_fail", False)),
             fails=ErrorCode(fails) if fails else None,
             step_delay_s=float(entry.get("step_delay_ms", 0)) / 1000,
+            metadata_delay_s=float(entry.get("metadata_delay_ms", 0)) / 1000,
             size_unknown=bool(entry.get("size_unknown", False)),
             chapters=tuple(
                 Chapter(start_s=float(start), title=str(title))
@@ -574,6 +583,7 @@ class _DownloadPlan:
     subtitles_fail: bool
     fails: ErrorCode | None
     step_delay_s: float
+    metadata_delay_s: float
     size_unknown: bool
     chapters: tuple[Chapter, ...]
 

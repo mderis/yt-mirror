@@ -26,7 +26,8 @@
       "title": "Restoring an old workbench",
       "duration_s": 1127,
       "view_count": 112000,
-      "point": "2026-11-05"
+      "point": "2026-11-05",
+      "metadata_delay_ms": 3000
     },
     {
       "id": "small000009",

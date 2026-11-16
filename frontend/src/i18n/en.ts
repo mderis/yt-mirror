@@ -306,6 +306,7 @@ export const en = {
       mirror: 'Mirror',
       cancel: 'Cancel',
       cancelOf: 'Cancel the download of {title}',
+      cancelling: 'Cancelling…',
       retryDownload: 'Retry',
       play: 'Play',
       reveal: 'Show in Finder',

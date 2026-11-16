@@ -5,7 +5,7 @@ import type { Download, VideoDetails } from '@/api/client'
 
 import { noContent, openApp, part } from '../helpers/app'
 import { channel, CHANNEL_ID, NOW, video } from '../helpers/catalogue'
-import { jsonResponse } from '../helpers/fetch'
+import { errorBody, jsonResponse } from '../helpers/fetch'
 
 const ID = video(1).id
 
@@ -138,6 +138,49 @@ describe('downloading videos', () => {
     expect(
       within(row()).getByRole('button', { name: 'Cancel the download of Video 1' }),
     ).toBeTruthy()
+  })
+
+  it('R-QU-02: after Cancel a download that writes says "Cancelling…", busy, until it ends', async () => {
+    const app = await openWith(
+      {},
+      { 'POST /api/jobs/J1/cancel': jsonResponse({ cancelled: true }) },
+    )
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'downloading', job_id: 'J1' }))
+    app.stream().jobProgress(download())
+    await waitFor(() => expect(within(row()).getByText('Downloading 42%')).toBeTruthy())
+
+    await fireEvent.click(
+      within(row()).getByRole('button', { name: 'Cancel the download of Video 1' }),
+    )
+
+    await waitFor(() => expect(within(row()).getByText('Cancelling…')).toBeTruthy())
+    expect(within(row()).queryByText('Downloading 42%')).toBeNull()
+    expect(within(row()).queryByRole('progressbar')).toBeNull()
+    const button = within(row()).getByRole('button', { name: 'Cancel the download of Video 1' })
+    expect(button.getAttribute('aria-busy')).toBe('true')
+
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'not_downloaded' }))
+
+    await waitFor(() => expect(within(row()).getByText('Not downloaded')).toBeTruthy())
+    expect(within(row()).queryByText('Cancelling…')).toBeNull()
+    expect(within(row()).getByRole('button', { name: 'Mirror' })).toBeTruthy()
+  })
+
+  it('R-QU-02: a cancel the server refuses shows the download again', async () => {
+    const app = await openWith(
+      {},
+      { 'POST /api/jobs/J1/cancel': jsonResponse(errorBody('INTERNAL'), 500) },
+    )
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'downloading', job_id: 'J1' }))
+    app.stream().jobProgress(download())
+    await waitFor(() => expect(within(row()).getByText('Downloading 42%')).toBeTruthy())
+
+    await fireEvent.click(
+      within(row()).getByRole('button', { name: 'Cancel the download of Video 1' }),
+    )
+
+    await waitFor(() => expect(within(row()).getByText('Downloading 42%')).toBeTruthy())
+    expect(within(row()).queryByText('Cancelling…')).toBeNull()
   })
 
   it('R-FB-02, R-UI-10: a synced video shows its height and size, and plays and shows in Finder', async () => {

@@ -267,6 +267,8 @@ class YtDlpGateway:
         request: DownloadRequest,
         on_progress: Callable[[DownloadProgress], None],
         is_cancelled: Callable[[], bool],
+        *,
+        start_writing: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download one video into the temp folder of its job (ARCHITECTURE section 7.3).
 
@@ -279,6 +281,8 @@ class YtDlpGateway:
             on_progress: Told how far the download is.
             is_cancelled: Asked while the download runs. When it says yes, the
                 download ends with ``DownloadCancelledError`` at the next step.
+            start_writing: Called after the metadata lookup, which only reads,
+                and before yt-dlp writes anything (R-QU-02).
 
         Raises:
             AppError: With the code of what went wrong.
@@ -316,6 +320,8 @@ class YtDlpGateway:
         tags = {"video_id": request.video_id}
         if published is not None:
             tags["published_at"] = _iso(published)
+        # Until here only YouTube was asked; from here yt-dlp writes into the temp folder.
+        start_writing()
         try:
             answer = self._download(address, options, tags)
         except DownloadCancelledError:

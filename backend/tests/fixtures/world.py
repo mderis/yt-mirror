@@ -58,9 +58,16 @@ from ytmirror.services.youtube_access import YouTubeAccess
 
 LISTED_AT = "2026-11-14T06:42:00Z"
 type Download = Callable[
-    [DownloadRequest, Callable[[DownloadProgress], None], Callable[[], bool]], DownloadResult
+    [
+        DownloadRequest,
+        Callable[[DownloadProgress], None],
+        Callable[[], bool],
+        Callable[[], None],
+    ],
+    DownloadResult,
 ]
-"""Downloads a video like the gateway: the request, where progress goes, and whether to stop."""
+"""Downloads a video like the gateway: the request, where progress goes, whether to stop, and
+what to call before the first file is written."""
 
 SMALL_ID = "UCsmallsmallsmallsmall01"
 
@@ -177,12 +184,16 @@ class RefusingGateway:
         request: DownloadRequest,
         on_progress: Callable[[DownloadProgress], None],
         is_cancelled: Callable[[], bool],
+        *,
+        start_writing: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download, unless downloads are refused, with the stand-in when there is one."""
         self._maybe_refuse("download")
         if self.download_with is not None:
-            return self.download_with(request, on_progress, is_cancelled)
-        return self._youtube.download(request, on_progress, is_cancelled)
+            return self.download_with(request, on_progress, is_cancelled, start_writing)
+        return self._youtube.download(
+            request, on_progress, is_cancelled, start_writing=start_writing
+        )
 
 
 def own_file(video_id: str) -> bytes:
@@ -216,6 +227,8 @@ class FakeDownload:
         self.release: int | None = None
         self.no_thumbnail = False
         self.info_json: str | None = None
+        self.asking: Callable[[], object] = lambda: None
+        """What the metadata lookup does before the first file is written."""
         """The raw metadata to give, or None for a small valid one."""
 
     def __call__(
@@ -223,11 +236,15 @@ class FakeDownload:
         request: DownloadRequest,
         on_progress: Callable[[DownloadProgress], None],
         is_cancelled: Callable[[], bool],
+        start_writing: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download like the gateway, into the temp folder of the job."""
         self.calls.append(request)
+        # The metadata lookup: it only reads, and a cancel does not interrupt it.
+        self.asking()
         if self.fail is not None:
             raise self.fail
+        start_writing()
         for stage in (Stage.VIDEO, Stage.AUDIO, Stage.PROCESSING):
             if stage is self.cancel_at:
                 self.on_cancel()

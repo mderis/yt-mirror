@@ -1101,6 +1101,129 @@ def test_mirror_and_retry_refuse_a_video_removed_from_youtube(world: World) -> N
     assert refused.value.code is ErrorCode.INVALID_REQUEST
 
 
+# --- a cancel while YouTube is only asked ends at once (hand test of M3)
+
+
+def held_while_asking(
+    world: World, answer: Exception | None = None
+) -> tuple[threading.Event, threading.Event]:
+    """Hold the download in its metadata lookup, which only reads and is not interrupted.
+
+    Returns the event that says it is held and the one that lets YouTube answer.
+    With ``answer``, YouTube's late answer is that error.
+    """
+    held, go = threading.Event(), threading.Event()
+
+    def asking() -> None:
+        held.set()
+        go.wait(10)
+        if answer is not None:
+            raise answer
+
+    world.download.asking = asking
+    return held, go
+
+
+def test_a_cancel_while_youtube_is_asked_ends_the_job_at_once(world: World) -> None:
+    """R-QU-02: the row is back before YouTube answers; nothing is written, then or later."""
+    [job] = world.downloader.mirror([FIRST])
+    held, go = held_while_asking(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+    world.events.clear()
+
+    assert world.downloader.cancel(job.id) is True
+
+    # Before YouTube answers.
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert video.status is VideoStatus.NOT_DOWNLOADED
+    assert world.jobs.job(job.id).state is JobState.CANCELLED  # type: ignore[union-attr]
+    assert [
+        event.view.video.status for event in world.events if isinstance(event, VideoUpdated)
+    ] == [VideoStatus.NOT_DOWNLOADED]
+    assert everything(world) == []
+    world.events.clear()
+
+    go.set()
+    worker.join(10)
+
+    # YouTube's late answer is ignored: no file, no row, no event.
+    assert everything(world) == []
+    assert world.repository.video(FIRST).status is VideoStatus.NOT_DOWNLOADED  # type: ignore[union-attr]
+    assert world.jobs.job(job.id).state is JobState.CANCELLED  # type: ignore[union-attr]
+    assert [event for event in world.events if isinstance(event, VideoUpdated)] == []
+
+
+def test_a_late_error_of_youtube_after_such_a_cancel_is_ignored(world: World) -> None:
+    """R-QU-02: the abandoned lookup failing later never turns the cancel into a failure."""
+    [job] = world.downloader.mirror([FIRST])
+    held, go = held_while_asking(world, AppError(ErrorCode.VIDEO_PRIVATE, {}))
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.downloader.cancel(job.id)
+    go.set()
+    worker.join(10)
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
+    assert world.jobs.job(job.id).state is JobState.CANCELLED  # type: ignore[union-attr]
+
+
+def test_mirror_works_again_right_after_such_a_cancel(world: World) -> None:
+    """R-QU-02: the video can be put in line again at once, and downloads once YouTube answers."""
+    [job] = world.downloader.mirror([FIRST])
+    held, go = held_while_asking(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+    world.downloader.cancel(job.id)
+
+    [again] = world.downloader.mirror([FIRST])
+    assert world.repository.video(FIRST).status is VideoStatus.QUEUED  # type: ignore[union-attr]
+    world.download.asking = lambda: None
+    go.set()
+    worker.join(10)
+    world.download_all()
+
+    assert world.jobs.job(again.id).state is JobState.DONE  # type: ignore[union-attr]
+    assert world.repository.video(FIRST).status is VideoStatus.SYNCED  # type: ignore[union-attr]
+
+
+def test_a_removal_does_not_wait_for_a_job_that_only_asked_youtube(tmp_path: Path) -> None:
+    """R-CH-32: such a job writes nothing more, so a removal goes on at once."""
+    world = World(tmp_path)
+    world.add_and_list()
+    world.close_wait_s = 0.5
+    world.downloader.mirror([FIRST])
+    held, go = held_while_asking(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.channels.remove(SMALL_ID, keep_files=False)
+    go.set()
+    worker.join(10)
+
+    assert world.repository.channels() == ()
+
+
+def test_a_cancel_once_files_are_written_waits_for_the_cleanup(world: World) -> None:
+    """R-QU-02: a job that writes ends at its next step, after its temp folder is gone."""
+    [job] = world.downloader.mirror([FIRST])
+    held, go = held_at_audio(world)
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.downloader.cancel(job.id)
+
+    assert world.repository.video(FIRST).status is VideoStatus.DOWNLOADING  # type: ignore[union-attr]
+    go.set()
+    worker.join(10)
+    assert world.repository.video(FIRST).status is VideoStatus.NOT_DOWNLOADED  # type: ignore[union-attr]
+    assert everything(world) == []
+
+
 # --- a cancel is told only once nothing of its download is left (CI run 43843836595)
 
 

@@ -95,6 +95,31 @@ test('R-QU-02: a download that is cancelled leaves nothing, and Mirror works aga
   await expect(row(page, FIRST).getByText('Synced · 270p')).toBeVisible({ timeout: 20_000 })
 })
 
+test('R-QU-02: a cancel while YouTube is only asked ends within half a second, and Mirror works again', async ({
+  page,
+  freshApp,
+}) => {
+  // The fake YouTube answers the metadata lookup of this video after 3 s, as yt-dlp's can.
+  const SLOW = 'small000010'
+  await openChannel(page, freshApp)
+  await row(page, SLOW).getByRole('button', { name: 'Mirror' }).click()
+  await expect(row(page, SLOW).getByText('Downloading')).toBeVisible()
+
+  const pressed = Date.now()
+  await row(page, SLOW)
+    .getByRole('button', { name: 'Cancel the download of Restoring an old workbench' })
+    .click()
+  await expect(row(page, SLOW).getByText('Not downloaded')).toBeVisible({ timeout: 500 })
+  expect(Date.now() - pressed).toBeLessThan(500)
+
+  const folder = join(freshApp.libraryDir, 'Sample Channel One')
+  const temp = join(folder, '.yt-mirror', 'tmp')
+  expect(readdirSync(folder).filter((name) => !name.startsWith('.'))).toEqual([])
+  expect(existsSync(temp) ? readdirSync(temp) : []).toEqual([])
+  await row(page, SLOW).getByRole('button', { name: 'Mirror' }).click()
+  await expect(row(page, SLOW).getByText('Synced · 270p')).toBeVisible({ timeout: 20_000 })
+})
+
 test('R-QU-04: the percent and the bar of a row grow as the fake YouTube sends progress in steps', async ({
   page,
   freshApp,

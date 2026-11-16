@@ -195,6 +195,14 @@ class DownloaderService:
         self._videos: dict[str, Video] = {}
         """The video of each running job, as it is now."""
         self._cancelled: set[str] = set()
+        self._asking: set[str] = set()
+        """The running jobs that wait for YouTube and have written no file yet."""
+        self._abandoned: set[str] = set()
+        """Jobs that were cancelled while they waited for YouTube, and ended at once.
+
+        Their worker still waits for YouTube's answer; when it comes, it is ignored:
+        such a job writes no file, no row and no event any more (R-QU-02).
+        """
         self._nothing_placed: set[str] = set()
         """The running jobs of which no file stands in a channel folder under a marker.
 
@@ -320,6 +328,8 @@ class DownloaderService:
                 self._last_told.pop(job.id, None)
                 self._cancelled.discard(job.id)
                 self._nothing_placed.discard(job.id)
+                self._asking.discard(job.id)
+                self._abandoned.discard(job.id)
                 self._wake.notify_all()
         return True
 
@@ -378,8 +388,11 @@ class DownloaderService:
     def cancel(self, job_id: str) -> bool:
         """Cancel a download that waits or runs (R-QU-02, R-ER-03).
 
-        A waiting job goes at once. A running one ends at its next step, and
-        its video goes back to "not downloaded".
+        A waiting job goes at once, and so does a running one that has written
+        no file yet: it only waits for YouTube's answer, which is then ignored.
+        A job that writes files ends at its next step, once its ffmpeg is
+        stopped and its temp folder removed. Either way its video goes back to
+        "not downloaded".
 
         Args:
             job_id: The job.
@@ -393,9 +406,24 @@ class DownloaderService:
             if job is None or job.state not in ACTIVE_STATES:
                 return False
             running = job.id in self._running
+            abandoned = job.id in self._asking
             if running:
                 self._cancelled.add(job.id)
                 work = self._work_of.get(job.id)
+            if abandoned:
+                # It has written nothing, and start_writing now refuses it: it ends here.
+                self._asking.discard(job.id)
+                self._abandoned.add(job.id)
+                video = self._repository.video(job.video_id)
+                self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled")
+        if abandoned:
+            _log.info(
+                "download.cancelled",
+                msg="Download cancelled before a file was written. YouTube's answer is ignored",
+                job_id=job_id,
+                video_id=job.video_id,
+            )
+            return True
         if running:
             # Its ffmpeg may copy a large file for a long time: it is stopped, so the job
             # ends at once and writes nothing more (R-QU-02, R-CH-32).
@@ -463,9 +491,15 @@ class DownloaderService:
             if video is not None and video.channel_id == channel_id:
                 self.cancel(job.id)
         with self._wake:
+            # A job abandoned while it asked YouTube writes nothing more: no need to wait.
             return self._wake.wait_for(
                 lambda: (
-                    channel_id not in self._running.values()
+                    channel_id
+                    not in {
+                        channel
+                        for job_id, channel in self._running.items()
+                        if job_id not in self._abandoned
+                    }
                     and self._writing_side_files_of != channel_id
                 ),
                 timeout=wait_s,
@@ -595,11 +629,17 @@ class DownloaderService:
             video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
             self._videos[job.id] = video
             video = self._clean_marker_first(running, video, place)
-            self._files.make_folder(place.work, inside=place.folder)
+            with self._wake:
+                if self._is_cancelled(job.id):
+                    raise DownloadCancelledError("cancelled before YouTube was asked")
+                self._asking.add(job.id)
             result = self._download(running, video, place, log)
             video = self._processing(running)
             self._finish(running, video, channel, place, result, log, started)
         except Exception as error:  # noqa: BLE001  (a cancel is asked before any error is read)
+            if self._was_abandoned(job.id):
+                # Ended by the cancel already; YouTube's late answer, even an error, is ignored.
+                return
             # A file of the job that could not leave the channel folder keeps its marker.
             keep_marker = job.id not in self._nothing_placed
             # The temp folder goes before the end is stored and told: a video shown as
@@ -629,6 +669,26 @@ class DownloaderService:
                 self._failed_unexpectedly(running, video, log, started, keep_marker=keep_marker)
         finally:
             self._remove_work(place, log)
+
+    def _was_abandoned(self, job_id: str) -> bool:
+        with self._wake:
+            return job_id in self._abandoned
+
+    def _start_writing(self, job: Job, place: _Place) -> None:
+        """Called by the gateway right before the first file of the job is written.
+
+        From here a cancel waits for the job to stop and clean up. Before it, the
+        job only asked YouTube, and a cancel ended it at once (R-QU-02).
+
+        Raises:
+            DownloadCancelledError: When the job was cancelled meanwhile: then it
+                writes nothing, not even its temp folder.
+        """
+        with self._wake:
+            self._asking.discard(job.id)
+            if job.id in self._abandoned or self._is_cancelled(job.id):
+                raise DownloadCancelledError("cancelled before a file was written")
+        self._files.make_folder(place.work, inside=place.folder)
 
     def _remove_work(self, place: _Place, log: FilteringBoundLogger) -> None:
         """Remove the temp folder of a job. A failure is a warning, never how the job ends.
@@ -703,7 +763,7 @@ class DownloaderService:
             auto_subtitles=settings.auto_subtitles,
         )
         try:
-            return self._ask(job, video, request)
+            return self._ask(job, video, request, place)
         except SubtitlesFailedError as failure:
             log.warning(
                 "download.retry",
@@ -713,16 +773,22 @@ class DownloaderService:
             self._files.remove_temp_folder(place.work)
             self._files.make_folder(place.work, inside=place.folder)
             return self._ask(
-                job, video, replace(request, manual_subtitles=False, auto_subtitles=False)
+                job, video, replace(request, manual_subtitles=False, auto_subtitles=False), place
             )
 
-    def _ask(self, job: Job, video: Video, request: DownloadRequest) -> DownloadResult:
+    def _ask(
+        self, job: Job, video: Video, request: DownloadRequest, place: _Place
+    ) -> DownloadResult:
         def told(progress: DownloadProgress) -> None:
             self._progressed(job, video, progress)
 
         try:
             return self._youtube.download(
-                request, told, lambda: self._is_cancelled(job.id), by_user=True
+                request,
+                told,
+                lambda: self._is_cancelled(job.id),
+                by_user=True,
+                start_writing=lambda: self._start_writing(job, place),
             )
         except DownloadCancelledError:
             raise

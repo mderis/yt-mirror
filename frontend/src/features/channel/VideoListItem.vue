@@ -53,6 +53,8 @@ const date = computed(() =>
   video.value === props.row.video ? props.row.date : dateOf(video.value),
 )
 const download = computed(() => videos.downloadOf(video.value.id))
+/** The user cancelled the download and it is still ending (R-QU-02). */
+const cancelling = computed(() => videos.isCancelling(props.row.video))
 const isOpen = computed(() => videos.openVideoId === video.value.id)
 
 /** The percent of the whole video that is done, or null when it is not known (R-QU-04). */
@@ -75,7 +77,7 @@ const downloadingText = computed(() => {
 /** "1080p · 3.1 MB/s · 1 min left" while bytes arrive (R-QU-04). */
 const progressFacts = computed(() => {
   const running = download.value
-  if (running === null || video.value.status !== 'downloading') {
+  if (running === null || video.value.status !== 'downloading' || cancelling.value) {
     return null
   }
   const parts = [t(`channel.list.stage.${running.stage}`)]
@@ -125,7 +127,7 @@ function onPictureMissing(): void {
 function cancel(): void {
   const jobId = video.value.job_id
   if (jobId !== null && jobId !== undefined) {
-    void ui.run(videos.cancel(jobId))
+    void ui.run(videos.cancel(jobId, video.value.id))
   }
 }
 </script>
@@ -168,7 +170,7 @@ function cancel(): void {
     </template>
     <template #progress>
       <ProgressBar
-        v-if="video.status === 'downloading' || video.status === 'processing'"
+        v-if="(video.status === 'downloading' || video.status === 'processing') && !cancelling"
         class="mt-1 max-w-90"
         thin
         :value="video.status === 'processing' ? null : (download?.fraction ?? null)"
@@ -177,7 +179,10 @@ function cancel(): void {
     </template>
     <template #status>
       <div class="flex flex-none flex-wrap justify-end gap-2" data-chips>
-        <StatusChip v-if="video.status === 'not_downloaded'">
+        <StatusChip v-if="cancelling" tone="neutral" icon="retry">
+          {{ t('channel.list.cancelling') }}
+        </StatusChip>
+        <StatusChip v-else-if="video.status === 'not_downloaded'">
           {{ t('channel.list.notDownloaded') }}
         </StatusChip>
         <StatusChip v-else-if="video.status === 'queued'" tone="neutral" icon="clock">
@@ -233,6 +238,7 @@ function cancel(): void {
             video.job_id
           "
           variant="ghost"
+          :busy="cancelling"
           :aria-label="t('channel.list.cancelOf', { title: video.title })"
           @press="cancel"
         >
