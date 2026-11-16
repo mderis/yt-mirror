@@ -1,0 +1,28 @@
+{
+  "id": "UCnosubtitles00000000010",
+  "title": "No Subtitles Channel",
+  "handle": "@nosubtitles",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 2,
+  "download": {
+    "subtitles": "none"
+  },
+  "videos": [
+    {
+      "id": "nosubs00001",
+      "title": "A video without subtitles",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-11-12",
+      "published_at": "2026-11-12T12:00:00Z"
+    },
+    {
+      "id": "nosubs00002",
+      "title": "Another one without subtitles",
+      "duration_s": 2,
+      "view_count": 1000,
+      "point": "2026-11-02",
+      "published_at": "2026-11-02T12:00:00Z"
+    }
+  ]
+}

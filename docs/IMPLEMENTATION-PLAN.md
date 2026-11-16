@@ -62,7 +62,7 @@ Requirements: R-CH-01 to R-CH-16, R-CH-23, R-CH-24, R-CH-27, R-CH-30 to R-CH-35 
 Acceptance: with the fake YouTube, channels can be added and browsed, and the `changing` fixture shows new, renamed and removed videos correctly across quick and full checks: a quick check never marks a video as removed, a full check that is cancelled changes nothing, and a failed check keeps the catalogue.
 
 ## M3. Downloading one video correctly
-Requirements: R-MI-01, R-QL-01 to R-QL-04, R-FI-*, R-FN-01 to R-FN-05, R-FN-07, R-MD-01 to R-MD-05, R-DT-01 to R-DT-03, R-DT-07, R-DT-08, R-DT-10, R-LG-02, R-LG-03. Partly: R-UI-08 to R-UI-10 (the details panel, Play, Show in Finder), R-DT-13 (the highlight when an exact date replaces an approximate one, and the date in the details panel), R-QA-02 (the live download test), R-UI-14. Resolve: Q-02, Q-04.
+Requirements: R-QL-01 to R-QL-04, R-FI-*, R-FN-01 to R-FN-05, R-FN-07, R-MD-01 to R-MD-05, R-DT-01 to R-DT-03, R-DT-07, R-DT-08, R-DT-10, R-LG-02, R-LG-03. Partly: R-MI-01 (Mirror for one video, from its row and the details panel; several presses queue several jobs, which run one after another), R-QU-02 (Cancel of one download, waiting, downloading or processing), R-QU-08 (Retry of a failed video), R-FB-01 ("Mirroring X of Y"), R-UI-08 to R-UI-10 (the details panel, Play, Show in Finder), R-DT-13 (the highlight when an exact date replaces an approximate one, and the date in the details panel), R-QA-02 (the live download test), R-UI-14. Resolve: Q-02, Q-04.
 
 - `core/naming.py`, `core/dates.py`, `core/quality.py` with property-based tests.
 - macOS filesystem adapter: dates with verification, atomic moves, Trash, reveal, open.
@@ -75,7 +75,7 @@ Requirements: R-MI-01, R-QL-01 to R-QL-04, R-FI-*, R-FN-01 to R-FN-05, R-FN-07, 
 Acceptance: a video mirrored from the fake YouTube is a valid MKV with the right name, embedded metadata, cover, subtitles, and creation and modification dates equal to the published time, verified by integration tests on macOS. The live test downloads one real video. The requirement coverage and the end-to-end tests include the element postponed from M2.
 
 ## M4. Exact dates and automatic checks
-Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11 to R-DT-13, R-FN-06, R-CH-20 to R-CH-22, R-CH-25 (the automatic retry with backoff), R-CH-26, R-CH-28 (date repair with every check), R-PL-07. Resolve: Q-08.
+Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11 to R-DT-13, R-FN-06, R-CH-20 to R-CH-22, R-CH-25 (the automatic retry with backoff), R-CH-26, R-CH-28 (date repair with every check), R-PL-07. Resolve: Q-08. Also resolve Q-27 (moved from M3).
 
 - Background fetch with backoff and persistence: newest videos first, and an entry at the front of the queue for videos a decision waits for (R-DT-05). Optional API key with guide dialog and test button.
 - The updating and unavailable states of an approximate date (R-DT-13), driven by the fetch queue, in the list, the details panel and on the theme preview page.
@@ -87,7 +87,7 @@ Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11 to R-DT-13, R-FN-06, R-CH-20 
 Acceptance: the mandatory date tests in [TESTING.md](TESTING.md) section 5 pass under two time zones. With a fake clock, channels are checked when the app opens, when one is selected after more than 5 minutes, and on the interval. A failed check is retried after 5, 15 and 60 minutes. A full check starts by itself after the set time, one channel at a time. The app works with no API key (R-PL-07). The requirement coverage and the end-to-end tests include the elements postponed from M2.
 
 ## M5. Queue
-Requirements: R-QU-01 to R-QU-12, R-MI-02 to R-MI-07, R-UI-03 to R-UI-13 (remaining), R-QL-05 to R-QL-07, R-NA-03, R-NA-04, R-NA-06, R-NA-09. Partly: R-CH-26 (no full check while the channel downloads), R-CH-28 (verifying that synced files exist with every check), R-DT-13 (the grid), R-UI-14.
+Requirements: R-QU-01 to R-QU-12, R-MI-01 (selecting several videos and the bulk bar), R-MI-02 to R-MI-07, R-UI-03 to R-UI-13 (remaining), R-QL-05 to R-QL-07, R-NA-03, R-NA-04, R-NA-06, R-NA-09. Partly: R-CH-26 (no full check while the channel downloads), R-CH-28 (verifying that synced files exist with every check), R-DT-13 (the grid), R-UI-14.
 
 - Worker pool, ordering, reorder, pause and resume, speed limit, retry policy, resume of partial downloads, restart recovery, disk guard, unavailable folder handling.
 - Auto-mirror with the date limit. A video whose approximate date cannot decide the limit gets its exact date first, through the front of the fetch queue of M4 (R-MI-03). Mirror everything missing. File missing status.

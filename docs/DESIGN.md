@@ -174,8 +174,10 @@ Approved by the maintainer in milestone M0. The mockups do not define these as r
 | `font-weight-semibold` | 600 | Headings, the wordmark |
 | `duration-fast` | 150 ms | Hover, press, toggles |
 | `duration-base` | 200 ms | Menus, dialogs, panels, toasts |
+| `duration-arrive` | 1200 ms | The highlight that fades when an exact date replaces an approximate one (R-DT-13) |
+| `duration-working` | 1400 ms | One pass of the part of a progress bar that moves while the share of a step is unknown: processing, or a download whose size YouTube did not give (R-QU-04) |
 
-Both durations become 0 ms when the system "reduce motion" setting is on.
+All durations become 0 ms when the system "reduce motion" setting is on. A bar of unknown progress is then full, dimmed and still.
 
 ### 2.7 Shadow tokens
 
@@ -206,6 +208,8 @@ Targets: interactive elements are at least 44 px high, except dense table and to
 ## 4. Component list
 
 The frontend builds these shared components first, each with tests and a story-like demo page used for visual checks: Button, IconButton, Chip (status), ProgressBar, Checkbox, Radio group, Select, TextField, Toggle row, Dialog, Menu, Toast, Banner, Tabs, Sidebar item, Video row, Video card, Details panel, Skeleton, Empty state, Key cap.
+
+**Form controls are drawn from tokens, not by the system.** A radio button or a checkbox is the real input element of the browser (`<input type="radio">`, `<input type="checkbox">`) inside its label, so the keyboard, screen readers and forms work as the system's, but with `appearance: none`, drawn by one shared component with tokens only. Each macOS version draws its own controls, and not for the dark theme: the system's radio was a white disc on a dark dialog. Each control has its unchosen, chosen, hover and disabled states, a focus ring in the accent colour, and follows "Increase contrast" (`prefers-contrast: more`: the ring takes the text colour) and "Reduce motion" (through the duration tokens). Its focus ring follows `:focus`, as the system's did: WebKit drops `:focus-visible` when the arrow keys move between radio buttons, and a mouse click does not focus a control there. The radio group does this since milestone M3 (`RadioGroup.vue`); the checkbox and the arrow of the select follow it in milestone M5.
 
 ## 5. App icon and logo
 
@@ -359,3 +363,16 @@ An element whose target a later milestone builds is not shown before that milest
 | A channel waits for YouTube (R-FB-01) | Sidebar: "Waiting for YouTube" with a clock icon, and the time of the next attempt as tooltip. Header of a first listing: "Waiting for YouTube. The next attempt is at 06:57." |
 | A failed check is tried again (R-CH-25, D-076) | The status says "Checking for new videos...". The banner of the failed check stays, says "Trying again now." and its "Try again" is busy. A failed first listing that is tried again shows the progress page of a first listing |
 | The window is not connected to its server | The brand icon, "Connecting to yt-mirror", or the error with "Try again" (R-ER-04) |
+
+### 8.9 Downloads (milestone M3)
+
+| Element | What the app does, and how it differs from the mockups |
+|---|---|
+| Rows (`Main.html`) | Every status chip of `States.html`. The actions of a row follow its status: Mirror, Cancel, Retry, or Play and Show in Finder. Selecting several rows, the bulk bar, the queue footer and "More actions" of a video arrive with M5 (D-066) |
+| Cancel while processing | Offered on a row that is processed, as on a queued or downloading one: Cancel works until the file is moved into the folder (D-080). `Main.html` and `ListLight.html` show it since M3 |
+| The title of a row | A button that opens the details panel. `Main.html` draws plain text; there is no other way to the panel before the keyboard shortcuts of M5 |
+| The details panel (`Details.html`) | The chapters are a list under the description; the mockup shows only "6 chapters". Copy link, Re-download, Repair metadata and Exclude forever are not shown before their milestones (D-066). A video that is not downloaded shows Mirror in the place of Play |
+| The remove dialog (`RemoveChannel.html`) | The group of choices has the visible legend "The files of the channel". The hint of "Delete the files" says how many files and how much room go to the Trash, and that the other files of the folder stay |
+| The highlight of an exact date (R-DT-13) | A background of `ok-bg` that fades over `duration-arrive` (1200 ms). With "reduce motion" its duration is 0 |
+| The progress of a download (R-QU-04) | One percent for the whole video, its video and audio streams together: the bar fills and the chip says "Downloading 45%". When YouTube gives no size, the chip says how much arrived ("Downloading · 120 MB") and the bar shows that the step runs. While the video is processed (merge and embed) the chip says "Processing" and the bar shows that the step runs, with no percent |
+

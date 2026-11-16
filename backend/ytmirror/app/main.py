@@ -48,7 +48,7 @@ from ytmirror.app.menus import menu_bar
 from ytmirror.app.server import BackgroundServer, bind_local_socket
 from ytmirror.app.single_instance import InstanceLock, bring_to_front, bundle_of
 from ytmirror.app.window import open_window
-from ytmirror.core.errors import ErrorCode
+from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.icon import icon_with_colours
 from ytmirror.core.identity import app_identity
 from ytmirror.core.models import LogDetail
@@ -60,6 +60,7 @@ _log: FilteringBoundLogger = structlog.get_logger("ytmirror.app.main")
 EXIT_OK = 0
 EXIT_ALREADY_RUNNING = 1
 EXIT_USAGE = 2
+EXIT_DB_UPGRADE_FAILED = 3
 _TOKEN_BYTES = 32
 WINDOW_WAIT_S = 20.0
 """How long a second start waits for the window of a first one that is still starting."""
@@ -256,11 +257,22 @@ def run_app(
     )
     try:
         remove_old_logs(paths.logs_dir, container.clock.now().date())
-        container.schema.bring_up_to_date()
+        try:
+            container.schema.bring_up_to_date()
+        except AppError as error:
+            if error.code not in (ErrorCode.DB_UPGRADE_FAILED, ErrorCode.DB_UNREADABLE):
+                raise
+            # Nothing starts on a database this version cannot use (R-QA-07).
+            title, text = database_message(error, paths.logs_dir)
+            container.native.show_alert(title, text)
+            return EXIT_DB_UPGRADE_FAILED
         container.toolchain.verify()
         # The checks and the pictures are background work: it starts with the app.
         container.catalogue.start()
         container.thumbnails.start()
+        container.downloader.start()
+        # After the start of the downloader: the jobs it cleaned up count by when they ended.
+        container.job_logs.clean()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
             set_verbose(True)
         server = _start_server(options, paths, container, token)
@@ -288,11 +300,47 @@ def run_app(
     return EXIT_OK
 
 
+def database_message(error: AppError, logs: Path) -> tuple[str, str]:
+    """Return the title and the text that say why the database stops the start (R-QA-07).
+
+    Args:
+        error: ``DB_UPGRADE_FAILED`` (the file is as it was) or ``DB_UNREADABLE``.
+        logs: The folder of the logs, for a report.
+    """
+    backup = error.details.get("backup", "")
+    report = f"Please report this problem, with the log from {logs}."
+    if error.code is ErrorCode.DB_UNREADABLE:
+        copy = (
+            f" A copy of the database made before the update is at\n{backup}\n\n" if backup else " "
+        )
+        return (
+            "yt-mirror cannot read its database",
+            f"The database file could not be read; it may be damaged.{copy}"
+            f"yt-mirror does not start. {report}",
+        )
+    if not error.details.get("from_version"):
+        return ("yt-mirror could not create its database", f"yt-mirror cannot start. {report}")
+    copy = (
+        f"A copy of it made just before the update is at\n{backup}\n\n"
+        if backup
+        else "No copy could be made, and none was needed: nothing was changed.\n\n"
+    )
+    return (
+        "yt-mirror could not update its database",
+        "This version of yt-mirror needs an update of its database, and the update "
+        f"failed. Your data is safe: the database was left as it was. {copy}"
+        "yt-mirror does not start with this version. Start the previous version again, "
+        f"or report this problem with the log from {logs}.",
+    )
+
+
 def _stop(server: BackgroundServer, container: Container) -> None:
     """The shutdown work of the app. Later milestones add their workers here."""
     _log.info("app.stopping", msg="yt-mirror is stopping")
     # A check that is running ends at the next video and stores nothing (R-PL-13).
     container.catalogue.stop()
+    # A download that is running is cancelled and its temp files deleted (R-PL-13, R-QA-06).
+    container.downloader.stop()
     # Ends the event streams of open windows first, or the server would wait for them.
     container.events.close()
     server.stop()
@@ -354,6 +402,7 @@ def api_services(container: Container) -> ApiServices:
         catalogue=container.catalogue,
         views=container.views,
         thumbnails=container.thumbnails,
+        downloader=container.downloader,
     )
 
 

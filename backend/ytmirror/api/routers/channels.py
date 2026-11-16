@@ -18,8 +18,11 @@ from ytmirror.api.catalogue_schemas import (
     CheckAllResponse,
     CheckRequest,
     ChosenFolderResponse,
+    FilesToTrashResponse,
+    KeptFileResponse,
     LookupRequest,
     LookupResponse,
+    RemovedChannelResponse,
     VideoCountResponse,
 )
 from ytmirror.api.pictures import picture_response
@@ -98,14 +101,27 @@ def build_router(
         """Pause or resume a channel (R-CH-31)."""
         return Channel.of(channels.set_paused(channel_id, body.paused))
 
-    def remove_channel(channel_id: str) -> Response:
-        """Remove a channel with its catalogue. Its folder and files stay (R-CH-32)."""
-        channels.remove(channel_id)
-        return Response(status_code=_NO_CONTENT)
+    def remove_channel(channel_id: str, keep_files: bool = True) -> RemovedChannelResponse:
+        """Remove a channel with its catalogue, and its files or not (R-CH-32).
+
+        The answer lists every file that stayed, with its reason.
+        """
+        removed = channels.remove(channel_id, keep_files=keep_files)
+        return RemovedChannelResponse(
+            folder=removed.folder,
+            files_trashed=removed.files_trashed,
+            left=[KeptFileResponse.of(kept) for kept in removed.left],
+        )
+
+    def files_to_trash(channel_id: str) -> FilesToTrashResponse:
+        """Say how many files and how much room "Delete the files" moves to the Trash (R-CH-32)."""
+        found = channels.files_to_trash(channel_id)
+        return FilesToTrashResponse(files=found.files, size_bytes=found.size_bytes)
 
     def check_channel(channel_id: str, body: CheckRequest | None = None) -> Channel:
         """Start a quick or a full check of a channel (R-CH-23)."""
-        catalogue.request_check(channel_id, (body or CheckRequest()).kind)
+        asked = body or CheckRequest()
+        catalogue.request_check(channel_id, asked.kind, trigger=asked.trigger)
         return view_of(channel_id)
 
     def cancel_check(channel_id: str) -> CancelCheckResponse:
@@ -190,9 +206,15 @@ def build_router(
         "/channels/{channel_id}",
         remove_channel,
         methods=["DELETE"],
-        status_code=_NO_CONTENT,
-        response_class=Response,
+        response_model=RemovedChannelResponse,
         operation_id="removeChannel",
+    )
+    add(
+        "/channels/{channel_id}/files-to-trash",
+        files_to_trash,
+        methods=["GET"],
+        response_model=FilesToTrashResponse,
+        operation_id="getFilesToTrash",
     )
     add(
         "/channels/{channel_id}/check",

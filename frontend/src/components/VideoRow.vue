@@ -3,9 +3,10 @@
  * One video in the list view (R-CH-10, docs/DESIGN.md section 4): thumbnail
  * with the duration, title, a line of facts and the status.
  *
- * The facts go into the `facts` slot and the status into the `status` slot.
- * In milestone M2 a row is read-only: selecting and the actions of a row
- * arrive with the milestones that build them.
+ * The facts go into the `facts` slot, a progress bar into `progress`, the
+ * status into `status` and the buttons into `actions`. The title is a button
+ * that opens the details of the video (R-UI-08); the row of the open video is
+ * marked. Selecting several rows arrives with milestone M5.
  */
 import { ref, watch } from 'vue'
 
@@ -21,13 +22,25 @@ const props = withDefaults(
     duration?: string | undefined
     /** The word of the "new" tag. None hides it (R-CH-15). */
     newTag?: string | undefined
+    /** What the title button says to a screen reader: it opens the details. None: plain text. */
+    detailsLabel?: string | undefined
+    /** Whether the details of this video are open. */
+    open?: boolean
   }>(),
-  { thumbnail: undefined, duration: undefined, newTag: undefined },
+  {
+    thumbnail: undefined,
+    duration: undefined,
+    newTag: undefined,
+    detailsLabel: undefined,
+    open: false,
+  },
 )
 
 const emit = defineEmits<{
   /** The thumbnail could not be loaded: it is not cached yet (R-CH-16). */
   pictureMissing: []
+  /** The title was pressed: show the details of the video. */
+  details: []
 }>()
 
 /** A picture that is not cached yet makes room for the plain block behind it. */
@@ -48,7 +61,12 @@ watch(
 </script>
 
 <template>
-  <div role="listitem" class="flex items-center gap-3 border-b border-line px-4 py-2">
+  <div
+    role="listitem"
+    class="flex items-center gap-3 border-b border-line px-4 py-2"
+    :class="{ 'bg-surface-raised': open }"
+    :data-open="open || undefined"
+  >
     <div class="relative h-18 w-32 flex-none overflow-hidden rounded-md bg-track">
       <!-- `loading` stands before `src`: WebKit loads at once when the address is set first. -->
       <img
@@ -71,12 +89,27 @@ watch(
     <div class="flex min-w-0 flex-1 flex-col gap-1">
       <div class="flex min-w-0 items-center gap-2">
         <AppBadge v-if="newTag" shape="tag">{{ newTag }}</AppBadge>
-        <span class="truncate text-title-sm font-medium text-text" data-title>{{ title }}</span>
+        <button
+          v-if="detailsLabel"
+          type="button"
+          class="min-w-0 truncate rounded-xs text-left text-title-sm font-medium text-text hover:underline"
+          :aria-label="detailsLabel"
+          :aria-expanded="open"
+          data-title
+          @click="emit('details')"
+        >
+          {{ title }}
+        </button>
+        <span v-else class="truncate text-title-sm font-medium text-text" data-title>{{
+          title
+        }}</span>
       </div>
       <div class="flex flex-wrap items-center gap-x-2 text-meta text-text-muted" data-facts>
         <slot name="facts" />
       </div>
+      <slot name="progress" />
     </div>
     <slot name="status" />
+    <slot name="actions" />
   </div>
 </template>

@@ -6,7 +6,13 @@ import datetime
 import pytest
 
 from ytmirror.core.channels import DatePrecision
-from ytmirror.core.dates import DAY_S, moment_to_show, possible_range, precision_of
+from ytmirror.core.dates import (
+    DAY_S,
+    moment_to_show,
+    possible_range,
+    precision_of,
+    published_time,
+)
 
 P = DatePrecision
 
@@ -152,3 +158,21 @@ def test_from_the_middle_the_error_is_at_most_half_a_unit() -> None:
 
     assert abs(shown - exact) <= 183 * DAY_S
     assert point - exact > 364 * DAY_S
+
+
+# --- the published time of a downloaded video
+
+
+def test_the_published_time_of_a_premiere_is_its_release_time() -> None:
+    """R-DT-03: for a premiere or a scheduled video, the release time, not the upload time."""
+    assert published_time(release_time=1_794_500_000, upload_time=1_794_000_000) == 1_794_500_000
+
+
+def test_the_published_time_of_a_normal_video_is_its_upload_time() -> None:
+    """R-DT-03: a video that was never scheduled became public when it was uploaded."""
+    assert published_time(release_time=None, upload_time=1_794_000_000) == 1_794_000_000
+
+
+def test_without_an_exact_time_there_is_no_published_time() -> None:
+    """R-DT-04: an exact time is never made up when the metadata has none."""
+    assert published_time(release_time=None, upload_time=None) is None

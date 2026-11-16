@@ -16,6 +16,7 @@ import AppBanner from '@/components/AppBanner.vue'
 import IconButton from '@/components/IconButton.vue'
 import AddChannelDialog from '@/features/channel/AddChannelDialog.vue'
 import ChannelMenu from '@/features/channel/ChannelMenu.vue'
+import FilesLeftDialog from '@/features/channel/FilesLeftDialog.vue'
 import RemoveChannelDialog from '@/features/channel/RemoveChannelDialog.vue'
 import ToolBanners from '@/features/tools/ToolBanners.vue'
 import { useErrorTexts } from '@/i18n/errors'
@@ -107,5 +108,6 @@ function onAdded(channelId: string, existing: boolean): void {
       @added="onAdded"
     />
     <RemoveChannelDialog v-if="removing" :channel="removing" @close="ui.closeRemove()" />
+    <FilesLeftDialog v-if="ui.filesLeft" :left="ui.filesLeft" @close="ui.closeFilesLeft()" />
   </div>
 </template>

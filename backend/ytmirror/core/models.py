@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from ytmirror.core.channels import ChannelUpdated, TaskProgressed, YouTubePauseChanged
+from ytmirror.core.channels import ChannelUpdated, Quality, TaskProgressed, YouTubePauseChanged
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.jobs import JobProgressed, VideoUpdated
 
 APP_NAME = "yt-mirror"
 """The name of the app everywhere a user reads it (R-NA-01)."""
@@ -53,10 +54,20 @@ class Settings:
         log_detail: How much the debug log records.
         library_folder: The parent folder of the channel folders (R-FI-01). A leading
             ``~`` stands for the home folder of the user.
+        default_quality: The quality of a channel without its own (R-QL-02).
+        embed_subtitles: Whether English subtitles are embedded (R-MD-03).
+        auto_subtitles: Whether auto-generated English subtitles are embedded
+            when there are no creator ones (R-MD-03).
+        thumbnail_next_to_video: Whether the thumbnail is also saved next to
+            the video file (R-MD-05).
     """
 
     log_detail: LogDetail = LogDetail.NORMAL
     library_folder: str = DEFAULT_LIBRARY_FOLDER
+    default_quality: Quality = Quality.BEST
+    embed_subtitles: bool = True
+    auto_subtitles: bool = True
+    thumbnail_next_to_video: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,5 +348,12 @@ class ToolUpdated:
     report: ToolReport
 
 
-type AppEvent = ToolUpdated | ChannelUpdated | TaskProgressed | YouTubePauseChanged
+type AppEvent = (
+    ToolUpdated
+    | ChannelUpdated
+    | TaskProgressed
+    | YouTubePauseChanged
+    | VideoUpdated
+    | JobProgressed
+)
 """Every event the services publish for the interface. Each milestone adds its own."""

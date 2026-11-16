@@ -9,6 +9,7 @@ Tests: backend/tests/integration/test_tool_box_contract.py
 """
 
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Protocol
 
 from ytmirror.core.models import InstalledTool, ToolFile, ToolName
@@ -26,6 +27,18 @@ class ToolBox(Protocol):
 
         Args:
             tool: The tool.
+        """
+        ...
+
+    def program_path(self, tool: ToolName, program: str) -> Path:
+        """Return where a program of a tool is when the tool is in place.
+
+        yt-dlp is given the paths of ffmpeg and Deno this way (ARCHITECTURE
+        section 7.3), and media files are read with ffprobe.
+
+        Args:
+            tool: The tool.
+            program: The name of the program.
         """
         ...
 

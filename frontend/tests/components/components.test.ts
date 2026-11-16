@@ -88,14 +88,14 @@ describe('the progress bar', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe(shown)
   })
 
-  it('R-UI-11: unknown progress has no number and a dimmed full bar', () => {
+  it('R-UI-11, R-QU-04: unknown progress has no number, and a part of the bar moves across it', () => {
     render(ProgressBar, { props: { value: null, label: 'Progress' } })
 
     const bar = screen.getByRole('progressbar')
 
     expect(bar.hasAttribute('aria-valuenow')).toBe(false)
-    expect((bar.firstElementChild as HTMLElement).style.width).toBe('100%')
-    expect(bar.firstElementChild?.className).toContain('opacity-50')
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe('')
+    expect(bar.firstElementChild?.className).toContain('animate-working')
   })
 })
 

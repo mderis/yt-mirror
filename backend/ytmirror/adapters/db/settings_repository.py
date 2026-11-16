@@ -13,7 +13,9 @@ from collections.abc import Mapping
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.tables import SettingRow
+from ytmirror.core.channels import Quality
 from ytmirror.core.models import LogDetail, Settings
 from ytmirror.ports.clock import Clock
 
@@ -29,11 +31,12 @@ class SqlSettingsRepository:
             clock: The source of the ``created_at`` and ``updated_at`` times.
         """
         self._engine = engine
+        self._reader = for_reading(engine)
         self._clock = clock
 
     def load(self) -> Settings:
         """Return the stored settings. A setting that was never stored has its default."""
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(select(SettingRow)).all()
             stored: dict[str, object] = {row.key: json.loads(row.value) for row in rows}
         return _settings_from(stored)
@@ -60,6 +63,10 @@ def _values_of(settings: Settings) -> dict[str, str]:
     return {
         "log_detail": json.dumps(settings.log_detail.value),
         "library_folder": json.dumps(settings.library_folder),
+        "default_quality": json.dumps(settings.default_quality.value),
+        "embed_subtitles": json.dumps(settings.embed_subtitles),
+        "auto_subtitles": json.dumps(settings.auto_subtitles),
+        "thumbnail_next_to_video": json.dumps(settings.thumbnail_next_to_video),
     }
 
 
@@ -73,4 +80,23 @@ def _settings_from(stored: Mapping[str, object]) -> Settings:
         library_folder=library_folder
         if isinstance(library_folder, str) and library_folder
         else defaults.library_folder,
+        default_quality=_quality(stored.get("default_quality"), defaults.default_quality),
+        embed_subtitles=_flag(stored.get("embed_subtitles"), defaults.embed_subtitles),
+        auto_subtitles=_flag(stored.get("auto_subtitles"), defaults.auto_subtitles),
+        thumbnail_next_to_video=_flag(
+            stored.get("thumbnail_next_to_video"), defaults.thumbnail_next_to_video
+        ),
     )
+
+
+def _quality(value: object, default: Quality) -> Quality:
+    """Return a stored quality, or the default when it cannot be read (R-SE-04)."""
+    try:
+        return Quality(value) if isinstance(value, str) else default
+    except ValueError:
+        return default
+
+
+def _flag(value: object, default: bool) -> bool:
+    """Return a stored switch, or the default when it is not one (R-SE-04)."""
+    return value if isinstance(value, bool) else default

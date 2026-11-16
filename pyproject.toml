@@ -21,10 +21,12 @@ dependencies = [
     "uvicorn>=0.40",
     # The download engine (D-002). Locked here. Updating it on its own arrives in M9 (D-017).
     "yt-dlp>=2026.10.26",
+    "yt-dlp-ejs==0.8.0",
 ]
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.140",
     "import-linter>=2.16",
     "pre-commit>=4.0",
     "pyright>=1.1.414",
@@ -52,6 +54,7 @@ markers = [
     "live: needs the real YouTube. Opt-in, never run in CI (docs/TESTING.md section 8).",
     "infra: an infrastructure test that covers no requirement. Set from the docstring (docs/TESTING.md rule 1).",
     "window: opens the real app window for a few seconds (docs/TESTING.md section 1). Leave them out with: -m 'not window'.",
+    "media: reads or writes real video files with ffmpeg. CI runs them with each ffmpeg source (D-053).",
 ]
 filterwarnings = ["error"]
 

@@ -26,6 +26,7 @@ from ytmirror.adapters.ytdlp_gateway import (
     COUNT_OPTIONS,
     LISTING_OPTIONS,
     LOOKUP_OPTIONS,
+    METADATA_OPTIONS,
     UPLOADS_OF_LONG_VIDEOS,
     VIDEOS_TAB,
     extract_with_ytdlp,
@@ -83,6 +84,55 @@ def anonymised(
     ]
     kept["entries"] = [
         _entry(entry, number) for number, entry in enumerate(answer.get("entries") or (), start=1)
+    ]
+    return kept
+
+
+RECORDED_VIDEO_ID = "recvideo001"
+"""The ID that stands for the recorded video of a download."""
+
+_VIDEO_KEYS = (
+    "_type",
+    "duration",
+    "timestamp",
+    "release_timestamp",
+    "upload_date",
+    "live_status",
+    "availability",
+)
+
+
+def anonymised_video(info: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the full metadata of one video with its words and names replaced.
+
+    What the gateway reads to download it stays: the times, the length, the
+    live status, the languages of the subtitles and the places of the chapters.
+
+    Args:
+        info: The answer of yt-dlp for the video.
+
+    Returns:
+        The metadata to store.
+    """
+    kept: dict[str, Any] = {key: info[key] for key in _VIDEO_KEYS if key in info}
+    kept["id"] = RECORDED_VIDEO_ID
+    kept["title"] = "A recorded video"
+    kept["description"] = "The description of a recorded video."
+    kept["channel"] = RECORDED_TITLE
+    kept["channel_id"] = "UCrecordedchannel0000001"
+    for key in ("subtitles", "automatic_captions"):
+        tracks: Mapping[str, Any] = info.get(key) or {}
+        languages = sorted(str(language) for language in tracks)
+        english = [language for language in languages if language.split("-")[0] == "en"]
+        others = [language for language in languages if language not in english][:3]
+        kept[key] = {language: [{"ext": "vtt"}] for language in sorted([*english, *others])}
+    kept["chapters"] = [
+        {
+            "start_time": chapter.get("start_time"),
+            "end_time": chapter.get("end_time"),
+            "title": f"Chapter {number}",
+        }
+        for number, chapter in enumerate(info.get("chapters") or (), start=1)
     ]
     return kept
 
@@ -195,9 +245,28 @@ def record(
     return recordings
 
 
+def record_video(video_id: str) -> dict[str, Any]:  # pragma: no cover  (the network)
+    """Ask the real YouTube for the full metadata of one video and anonymise it."""
+    answer = dict(
+        extract_with_ytdlp(f"https://www.youtube.com/watch?v={video_id}", METADATA_OPTIONS, True)
+    )
+    return anonymised_video(answer)
+
+
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover  (the network)
-    """Record and write ``recordings.json``. Returns the process exit code."""
+    """Record and write ``recordings.json``, or ``video.json`` with ``--video <id>``.
+
+    Returns the process exit code.
+    """
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if len(arguments) == len(("--video", "id")) and arguments[0] == "--video":
+        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        (RECORDINGS_DIR / "video.json").write_text(
+            json.dumps(record_video(arguments[1]), indent=1, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        sys.stdout.write(f"Wrote {RECORDINGS_DIR / 'video.json'}\n")
+        return 0
     if len(arguments) != len(("channel", "channel without a Videos tab")):
         sys.stderr.write(
             "usage: python -m ytmirror.tools.record_ytdlp"

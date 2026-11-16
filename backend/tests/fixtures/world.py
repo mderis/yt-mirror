@@ -6,6 +6,7 @@ writes, and the clock, the folders, the folder dialog and the picture cache
 are fakes. Nothing runs in the background by itself: a test says when.
 """
 
+import itertools
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
@@ -17,8 +18,10 @@ from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.file_system import FakeFileSystem
 from tests.fixtures.fakes.folder_picker import FakeFolderPicker
 from tests.fixtures.fakes.image_cache import InMemoryImageCache
+from tests.fixtures.fakes.media_tools import FakeMediaTools
 from tests.fixtures.fakes.settings_repository import InMemorySettingsRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
+from ytmirror.adapters.db.job_repository import SqlJobRepository
 from ytmirror.adapters.fixture_youtube import FixtureYouTube
 from ytmirror.core.channels import (
     ChannelFacts,
@@ -31,10 +34,22 @@ from ytmirror.core.channels import (
     YouTubePauseChanged,
 )
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import (
+    DownloadCancelledError,
+    DownloadProgress,
+    DownloadRequest,
+    DownloadResult,
+    Stage,
+    SubtitleKind,
+    SubtitlesFailedError,
+    VideoUpdated,
+)
 from ytmirror.core.models import AppEvent
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
+from ytmirror.services.download_state import DownloadState
+from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
@@ -42,7 +57,26 @@ from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.youtube_access import YouTubeAccess
 
 LISTED_AT = "2026-11-14T06:42:00Z"
+type Download = Callable[
+    [
+        DownloadRequest,
+        Callable[[DownloadProgress], None],
+        Callable[[], bool],
+        Callable[[], None],
+    ],
+    DownloadResult,
+]
+"""Downloads a video like the gateway: the request, where progress goes, whether to stop, and
+what to call before the first file is written."""
+
 SMALL_ID = "UCsmallsmallsmallsmall01"
+
+
+def job_id(number: int) -> str:
+    """Return a job ID in the shape of a ULID, as the app gives them."""
+    return f"01JD{number:022d}"
+
+
 BIG_ID = "UCbigbigbigbigbigbigbi02"
 
 
@@ -94,7 +128,7 @@ class RefusingGateway:
     """Passes everything on to the fake YouTube, and can refuse like the real one.
 
     Attributes:
-        refuse: Kinds of request ("lookup", "listing", "count", "image") with the
+        refuse: Kinds of request ("lookup", "listing", "count", "image", "download") with the
             error code to answer them with.
         asked: Every request that reached the gateway, by kind.
     """
@@ -105,6 +139,8 @@ class RefusingGateway:
         self.refuse: dict[str, ErrorCode] = {}
         self.asked: list[str] = []
         self.refuse_listing_after: int | None = None
+        self.download_with: Download | None = None
+        """A stand-in for the downloads, when a test needs no real video file."""
 
     def _maybe_refuse(self, kind: str) -> None:
         self.asked.append(kind)
@@ -143,6 +179,105 @@ class RefusingGateway:
         self._maybe_refuse("image")
         return self._youtube.fetch_image(url)
 
+    def download(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        *,
+        start_writing: Callable[[], None] = lambda: None,
+    ) -> DownloadResult:
+        """Download, unless downloads are refused, with the stand-in when there is one."""
+        self._maybe_refuse("download")
+        if self.download_with is not None:
+            return self.download_with(request, on_progress, is_cancelled, start_writing)
+        return self._youtube.download(
+            request, on_progress, is_cancelled, start_writing=start_writing
+        )
+
+
+def own_file(video_id: str) -> bytes:
+    """The content of a fake video file of the app: the fake media tools read its video ID."""
+    return f"video:{video_id}".encode()
+
+
+class FakeDownload:
+    """Stands in for a download: writes the files yt-dlp leaves, and calls the hooks.
+
+    Attributes:
+        calls: Every request, in order.
+        fail: An error to raise instead of downloading, or None.
+        subtitles_fail_once: Whether the first download with subtitles fails them.
+        cancel_at: A stage at which the test cancels, through ``on_cancel``, or None.
+        on_cancel: What the test does at that stage, for example press Cancel.
+        published: The upload time the metadata gives.
+        release: The release time of a premiere, or None.
+        no_thumbnail: Whether YouTube gives no thumbnail.
+    """
+
+    def __init__(self, files: FakeFileSystem) -> None:
+        """Write into the given fake file system."""
+        self._files = files
+        self.calls: list[DownloadRequest] = []
+        self.fail: Exception | None = None
+        self.subtitles_fail_once = False
+        self.cancel_at: Stage | None = None
+        self.on_cancel: Callable[[], object] = lambda: None
+        self.published: int | None = 1_793_379_761
+        self.release: int | None = None
+        self.no_thumbnail = False
+        self.info_json: str | None = None
+        self.asking: Callable[[], object] = lambda: None
+        """What the metadata lookup does before the first file is written."""
+        """The raw metadata to give, or None for a small valid one."""
+
+    def __call__(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        start_writing: Callable[[], None] = lambda: None,
+    ) -> DownloadResult:
+        """Download like the gateway, into the temp folder of the job."""
+        self.calls.append(request)
+        # The metadata lookup: it only reads, and a cancel does not interrupt it.
+        self.asking()
+        if self.fail is not None:
+            raise self.fail
+        start_writing()
+        for stage in (Stage.VIDEO, Stage.AUDIO, Stage.PROCESSING):
+            if stage is self.cancel_at:
+                self.on_cancel()
+            if is_cancelled():
+                raise DownloadCancelledError(f"cancelled at {stage.value}")
+            on_progress(DownloadProgress(stage=stage, fraction=1.0, speed_bps=1e6, left_s=0))
+        if request.manual_subtitles and self.subtitles_fail_once:
+            self.subtitles_fail_once = False
+            raise SubtitlesFailedError("the subtitles failed")
+        # The file carries its video ID, as the tag of a real download does (R-MD-01).
+        self._files.add_files(
+            request.work_folder, [f"{request.video_id}.mkv"], data=own_file(request.video_id)
+        )
+        if not self.no_thumbnail:
+            self._files.add_files(
+                request.work_folder, [f"{request.video_id}.jpg"], data=b"twelve bytes"
+            )
+        return DownloadResult(
+            file=request.work_folder / f"{request.video_id}.mkv",
+            thumbnail=None
+            if self.no_thumbnail
+            else request.work_folder / f"{request.video_id}.jpg",
+            info_json=json.dumps({"id": request.video_id})
+            if self.info_json is None
+            else self.info_json,
+            title="Title at YouTube",
+            description="A description.",
+            duration_s=2,
+            release_time=self.release,
+            upload_time=self.published,
+            subtitles=SubtitleKind.MANUAL if request.manual_subtitles else None,
+        )
+
 
 class World:
     """The catalogue services with fakes around them.
@@ -178,21 +313,30 @@ class World:
         self.background: list[Callable[[], None]] = []
         self.later: list[tuple[float, Callable[[], None]]] = []
         self.files = FakeFileSystem()
+        self.media = FakeMediaTools(self.files)
+        self.close_wait_s = 30.0
+        """How long a removal waits for the downloads of its channel."""
+        self.stopped_job_tools: list[Path] = []
+        """The temp folders of the jobs whose ffmpeg a cancel stopped."""
         self.picker = FakeFolderPicker()
         self.cache = InMemoryImageCache()
         self.meta = InMemoryAppMetaRepository()
         self.settings_repository = InMemorySettingsRepository()
-        self.repository = SqlCatalogueRepository(migrated_engine(folder), self.clock)
+        engine = migrated_engine(folder)
+        self.repository = SqlCatalogueRepository(engine, self.clock)
+        self.jobs = SqlJobRepository(engine, self.clock)
         self.settings = SettingsService(self.settings_repository, self.library)
         self.youtube = YouTubeAccess(
             self.gateway, self.clock, self.bus, lambda delay, work: self.later.append((delay, work))
         )
+        self.downloads = DownloadState()
         self.views = ChannelViews(
             self.repository,
             self.settings,
             self.clock,
             self.bus,
             youtube_paused=lambda: self.youtube.pause() is not None,
+            downloads=self.downloads,
         )
         self.waited: list[float] = []
         self.during_wait: Callable[[], None] | None = None
@@ -210,9 +354,8 @@ class World:
             self.views,
             self.clock,
             self.background.append,
-            after_check=lambda channel_id, kind: self.thumbnails.fill(
-                channel_id, renew_avatar=kind is CheckKind.FULL
-            ),
+            after_check=self._after_check,
+            found_removed=lambda video_ids: self.downloader.end_removed(video_ids),
             choose_delay=lambda least, most: (least + most) / 2,
             wait=self._wait,
         )
@@ -227,10 +370,57 @@ class World:
             self.thumbnails,
             self.clock,
             self.background.append,
+            close_downloads=lambda channel_id: self.downloader.channel_closed(
+                channel_id, self.close_wait_s
+            ),
+            media=self.media,
         )
         self.state = StateService(
             self.views, self.settings, self.files, self.picker, self.meta, self.youtube
         )
+        self.stop_tools: Callable[[], None] = lambda: None
+        """What stopping the tools at quit does in a test."""
+        self.job_numbers = itertools.count(1)
+        self.download = FakeDownload(self.files)
+        self.gateway.download_with = self.download
+        self.downloader = DownloaderService(
+            repository=self.repository,
+            jobs=self.jobs,
+            youtube=self.youtube,
+            files=self.files,
+            media=self.media,
+            settings=self.settings,
+            views=self.views,
+            state=self.downloads,
+            events=self.bus,
+            clock=self.clock,
+            new_job_id=lambda: job_id(next(self.job_numbers)),
+            job_logs=folder / "logs" / "jobs",
+            run_in_background=self.background.append,
+            stop_tools=lambda: self.stop_tools(),
+            stop_job_tools=self.stopped_job_tools.append,
+        )
+
+    def _after_check(self, channel_id: str, kind: CheckKind) -> None:
+        """What the container does after a check: the pictures and the channel file."""
+        self.thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
+        self.channels.write_channel_file(channel_id)
+
+    def download_all(self) -> None:
+        """Let every waiting download run, one after another."""
+        while self.downloader.work_once():
+            pass
+
+    def video_updates(self) -> list[VideoUpdated]:
+        """Return the video updates that were published."""
+        return [event for event in self.events if isinstance(event, VideoUpdated)]
+
+    def statuses(self, video_id: str) -> list[tuple[str, str, str]]:
+        """Return the recorded status changes of a video: from, to and why."""
+        return [
+            (event.from_status, event.to_status, event.reason)
+            for event in self.jobs.events(video_id)
+        ]
 
     def at_progress(self, done: int, action: Callable[[], object]) -> None:
         """Run an action once, when a long check has read so many videos."""

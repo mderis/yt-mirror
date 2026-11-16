@@ -10,6 +10,7 @@ from tests.fixtures.world import SMALL_ID, World
 from ytmirror.api.pictures import content_type_of
 from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import CheckKind
+from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.ports.image_cache import ImageKind
 
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -48,6 +49,11 @@ def test_the_catalogue_of_a_channel_is_listed_newest_first(
         "is_new": False,
         "gone": False,
         "excluded": False,
+        "job_id": None,
+        "download": None,
+        "height": None,
+        "file_size": None,
+        "error_code": None,
     }
 
 
@@ -154,3 +160,96 @@ def test_the_kind_of_a_picture_is_read_from_its_first_bytes(
 ) -> None:
     """R-CH-16: a cached picture is served as what it is, and nothing else as a picture."""
     assert content_type_of(picture) == content_type
+
+
+# --- downloads (milestone M3)
+
+
+def test_mirror_puts_videos_in_line_in_the_order_given(client: TestClient, world: World) -> None:
+    """R-MI-01: Mirror answers at once with the jobs that were put in line."""
+    answer = client.post("/api/videos/mirror", json={"ids": ["sm000000004", "sm000000005"]})
+
+    assert answer.status_code == 202
+    assert [job["video_id"] for job in answer.json()["jobs"]] == ["sm000000004", "sm000000005"]
+    listed = client.get(f"/api/channels/{SMALL_ID}/videos").json()["videos"]
+    queued = {video["id"]: video for video in listed if video["status"] == "queued"}
+    assert set(queued) == {"sm000000004", "sm000000005"}
+    assert queued["sm000000004"]["job_id"] == answer.json()["jobs"][0]["job_id"]
+
+
+def test_a_synced_video_has_its_details_play_and_show_in_finder(
+    client: TestClient, world: World
+) -> None:
+    """R-UI-08, R-UI-10: the details of a synced video, and Play and Show in Finder by its ID."""
+    client.post("/api/videos/mirror", json={"ids": ["sm000000005"]})
+    world.download_all()
+
+    details = client.get("/api/videos/sm000000005").json()
+    played = client.post("/api/videos/sm000000005/play")
+    revealed = client.post("/api/videos/sm000000005/reveal")
+
+    file = world.library / "Small Channel" / details["file"]["name"]
+    assert details["video"]["status"] == "synced"
+    assert details["file"]["height"] == 270
+    assert details["file"]["vcodec"] == "av1"
+    assert details["file"]["subtitles"] == "manual"
+    assert details["file"]["cover_embedded"] is True
+    assert details["video"]["published_at"] == 1_793_379_761
+    assert details["downloaded_at"] == world.now()
+    assert details["thumbnail_saved"] is True
+    assert details["url"] == "https://www.youtube.com/watch?v=sm000000005"
+    assert (played.status_code, revealed.status_code) == (204, 204)
+    assert world.files.played == [file]
+    assert world.files.revealed == [file]
+
+
+def test_a_video_without_a_file_has_details_but_no_file(client: TestClient, world: World) -> None:
+    """R-UI-08: a video that is not downloaded shows no file facts."""
+    details = client.get("/api/videos/sm000000005").json()
+
+    assert details["file"] is None
+    assert details["chapters"] == []
+
+
+def test_a_failed_video_says_why_and_can_be_retried(client: TestClient, world: World) -> None:
+    """R-QU-08, R-ER-03: a failed video carries its code, and Retry puts it in line."""
+    world.download.fail = AppError(ErrorCode.MEMBERS_ONLY)
+    client.post("/api/videos/mirror", json={"ids": ["sm000000005"]})
+    world.download_all()
+
+    failed = client.get("/api/videos/sm000000005").json()["video"]
+    retried = client.post("/api/videos/sm000000005/retry")
+
+    assert (failed["status"], failed["error_code"]) == ("failed", "MEMBERS_ONLY")
+    assert retried.status_code == 202
+    assert retried.json()["status"] == "queued"
+
+
+def test_cancel_takes_a_waiting_video_out_of_line(client: TestClient, world: World) -> None:
+    """R-QU-02: Cancel by job ID; a second Cancel finds nothing."""
+    job_id = client.post("/api/videos/mirror", json={"ids": ["sm000000005"]}).json()["jobs"][0][
+        "job_id"
+    ]
+
+    first = client.post(f"/api/jobs/{job_id}/cancel").json()
+    second = client.post(f"/api/jobs/{job_id}/cancel").json()
+
+    assert (first, second) == ({"cancelled": True}, {"cancelled": False})
+    assert client.get("/api/videos/sm000000005").json()["video"]["status"] == "not_downloaded"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/api/videos/nosuchvideo"),
+        ("post", "/api/videos/nosuchvideo/play"),
+        ("post", "/api/videos/nosuchvideo/reveal"),
+        ("post", "/api/videos/nosuchvideo/retry"),
+    ],
+)
+def test_an_unknown_video_is_not_found(client: TestClient, method: str, path: str) -> None:
+    """R-ER-02: every action on a video needs a video of a catalogue."""
+    answer = getattr(client, method)(path)
+
+    assert answer.status_code == 404
+    assert answer.json()["error"]["code"] == "NOT_FOUND"

@@ -237,9 +237,12 @@ describe('the shell', () => {
     await fireEvent.contextMenu(item('Sample Channel'))
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Check now' }))
 
-    expect(full).toEqual({ kind: 'full' })
+    expect(full).toEqual({ kind: 'full', trigger: 'menu' })
     await waitFor(() =>
-      expect(app.lastBody(`/api/channels/${CHANNEL_ID}/check`)).toEqual({ kind: 'quick' }),
+      expect(app.lastBody(`/api/channels/${CHANNEL_ID}/check`)).toEqual({
+        kind: 'quick',
+        trigger: 'menu',
+      }),
     )
   })
 

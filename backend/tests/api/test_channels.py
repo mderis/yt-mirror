@@ -1,15 +1,20 @@
 """Tests of the channel endpoints."""
 
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from structlog.testing import capture_logs
 
 from tests.api.conftest import Api
-from tests.fixtures.world import SMALL_ID, World
-from ytmirror.core.channels import CheckKind
-from ytmirror.core.errors import ErrorCode
+from tests.fixtures.world import SMALL_ID, World, log_lines, own_file
+from ytmirror.core.channels import CheckKind, Quality, VideoStatus
+from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import Job, JobKind, JobState
 
 PNG = b"\x89PNG\r\n\x1a\n"
 
@@ -294,7 +299,12 @@ def test_removing_a_channel(client: TestClient, world: World) -> None:
 
     removed = client.delete(f"/api/channels/{SMALL_ID}")
 
-    assert removed.status_code == 204
+    assert removed.status_code == 200
+    assert removed.json() == {
+        "folder": str(world.library / "Small Channel"),
+        "files_trashed": 0,
+        "left": [],
+    }
     assert client.get(f"/api/channels/{SMALL_ID}").status_code == 404
     assert world.repository.videos(SMALL_ID) == ()
 
@@ -324,28 +334,52 @@ def test_the_avatar_of_a_channel_is_served_from_the_cache(client: TestClient, wo
 # --- checks
 
 
-def test_check_now_starts_a_quick_check(client: TestClient, world: World) -> None:
-    """R-CH-23: "Check now" answers at once with the channel being checked."""
+def checks_started(logs: Sequence[Mapping[str, Any]]) -> list[tuple[Any, Any, Any]]:
+    """Return the channel, the kind and the first-listing flag of every check that started."""
+    return [
+        (line["channel_id"], line["kind"], line["first_listing"])
+        for line in log_lines(logs, "check.started")
+    ]
+
+
+@pytest.mark.parametrize("body", [None, {"kind": "quick"}], ids=["no kind", "quick"])
+def test_check_now_runs_a_quick_check_and_leaves_the_full_check_time(
+    client: TestClient, world: World, body: dict[str, str] | None
+) -> None:
+    """R-CH-23, R-CH-12: "Check now" answers at once and runs a quick check, never a full one."""
     added(client, world)
+    full_check_before = world.repository.channel(SMALL_ID).last_full_check_at  # pyright: ignore[reportOptionalMemberAccess]
+    world.clock.advance(60)
 
-    answer = client.post(f"/api/channels/{SMALL_ID}/check")
-    world.work()
+    with capture_logs() as logs:
+        answer = client.post(f"/api/channels/{SMALL_ID}/check", json=body)
+        world.work()
 
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
     assert answer.status_code == 202
     assert answer.json()["status"] == "checking"
-    assert world.fixture.listings_started[SMALL_ID] == 2
-    assert world.repository.channel(SMALL_ID).last_full_check_at == world.now()  # pyright: ignore[reportOptionalMemberAccess]
+    assert checks_started(logs) == [(SMALL_ID, "quick", False)]
+    assert channel.last_check_at == world.now()
+    assert channel.last_full_check_at == full_check_before
+    assert full_check_before != world.now()
 
 
-def test_a_full_check_is_asked_for_by_its_kind(client: TestClient, world: World) -> None:
-    """R-CH-23: "Full check" starts a full check of the channel."""
+def test_full_check_runs_a_full_check_and_moves_the_full_check_time(
+    client: TestClient, world: World
+) -> None:
+    """R-CH-23, R-CH-12: "Full check" runs a full check of the channel."""
     added(client, world)
     world.clock.advance(60)
 
-    client.post(f"/api/channels/{SMALL_ID}/check", json={"kind": CheckKind.FULL.value})
-    world.work()
+    with capture_logs() as logs:
+        client.post(f"/api/channels/{SMALL_ID}/check", json={"kind": CheckKind.FULL.value})
+        world.work()
 
-    assert world.repository.channel(SMALL_ID).last_full_check_at == world.now()  # pyright: ignore[reportOptionalMemberAccess]
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    assert checks_started(logs) == [(SMALL_ID, "full", False)]
+    assert channel.last_check_at == channel.last_full_check_at == world.now()
 
 
 def test_a_full_check_that_waits_can_be_cancelled(client: TestClient, world: World) -> None:
@@ -383,6 +417,23 @@ def test_check_all_channels(client: TestClient, world: World) -> None:
     assert answer.status_code == 202
     assert answer.json() == {"channels": 1}
     assert world.fixture.listings_started[SMALL_ID] == 2
+
+
+def test_check_all_channels_runs_quick_checks_only(client: TestClient, world: World) -> None:
+    """R-CH-23, R-CH-12: "Check all channels now" runs a quick check, never a full one."""
+    added(client, world)
+    full_check_before = world.repository.channel(SMALL_ID).last_full_check_at  # pyright: ignore[reportOptionalMemberAccess]
+    world.clock.advance(60)
+
+    with capture_logs() as logs:
+        client.post("/api/channels/check-all")
+        world.work()
+
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    assert checks_started(logs) == [(SMALL_ID, "quick", False)]
+    assert channel.last_check_at == world.now()
+    assert channel.last_full_check_at == full_check_before != world.now()
 
 
 @pytest.mark.parametrize(
@@ -435,3 +486,130 @@ def test_every_new_endpoint_needs_the_session_token(api: Api, method: str, path:
 
     assert answer.status_code == 401
     assert error_code(answer) == "UNAUTHORIZED"
+
+
+def test_the_files_to_trash_are_counted_and_moved_on_request(
+    client: TestClient, world: World
+) -> None:
+    """R-CH-32: the dialog learns what "Delete the files" moves, and removal moves exactly that."""
+    added(client, world)
+    folder = world.library / "Small Channel"
+    video = world.repository.video("sm000000001")
+    assert video is not None
+    world.jobs.record(
+        Job(
+            id="01JOBAPI",
+            video_id=video.id,
+            kind=JobKind.DOWNLOAD,
+            state=JobState.DONE,
+            priority=1,
+            quality=Quality.BEST,
+            created_at=world.now(),
+        ),
+        replace(video, status=VideoStatus.SYNCED, file_name="Video 1.mkv"),
+    )
+    world.files.add_files(folder, ["Video 1.mkv"], data=own_file(video.id))
+    world.files.add_files(folder, ["mine.txt"], data=b"12345")
+
+    counted = client.get(f"/api/channels/{SMALL_ID}/files-to-trash")
+    removed = client.delete(f"/api/channels/{SMALL_ID}", params={"keep_files": "false"})
+
+    assert counted.json() == {"files": 1, "size_bytes": len(own_file(video.id))}
+    assert removed.status_code == 200
+    assert (removed.json()["files_trashed"], removed.json()["left"]) == (2, [])
+    assert world.files.trashed == [
+        folder / ".yt-mirror" / "channel.json",
+        folder / "Video 1.mkv",
+        folder / ".yt-mirror",
+    ]
+    assert world.files.exists(folder / "mine.txt")
+
+
+def test_removing_keeps_the_files_unless_told_otherwise(client: TestClient, world: World) -> None:
+    """R-CH-32: "Keep the files" is the default."""
+    added(client, world)
+    world.files.add_files(world.library / "Small Channel", ["Video 1.mkv"])
+
+    client.delete(f"/api/channels/{SMALL_ID}")
+
+    folder = world.library / "Small Channel"
+    assert world.files.trashed == [folder / ".yt-mirror" / "channel.json"]
+    assert world.files.exists(folder / "Video 1.mkv")
+
+
+@pytest.mark.parametrize(
+    ("body", "logged"),
+    [
+        ({"kind": "quick", "trigger": "button"}, ("quick", "button")),
+        ({"kind": "quick", "trigger": "menu"}, ("quick", "menu")),
+        ({"kind": "full", "trigger": "menu"}, ("full", "menu")),
+        ({"kind": "quick", "trigger": "retry"}, ("quick", "retry")),
+        (None, ("quick", "api")),
+    ],
+)
+def test_the_log_says_what_started_a_check(
+    client: TestClient, world: World, body: dict[str, str] | None, logged: tuple[str, str]
+) -> None:
+    """R-CH-23, R-LG-01: the control that asked for a check is in its check.started line."""
+    added(client, world)
+
+    with capture_logs() as logs:
+        client.post(f"/api/channels/{SMALL_ID}/check", json=body)
+        world.work()
+
+    assert [(line["kind"], line["trigger"]) for line in log_lines(logs, "check.started")] == [
+        logged
+    ]
+
+
+def test_check_all_is_logged_as_check_all(client: TestClient, world: World) -> None:
+    """R-CH-23, R-LG-01: "Check all channels now" is named in the log of each check."""
+    added(client, world)
+
+    with capture_logs() as logs:
+        client.post("/api/channels/check-all")
+        world.work()
+
+    assert [line["trigger"] for line in log_lines(logs, "check.started")] == ["check_all"]
+
+
+def test_an_unknown_trigger_is_refused(client: TestClient, world: World) -> None:
+    """R-ER-02: a trigger the app does not know is an invalid request."""
+    added(client, world)
+
+    answer = client.post(f"/api/channels/{SMALL_ID}/check", json={"trigger": "telepathy"})
+
+    assert answer.status_code == 422
+
+
+def test_a_removal_says_which_files_macos_refused_to_move(client: TestClient, world: World) -> None:
+    """R-CH-32: a file the Trash refuses is left, and the answer lists it."""
+    added(client, world)
+    folder = world.library / "Small Channel"
+    video = world.repository.videos(SMALL_ID)[0]
+    world.jobs.record(
+        Job(
+            id="01JOBAPI",
+            video_id=video.id,
+            kind=JobKind.DOWNLOAD,
+            state=JobState.DONE,
+            priority=1,
+            quality=Quality.BEST,
+            created_at=world.now(),
+        ),
+        replace(video, status=VideoStatus.SYNCED, file_name="Video 1.mkv"),
+    )
+    world.files.add_files(folder, ["Video 1.mkv"], data=own_file(video.id))
+    trash = world.files.trash
+
+    def refuse_the_video(path: Path) -> None:
+        if path.name == "Video 1.mkv":
+            raise AppError(ErrorCode.PERMISSION_DENIED, {"file": str(path)})
+        trash(path)
+
+    world.files.trash = refuse_the_video  # type: ignore[method-assign]
+    removed = client.delete(f"/api/channels/{SMALL_ID}", params={"keep_files": "false"})
+
+    assert removed.status_code == 200
+    assert removed.json()["left"] == [{"file": "Video 1.mkv", "reason": "trash_refused"}]
+    assert client.get(f"/api/channels/{SMALL_ID}").status_code == 404

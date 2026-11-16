@@ -243,3 +243,28 @@ def test_the_pause_of_youtube_arrives_on_the_stream_as_a_banner(
         ("banner.changed", {"youtube_pause": {"code": "BOT_CHECK", "until": 1794641000}}),
         ("banner.changed", {"youtube_pause": None}),
     ]
+
+
+def test_a_download_reaches_the_window_as_video_updates_and_progress(
+    client: TestClient, bus: WatchedBus, tmp_path: Path
+) -> None:
+    """R-FB-03, R-QU-04: each status of a mirrored video and its progress reach the window."""
+    folder = tmp_path / "download-world"
+    folder.mkdir()
+    world = World(folder, bus=bus)
+    world.add_and_list()
+    stream = Stream(client, bus)
+
+    world.downloader.mirror(["sm000000005"])
+    world.download_all()
+    bus.close()
+
+    events = stream.events()
+    statuses = [data["video"]["status"] for name, data in events if name == "video.updated"]  # type: ignore[index]
+    stages = [data["download"]["stage"] for name, data in events if name == "job.progress"]  # type: ignore[index]
+    channels = [data["channel"] for name, data in events if name == "channel.updated"]
+    assert statuses == ["queued", "downloading", "processing", "synced"]
+    assert stages == ["video", "audio", "processing"]
+    assert channels[0]["status"] == "mirroring"  # type: ignore[index]
+    assert channels[0]["mirroring"] == {"done": 0, "total": 1}  # type: ignore[index]
+    assert channels[-1]["status"] == "up_to_date"  # type: ignore[index]

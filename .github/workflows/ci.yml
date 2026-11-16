@@ -72,8 +72,46 @@ jobs:
           enable-cache: true
       - name: Install Python and packages
         run: uv sync --frozen
-      - name: Tests with coverage
-        run: uv run pytest --cov --cov-report=term-missing:skip-covered --cov-report=json:coverage.json
+      # The tests that read and write real video files use the ffmpeg that users get:
+      # installed by the app's own code, with the pinned version and checksum of
+      # each source (D-053). Without it they fail instead of being skipped.
+      - name: Install ffmpeg from its first source, as the app does
+        run: uv run python -m ytmirror.tools.install_tool ffmpeg "$RUNNER_TEMP/ffmpeg-first" --source martin-riedl
+      - name: Install ffmpeg from its second source, as the app does
+        run: uv run python -m ytmirror.tools.install_tool ffmpeg "$RUNNER_TEMP/ffmpeg-second" --source jellyfin-ffmpeg
+      - name: Tests with coverage (ffmpeg of the first source)
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
+        run: uv run pytest -rs --cov --cov-report=term-missing:skip-covered --cov-report=json:coverage.json
+      - name: Media tests with the ffmpeg of the second source
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-second/ffmpeg
+        run: |
+          set -o pipefail
+          uv run pytest -m media -rs -p no:cacheprovider | tee media-second.txt
+          if grep -q skipped media-second.txt; then exit 1; fi
+          echo "Media tests, second ffmpeg source: $(tail -n 1 media-second.txt)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Media tests fail without ffmpeg (proves they are never skipped)
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/no-ffmpeg
+        run: |
+          if uv run pytest -m media -q -p no:cacheprovider; then
+            echo "The media tests passed without ffmpeg: they would hide a missing ffmpeg" >&2
+            exit 1
+          fi
+          echo "Without ffmpeg the media tests failed, as they must." >> "$GITHUB_STEP_SUMMARY"
+      - name: Media tests ran and passed with the first source, none skipped
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
+        run: |
+          set -o pipefail
+          uv run pytest -m media -rs -p no:cacheprovider | tee media-first.txt
+          if grep -q skipped media-first.txt; then exit 1; fi
+          echo "Media tests, first ffmpeg source: $(tail -n 1 media-first.txt)" >> "$GITHUB_STEP_SUMMARY"
       - name: Coverage thresholds
         run: uv run python scripts/check_coverage.py coverage.json | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -109,6 +147,9 @@ jobs:
 
   e2e:
     name: End-to-end tests (WebKit and Chromium)
+    # Pinned: the screenshots are made and compared on this macOS (docs/TESTING.md
+    # section 6). Moving it means making every image again in one pull request, with
+    # the pixel counts against the old images.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,8 +169,41 @@ jobs:
       - name: Install browsers
         working-directory: e2e
         run: npx playwright install webkit chromium
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      # The fake YouTube writes real video files: ffmpeg from its first source, installed
+      # by the app's own code (D-053, docs/TESTING.md rule 10).
+      - name: Install ffmpeg, as the app does
+        run: |
+          uv sync --frozen
+          uv run python -m ytmirror.tools.install_tool ffmpeg "$RUNNER_TEMP/ffmpeg-first" --source martin-riedl
       - name: End-to-end tests
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
         run: npm --prefix e2e test
+      # Playwright says how many pixels differ only when an image fails. This makes every
+      # screenshot again into a folder and counts each against the stored image, passing or
+      # not, in the summary of the job. An image that was not made fails the step.
+      - name: Count the differing pixels of every screenshot
+        if: success() || failure()
+        env:
+          YTM_REQUIRE_FFMPEG: "1"
+          YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
+          YTM_SCREENSHOT_DIR: ${{ runner.temp }}/screenshots
+        # Its own output folder: the traces of a failure of the run above stay for the artifact.
+        run: |
+          npm --prefix e2e test -- --grep R-TH-09 --output "$RUNNER_TEMP/screenshot-results"
+          node e2e/screenshot-counts.ts "$YTM_SCREENSHOT_DIR" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the screenshots this run made
+        if: success() || failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshots-made
+          path: ${{ runner.temp }}/screenshots
+          retention-days: 14
       - name: Keep the report and the screenshots when a test failed
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

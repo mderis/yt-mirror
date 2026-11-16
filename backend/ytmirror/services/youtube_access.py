@@ -30,6 +30,7 @@ from ytmirror.core.channels import (
     YouTubePauseChanged,
 )
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import DownloadProgress, DownloadRequest, DownloadResult
 from ytmirror.core.pauses import next_pause_s
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.youtube_gateway import YouTubeGateway
@@ -137,6 +138,38 @@ class YouTubeAccess:
                 gateway raises it.
         """
         return self._ask("image", lambda: self._gateway.fetch_image(url), by_user=by_user)
+
+    def download(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        *,
+        by_user: bool,
+        start_writing: Callable[[], None] = lambda: None,
+    ) -> DownloadResult:
+        """Download one video. Unless the user started it, a pause holds it up (D-071).
+
+        Args:
+            request: What to download, and where to.
+            on_progress: Told how far the download is.
+            is_cancelled: Asked while the download runs.
+            by_user: Whether the user started this download by hand.
+            start_writing: Called right before the first file is written.
+
+        Raises:
+            AppError: ``BOT_CHECK`` without asking while the app pauses, or as the
+                gateway raises it.
+            DownloadCancelledError: When it was cancelled.
+            SubtitlesFailedError: When only the subtitles failed.
+        """
+        return self._ask(
+            "download",
+            lambda: self._gateway.download(
+                request, on_progress, is_cancelled, start_writing=start_writing
+            ),
+            by_user=by_user,
+        )
 
     def _ask[T](self, request: str, ask: Callable[[], T], *, by_user: bool) -> T:
         pause = self.pause()

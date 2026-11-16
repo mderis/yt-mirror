@@ -83,6 +83,8 @@ yt-mirror/
         naming.py            Title to file name rules (R-FN-*)
         dates.py             Date handling rules (R-DT-*)
         quality.py           Quality selection rules (R-QL-*)
+        jobs.py              Jobs, their states and progress, what a download asks and gives, job log retention
+        media.py             What a finished file contains, and whether it passes verification
         exclusion.py         Rule matching (R-EX-*)
         matching.py          Adoption matching (R-AD-*)
         errors.py            Error codes and the error taxonomy
@@ -91,8 +93,9 @@ yt-mirror/
         ytdlp_gateway.py     Listing, metadata and downloads through yt-dlp
         fixture_youtube.py   The fake YouTube, read from files, which the app can start with (section 10)
         youtube_api.py       Optional Data API client (exact dates)
-        media_tools.py       ffmpeg and ffprobe operations
+        media_tools.py       Reads a finished file with ffprobe (the MediaTools port)
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
+        child_processes_mac.py  Stops the tools the app started: all at quit, the ffmpeg of one job at Cancel (the ChildProcesses port)
         notifier_mac.py      macOS notifications
         folder_picker_webview.py  The folder dialog of the app window (section 7.8)
         tool_box.py          Downloads, unpacks, keeps and runs the tools in tools/
@@ -112,7 +115,9 @@ yt-mirror/
         state.py             The snapshot of the app for the window (section 7.6)
         dates.py             Exact date fetching and date repair
         queue.py             Queue state, ordering, parallelism, pause, limits
-        downloader.py        One job from start to synced
+        downloader.py        One job from start to synced (milestone M3: one worker, Cancel, Retry, details)
+        download_state.py    The downloads that wait or run, in memory: progress, jobs, "Mirroring X of Y"
+        job_logs.py          Deletes the logs of jobs that are no longer kept (R-LG-01)
         adoption.py          Match and repair existing files
         repair.py            Repair metadata, repair dates
         exclusions.py        Manual excludes and rule engine
@@ -200,6 +205,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | avatar_url | text, null | The address at YouTube. The picture itself is in the image cache |
 | folder | text | Absolute path, or relative to the library when not custom |
 | folder_is_custom | bool | |
+| folder_created | bool | true when the app created the folder. Only such a folder may go to the Trash when a removal leaves it empty (R-CH-32). Migration 0007 |
 | quality | text, null | null means "use default" |
 | auto_mirror | bool | |
 | mirror_after | int, null | Only auto-mirror videos published after this time |
@@ -233,7 +239,8 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | first_seen_at | int | |
 | last_seen_at | int | The last successful check that listed it (R-DT-01) |
 | seen_in_first_listing | bool | false means it can be "new" (R-CH-15) |
-| file_name | text, null | Relative to the channel folder |
+| file_name | text, null | Relative to the channel folder. Stored only when the video is recorded as synced |
+| placing_file | text, null | The marker of a file being moved into the channel folder: set before the move, cleared in the same write that records the video as synced, or once the file is known to be out of the folder (R-QA-06). Migration 0007 |
 | file_size | int, null | |
 | height | int, null | Downloaded height |
 | vcodec, acodec | text, null | |
@@ -246,7 +253,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 Indexes: `(channel_id, channel_position)`, `(channel_id, status)`, `(status)`.
 
 ### jobs
-One row per queued or running piece of work on a video.
+One row per queued or running piece of work on a video. Created by migration 0006 (milestone M3). A row stays after its job ended, so that the clean-up of job logs knows when it ended (R-LG-01). Removing a channel removes the jobs of its videos.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -262,7 +269,10 @@ One row per queued or running piece of work on a video.
 | started_at, finished_at | int, null | |
 
 ### video_events
-Append-only history required by R-LG-03: `id`, `video_id`, `at`, `from_status`, `to_status`, `reason`, `job_id`.
+Append-only history required by R-LG-03: `id`, `video_id`, `at`, `from_status`, `to_status`, `reason`, `job_id`. Created by migration 0006. A status change is written in the same transaction as the job and the video (the JobRepository port). The JobRepository writes only the columns of a video that a download owns (status, file, exact date, last failure), and a check writes only the others, so that a check that runs during a download never undoes it.
+
+### pending_side_files
+A side file of a synced video that could not be written: `id`, `video_id` (removed with the video), `path` (relative to the channel folder), `data`, `created_at`, `updated_at`. Created by migration 0008. The downloader writes it again at start and after every job, and removes the row once it is written or its video is no longer synced.
 
 ### exclude_rules
 `id`, `channel_id`, `kind` (`title_contains`, `shorter_than`), `value`, `enabled`.
@@ -290,6 +300,8 @@ not_downloaded --enqueue--> queued --worker picks--> downloading --streams done-
       |                                                                                |
       +<----------------------------- failure: status = failed <-----------------------+
 failed --retry--> queued
+processing --cancel, before the file is moved into its place--> not_downloaded
+downloading or processing --YouTube's "not a bot" check (R-ER-05)--> queued
 synced --file not found at check--> file_missing --enqueue--> queued
 synced --redownload--> queued (the old file stays until the new one is verified)
 ```
@@ -347,19 +359,28 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 9. Update the video row, record the event, write activity, emit the update.
 10. On any failure: classify the exception into an error code, clean up temp files except resumable partial downloads, set `failed` or re-queue according to the retry policy (R-QU-07).
 
+What milestone M3 builds of this flow (`services/downloader.py`): one worker, which takes jobs in the order of their priority under a lock and keeps everything about a job by its ID, so that M5 can run more. Step 1 checks only that the folder is available; the disk guard (R-QU-10) and the retry policy of step 10 (R-QU-07) arrive with M5. Cancel is asked by the hooks of yt-dlp and before the move of step 7, which is the point of no return (R-QU-02). The gateway calls `start_writing` after the metadata lookup, which only reads, and before yt-dlp writes anything; it also creates the job's temp folder. A cancel before that call ends the job at once and abandons the lookup: `start_writing` then refuses it, and its late answer or error is ignored. A removal does not wait for such a job. After a cancel, a failure or a quit, the temp folder of the job is deleted; a start cleans up jobs that a crash left waiting or running, and their videos are "not downloaded" again. M5 replaces this with R-QU-05 (resume from the partial file) and R-QU-06 (queued again at start). YouTube's "not a bot" check (R-ER-05) puts a running job back in line, and the worker takes no job while the app pauses. A subtitle failure is tried once more without subtitles (R-MD-04). Every file the app puts in a channel folder is known to it at once (R-QA-06):
+- Before the move of step 7 the video gets the marker `placing_file`. The name goes into `file_name` only in the write of step 9, which clears the marker. The same write keeps its side files in `pending_side_files`. That write is the point of no return: nothing after it moves, trashes or deletes the file, and the interface is told only after it, where a failure is logged and changes nothing.
+- Everything that can fail on its own (reading the side files, the settings) is done before the move. Between the move and that write every line is inside the one `try` whose failure moves the file out of the channel folder again, so it never looks finished. If that move back fails too, the marker stays.
+- No path clears a marker without a cleanup. Only the synced write, or the end of a job whose file is known to be out of the folder, clears it. A new job of a video that has a marker first moves the marked file to the Trash (when the video ID inside it matches); while its folder cannot be reached, the job fails with `FOLDER_UNAVAILABLE` and the marker waits for the folder.
+- The side files (the info JSON, the thumbnail in the hidden folder, the thumbnail next to the video) are written after step 9. One that fails is logged, the video stays synced, and the file waits in `pending_side_files`.
+- A start ends the jobs a quit or a crash left, one at a time. A marked file goes to the Trash only when the video ID inside it is the one of the job; a Trash that refuses is logged and the start goes on.
+
 ### 7.3 yt-dlp configuration (in `ytdlp_gateway.py` only)
 
-- Format selector for height H: `bv*[height<=H]+ba/b[height<=H]/wv*+ba/w`. For "Best available": `bv*+ba/b`.
-- `merge_output_format: mkv`. No re-encoding post-processors.
-- Subtitles: request English creator subtitles. Request auto-generated English only if no creator subtitles exist (two-step: inspect metadata first, then set `writeautomaticsub`). A subtitle error triggers one retry of the job without subtitles (R-MD-04).
-- Post-processors, in this order: embed subtitles, metadata with chapters and attached info JSON, embed thumbnail.
-- `updatetime` is not used. yt-dlp no longer sets file times by default (since 2025.07.21), and yt-mirror sets dates itself in step 8 from `release_timestamp` or `timestamp`.
-- Template fields are never used for the final name. yt-dlp writes to a temp name (`<video id>.<ext>`), and yt-mirror renames. This keeps naming rules in one tested place.
-- A logger object forwards all yt-dlp output to the per-job log file.
-- Cancellation: progress hooks raise `DownloadCancelled` when the job is cancelled or the queue is paused.
-- JavaScript runtime: the path of the bundled Deno binary is passed explicitly.
+Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D-078):
 
-`VERIFY` each option name against the pinned yt-dlp version when implementing (Q-04).
+- Format selector for height H (`format`): `bv*[height<=H]+ba/b[height<=H]/wv*+ba/w`. For "Best available": `bv*+ba/b` (`core/quality.py`).
+- `merge_output_format: mkv`. No re-encoding post-processors: the merger copies the streams (for example AV1 and Opus).
+- `outtmpl` writes `<video id>.<ext>` into the temp folder of the job. Template fields are never used for the final name: yt-mirror renames, so the naming rules stay in one tested place.
+- `ffmpeg_location` is the folder of the ffmpeg tool, and `js_runtimes` is `{"deno": {"path": <the Deno program of the app folder>}}`. Deno runs with `DENO_DIR` inside the app folder, because Deno otherwise keeps its cache in `~/Library/Caches/deno` (R-PL-15).
+- The JavaScript challenge solver is the Python package `yt-dlp-ejs`, locked in the version that yt-dlp pins. `remote_components` is never set, so no solver is fetched from GitHub or npm (D-078). Without the package, yt-dlp warns that solving the challenge failed and offers fewer formats.
+- Subtitles: `writesubtitles` with `subtitleslangs: ["en"]` when the metadata has creator subtitles in English, else `writeautomaticsub` when it has auto-generated English ones (two steps: the metadata is read first). A subtitle error triggers one retry of the job without subtitles (R-MD-04).
+- `writethumbnail: true`. Post-processors, in this order: `FFmpegEmbedSubtitle`, `FFmpegMetadata` with `add_chapters`, `add_metadata` and `add_infojson`, `EmbedThumbnail`. The thumbnail of YouTube is WebP: it is converted to JPEG for the hidden folder (R-MD-05). `FFmpegMetadata` writes the title, the channel as `ARTIST`, the description, the day (not the time) as `DATE`, and the address as `PURL` and `COMMENT`; the gateway adds the exact published time and the video ID as tags of their own (R-MD-01, R-DT-08).
+- `updatetime` is not used. yt-dlp no longer sets file times by default (since 2025.07.21), and yt-mirror sets dates itself in step 8 from `release_timestamp` or `timestamp`.
+- A logger object forwards all yt-dlp output to the per-job log file.
+- Cancellation: an exception raised in a `progress_hooks` function (while bytes arrive) or a `postprocessor_hooks` function (between post-processing steps; the step names in the hook are `Merger`, `EmbedSubtitle`, `Metadata`, `EmbedThumbnail`, `MoveFiles`) ends the download at once and reaches the caller unchanged. A running ffmpeg step is not interrupted: the next hook ends the job. Everything left behind is inside the temp folder of the job, which is then deleted (R-FI-03).
+- yt-dlp warns that no impersonation target is available (it would need `curl_cffi`). Downloads work without it, so it is not installed.
 
 **Listing and channel lookup (verified in milestone M2 against yt-dlp 2026.10.26, D-059, D-061).**
 
@@ -382,9 +403,9 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 
 ### 7.5 File dates on macOS (`filesystem_mac.py`)
 - Modification and access time: `os.utime`.
-- Creation time: `setattrlist` with `ATTR_CMN_CRTIME` through `ctypes`. `VERIFY` (Q-02). Fallback to investigate: setting the modification time earlier than the creation time moves the creation time back on APFS.
+- Creation time: `setattrlist` with `ATTR_CMN_CRTIME` through `ctypes` (D-077). It works on APFS and on exFAT. There is no fallback: setting the modification time earlier than the creation time moves the creation time back on APFS only.
 - Verification reads `st_birthtime` and `st_mtime`.
-- Other operations in this adapter: move to Trash (so deletes are recoverable), reveal in Finder, open with the default app, free space of a volume, atomic rename, cross-volume move with copy, verify and delete.
+- Other operations in this adapter: move to Trash (so deletes are recoverable, `NSFileManager.trashItemAtURL`), reveal in Finder (`open -R`), open with the default app (`open`), free space of a volume, a rename that never overwrites (`renamex_np` with `RENAME_EXCL`), whole-file writes through a hidden temp file, the size of a folder, whether a path leaves a folder through a symlink, the delete of the temp folder of one job, and the delete of one job log. Nothing else is ever deleted for good. A cross-volume move (copy, verify, delete) arrives with the milestone that moves folders.
 
 ### 7.6 Events and live updates
 - Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`.
@@ -492,21 +513,23 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | POST `/folders/choose` | Show the folder dialog of macOS and return the chosen folder (R-CH-05) |
 | POST `/channels` | Add a channel |
 | GET, PATCH, DELETE `/channels/{id}` | Read, change settings (from M2: pause and resume), remove (`keep_files` flag from M3) |
-| POST `/channels/{id}/check` | Check now (`kind`: `quick` or `full`) |
+| POST `/channels/{id}/check` | Check now (`kind`: `quick` or `full`; `trigger`: what the user pressed, `button`, `menu` or `retry`, logged with the check; `api` when it names none) |
 | POST `/channels/{id}/check/cancel` | Cancel a full check (R-CH-27) |
 | POST `/channels/check-all` | Check all channels |
 | POST `/channels/{id}/mirror-missing` | Queue everything eligible once |
 | POST `/channels/{id}/open-folder` | Open in Finder |
 | GET `/channels/{id}/videos` | The catalogue (all rows, compact fields) |
 | GET `/channels/{id}/avatar`, `/videos/{id}/thumbnail` | A cached picture, or `NOT_FOUND` at once when it is not cached (R-CH-16, D-067) |
-| GET `/videos/{id}` | Full details for the panel |
-| POST `/videos/mirror` | Queue videos (`ids`, optional `first`) |
+| GET `/videos/{id}` | Full details for the panel (from M3: the facts of the file, read with ffprobe, and the description and chapters of the saved metadata) |
+| POST `/videos/mirror` | Queue videos (`ids`, optional `first` from M5). From M3 |
+| POST `/videos/{id}/retry` | Put a failed video in line again (R-QU-08). From M3 |
+| GET `/channels/{id}/files-to-trash` | How many files and how much room "Delete the files" moves to the Trash (R-CH-32). From M3 |
 | POST `/videos/exclude` , `/videos/restore` | Exclude and restore (`ids`, `file_action`) |
 | POST `/videos/redownload`, `/videos/repair-metadata` | |
-| POST `/videos/{id}/play`, `/videos/{id}/reveal` | |
+| POST `/videos/{id}/play`, `/videos/{id}/reveal` | By video ID, never a path (R-UI-10). From M3 |
 | GET `/queue` | Full queue |
 | POST `/queue/pause`, `/queue/resume`, `/queue/reorder`, `/queue/clear-waiting` | |
-| POST `/jobs/{id}/cancel`, `/jobs/{id}/retry` | |
+| POST `/jobs/{id}/cancel` | Cancel a job that waits or runs (R-QU-02). From M3 |
 | GET, PUT `/channels/{id}/exclude-rules` | Rules, with `POST .../preview` (R-EX-06) |
 | POST `/channels/{id}/adopt/scan`, GET `.../adopt`, POST `.../adopt/apply` | Adoption (R-AD-*) |
 | POST `/channels/{id}/repair-dates` | |
@@ -545,6 +568,7 @@ Every external dependency is behind a port, and each port has a fake in `backend
 | ExactDateSource | Returns dates from fixtures, simulates quota errors |
 | MediaTools | Creates tiny real MKV files with ffmpeg in integration tests, a pure fake in unit tests |
 | FileSystem | Real temp directories on macOS runners, an in-memory fake in unit tests |
+| ChildProcesses | No fake: the downloader is given a function to call at quit, which unit tests replace. The adapter is tested with processes the test starts itself. Cancel finds the ffmpeg of a job by the job's temp folder in its arguments; a media test runs real yt-dlp through every ffmpeg step the app uses (merge, thumbnail, subtitles, metadata, cover) and checks that each call names that folder (yt-dlp passes it as `file:<path>`) |
 | Releases | Serves fake release archives for updater tests |
 | Notifier, Clock, Random | Recorders and controllable values |
 
@@ -562,6 +586,7 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_FRONTEND_URL` | app | The address of the development server. Set by `./start --dev`, ignored without `--dev` |
 | `YTM_FAKE_YOUTUBE` | app | A folder with a recorded world of channels (`e2e/fixtures/youtube/`). The app then never talks to the real YouTube. For tests and for reproducing a problem |
 | `YTM_LIBRARY_DIR` | app | The default of the library folder instead of `~/Movies/YouTube`. For tests, so that no test creates a folder in the user's own library |
+| `YTM_TRASH_DIR` | app | A folder that stands for the Trash of macOS: files that "Delete the files" moves to the Trash go there. For tests, so that no test fills the Trash of the person who runs it. It counts only together with `YTM_FAKE_YOUTUBE`: an app on the real YouTube always uses the Trash of macOS |
 | `YTM_YOUTUBE_API_KEY` | live tests, probes | A YouTube API key for measurements and, from M4, live tests. The app does not use it: its key is a setting (R-DT-12). Its value is a secret of the logs, so the app removes it from every line (R-LG-07). Never written to a file, a fixture or a commit |
 | `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
 | `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |

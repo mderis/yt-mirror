@@ -120,7 +120,9 @@ export interface paths {
     post?: never
     /**
      * Remove Channel
-     * @description Remove a channel with its catalogue. Its folder and files stay (R-CH-32).
+     * @description Remove a channel with its catalogue, and its files or not (R-CH-32).
+     *
+     *     The answer lists every file that stayed, with its reason.
      */
     delete: operations['removeChannel']
     options?: never
@@ -186,6 +188,26 @@ export interface paths {
      * @description Cancel the full check of a channel that waits or runs (R-CH-27).
      */
     post: operations['cancelCheck']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/files-to-trash': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Files To Trash
+     * @description Say how many files and how much room "Delete the files" moves to the Trash (R-CH-32).
+     */
+    get: operations['getFilesToTrash']
+    put?: never
+    post?: never
     delete?: never
     options?: never
     head?: never
@@ -292,6 +314,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/jobs/{job_id}/cancel': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Cancel Job
+     * @description Cancel a download that waits or runs (R-QU-02).
+     */
+    post: operations['cancelJob']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/state': {
     parameters: {
       query?: never
@@ -366,6 +408,106 @@ export interface paths {
      * @description Start installing a tool in the background and return its state.
      */
     post: operations['installTool']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/videos/mirror': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Mirror
+     * @description Put videos in line to be downloaded, in the order given (R-MI-01).
+     */
+    post: operations['mirrorVideos']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/videos/{video_id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Get Video
+     * @description Return everything the details panel shows of a video (R-UI-08).
+     */
+    get: operations['getVideo']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/videos/{video_id}/play': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Play
+     * @description Open the file of a video in the default player of macOS (R-UI-10).
+     */
+    post: operations['playVideo']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/videos/{video_id}/retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Retry
+     * @description Put a failed video in line again (R-QU-08).
+     */
+    post: operations['retryVideo']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/videos/{video_id}/reveal': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Reveal
+     * @description Show the file of a video selected in Finder (R-UI-10).
+     */
+    post: operations['revealVideo']
     delete?: never
     options?: never
     head?: never
@@ -476,6 +618,17 @@ export interface components {
       cancelled: boolean
     }
     /**
+     * CancelJobResponse
+     * @description The answer of ``POST /api/jobs/{id}/cancel`` (R-QU-02).
+     *
+     *     Attributes:
+     *         cancelled: Whether there was a download that waited or ran.
+     */
+    CancelJobResponse: {
+      /** Cancelled */
+      cancelled: boolean
+    }
+    /**
      * ChangeChannelRequest
      * @description The body of ``PATCH /api/channels/{id}``. More fields arrive with channel settings in M7.
      *
@@ -516,6 +669,8 @@ export interface components {
      *         pictures: A number that grows when more pictures of the channel are cached.
      *         avatar_version: A number that grows when the avatar of the channel was cached anew.
      *         catalogue_version: A number that grows with every successful check of the channel.
+     *         mirroring: While videos of the channel are downloaded, how many ended and how
+     *             many there are (R-FB-01: "Mirroring X of Y"). Otherwise None.
      */
     Channel: {
       /** Auto Mirror */
@@ -545,6 +700,7 @@ export interface components {
       last_full_check_at: number | null
       /** Mirror After */
       mirror_after: number | null
+      mirroring?: components['schemas']['Mirroring'] | null
       /** New Videos */
       new_videos: number
       /** Paused */
@@ -573,6 +729,7 @@ export interface components {
      * @enum {string}
      */
     ChannelStatus:
+      | 'mirroring'
       | 'checking'
       | 'waiting_for_youtube'
       | 'could_not_check'
@@ -588,6 +745,20 @@ export interface components {
      */
     ChannelUpdatedEvent: {
       channel: components['schemas']['Channel']
+    }
+    /**
+     * ChapterInfo
+     * @description One chapter of a video (R-UI-08).
+     *
+     *     Attributes:
+     *         start_s: Where it starts, in seconds.
+     *         title: Its title.
+     */
+    ChapterInfo: {
+      /** Start S */
+      start_s: number
+      /** Title */
+      title: string
     }
     /**
      * CheckAllResponse
@@ -612,11 +783,30 @@ export interface components {
      *
      *     Attributes:
      *         kind: A quick check ("Check now") or a full check (R-CH-23).
+     *         trigger: What the user pressed: the button, the menu, or "Try again". It is
+     *             logged with the check, so the log alone tells why it ran.
      */
     CheckRequest: {
       /** @default quick */
       kind: components['schemas']['CheckKind']
+      /** @default api */
+      trigger: components['schemas']['CheckTrigger']
     }
+    /**
+     * CheckTrigger
+     * @description What started a check. Logged with every check, so the log alone tells why it ran.
+     * @enum {string}
+     */
+    CheckTrigger:
+      | 'button'
+      | 'menu'
+      | 'check_all'
+      | 'retry'
+      | 'add'
+      | 'app_start'
+      | 'resume'
+      | 'schedule'
+      | 'api'
     /**
      * ChosenFolderResponse
      * @description The answer of ``POST /api/folders/choose``.
@@ -650,6 +840,42 @@ export interface components {
       free_bytes: number
       /** Name */
       name: string
+    }
+    /**
+     * Download
+     * @description How far the running download of a video is (R-QU-04).
+     *
+     *     Attributes:
+     *         job_id: The job.
+     *         video_id: The video.
+     *         channel_id: Its channel.
+     *         stage: Video, audio or processing.
+     *         fraction: How much of the whole video is done, its streams together, from 0
+     *             to 1. None while it is processed, or when a size is not known.
+     *         speed_bps: Bytes per second, or None.
+     *         left_s: Seconds left of the download, or None.
+     *         height: The height being downloaded, or None.
+     *         downloaded_bytes: How many bytes arrived, or None. Shown when the
+     *             fraction is not known.
+     */
+    Download: {
+      /** Channel Id */
+      channel_id: string
+      /** Downloaded Bytes */
+      downloaded_bytes: number | null
+      /** Fraction */
+      fraction: number | null
+      /** Height */
+      height: number | null
+      /** Job Id */
+      job_id: string
+      /** Left S */
+      left_s: number | null
+      /** Speed Bps */
+      speed_bps: number | null
+      stage: components['schemas']['Stage']
+      /** Video Id */
+      video_id: string
     }
     /**
      * ErrorBody
@@ -692,6 +918,19 @@ export interface components {
       | 'CHECKSUM_MISMATCH'
       | 'DISK_FULL'
       | 'TOOL_MISSING'
+      | 'VIDEO_PRIVATE'
+      | 'VIDEO_REMOVED'
+      | 'MEMBERS_ONLY'
+      | 'AGE_RESTRICTED'
+      | 'GEO_BLOCKED'
+      | 'NOT_YET_AVAILABLE'
+      | 'NO_FORMATS'
+      | 'FFMPEG_FAILED'
+      | 'VERIFY_FAILED'
+      | 'DATES_NOT_APPLIED'
+      | 'DB_UPGRADE_FAILED'
+      | 'CHANNEL_BUSY'
+      | 'DB_UNREADABLE'
       | 'INTERNAL'
     /**
      * ErrorResponse
@@ -705,6 +944,60 @@ export interface components {
       | components['schemas']['ChannelUpdatedEvent']
       | components['schemas']['TaskProgressEvent']
       | components['schemas']['BannerChangedEvent']
+      | components['schemas']['VideoUpdatedEvent']
+      | components['schemas']['JobProgressEvent']
+    /**
+     * FileFacts
+     * @description The file of a synced video, as the details panel shows it (R-UI-08).
+     *
+     *     Attributes:
+     *         name: The file name.
+     *         size: Its size in bytes.
+     *         width: The width of the video, or None.
+     *         height: The height of the video, or None.
+     *         fps: Frames per second, or None.
+     *         vcodec: The video codec, or None.
+     *         acodec: The audio codec, or None.
+     *         audio_channels: The number of audio channels, or None.
+     *         subtitles: ``manual``, ``auto`` or None.
+     *         cover_embedded: Whether the thumbnail is inside the file.
+     */
+    FileFacts: {
+      /** Acodec */
+      acodec: string | null
+      /** Audio Channels */
+      audio_channels: number | null
+      /** Cover Embedded */
+      cover_embedded: boolean
+      /** Fps */
+      fps: number | null
+      /** Height */
+      height: number | null
+      /** Name */
+      name: string
+      /** Size */
+      size: number | null
+      /** Subtitles */
+      subtitles: string | null
+      /** Vcodec */
+      vcodec: string | null
+      /** Width */
+      width: number | null
+    }
+    /**
+     * FilesToTrashResponse
+     * @description The answer of ``GET /api/channels/{id}/files-to-trash`` (R-CH-32).
+     *
+     *     Attributes:
+     *         files: How many visible files "Delete the files" moves to the Trash.
+     *         size_bytes: How much room they take, the hidden folder of the app included.
+     */
+    FilesToTrashResponse: {
+      /** Files */
+      files: number
+      /** Size Bytes */
+      size_bytes: number
+    }
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
@@ -730,6 +1023,37 @@ export interface components {
       /** Version */
       version: string
     }
+    /**
+     * JobProgressEvent
+     * @description The data of the ``job.progress`` event of ``GET /api/events`` (R-QU-04).
+     *
+     *     Attributes:
+     *         download: How far the download is.
+     */
+    JobProgressEvent: {
+      download: components['schemas']['Download']
+    }
+    /**
+     * KeptFileResponse
+     * @description A file that "Delete the files" left in the folder, and why (R-CH-32).
+     *
+     *     Attributes:
+     *         file: The path, relative to the channel folder.
+     *         reason: ``trash_refused`` (macOS refused), ``another_video`` (another
+     *             video is inside), ``not_checked`` (the video inside could not be
+     *             read) or ``outside_folder`` (it leads out of the folder).
+     */
+    KeptFileResponse: {
+      /** File */
+      file: string
+      reason: components['schemas']['KeptReason']
+    }
+    /**
+     * KeptReason
+     * @description Why "Delete the files" left a file in the folder (R-CH-32).
+     * @enum {string}
+     */
+    KeptReason: 'trash_refused' | 'another_video' | 'not_checked' | 'outside_folder'
     /**
      * LookupRequest
      * @description The body of ``POST /api/channels/lookup``.
@@ -771,6 +1095,43 @@ export interface components {
       title: string
       /** Video Files */
       video_files: number
+    }
+    /**
+     * MirrorRequest
+     * @description The body of ``POST /api/videos/mirror`` (R-MI-01).
+     *
+     *     Attributes:
+     *         ids: The videos to put in line, in this order.
+     */
+    MirrorRequest: {
+      /** Ids */
+      ids: string[]
+    }
+    /**
+     * MirrorResponse
+     * @description The answer of ``POST /api/videos/mirror``.
+     *
+     *     Attributes:
+     *         jobs: The downloads that were put in line. A video that waits, runs or is
+     *             synced already is left out.
+     */
+    MirrorResponse: {
+      /** Jobs */
+      jobs: components['schemas']['QueuedJob'][]
+    }
+    /**
+     * Mirroring
+     * @description How far the downloads of a channel are (R-FB-01).
+     *
+     *     Attributes:
+     *         done: How many ended, well or not.
+     *         total: How many there are in all.
+     */
+    Mirroring: {
+      /** Done */
+      done: number
+      /** Total */
+      total: number
     }
     /**
      * OpenChannelRequest
@@ -817,10 +1178,48 @@ export interface components {
     }
     /**
      * Quality
-     * @description The quality a channel asks for (R-QL-01). The rules that use it arrive in milestone M3.
+     * @description The quality a channel asks for (R-QL-01). Its rules are in ``core/quality.py``.
      * @enum {string}
      */
     Quality: 'best' | '2160' | '1440' | '1080' | '720' | '480'
+    /**
+     * QueuedJob
+     * @description A download that was put in line.
+     *
+     *     Attributes:
+     *         job_id: The job.
+     *         video_id: The video.
+     */
+    QueuedJob: {
+      /** Job Id */
+      job_id: string
+      /** Video Id */
+      video_id: string
+    }
+    /**
+     * RemovedChannelResponse
+     * @description The answer of ``DELETE /api/channels/{id}`` (R-CH-32).
+     *
+     *     Attributes:
+     *         folder: The folder of the channel.
+     *         files_trashed: How many files and folders went to the Trash.
+     *         left: Every file that should have gone to the Trash and stayed, with
+     *             its reason. Empty when every file went, or when the files were kept.
+     */
+    RemovedChannelResponse: {
+      /** Files Trashed */
+      files_trashed: number
+      /** Folder */
+      folder: string
+      /** Left */
+      left: components['schemas']['KeptFileResponse'][]
+    }
+    /**
+     * Stage
+     * @description What a running download does now (R-QU-04).
+     * @enum {string}
+     */
+    Stage: 'video' | 'audio' | 'processing'
     /**
      * StateResponse
      * @description The answer of ``GET /api/state``: the app as the window draws it.
@@ -955,18 +1354,31 @@ export interface components {
      *         is_new: Whether the video counts as new (R-CH-15).
      *         gone: Whether it is removed from YouTube (R-CH-14).
      *         excluded: Whether it is excluded.
+     *         job_id: The job of a download that waits or runs, for Cancel, or None.
+     *         download: How far a running download is (R-QU-04), or None.
+     *         height: The height of the file of a synced video (R-FB-02), or None.
+     *         file_size: The size of its file in bytes, or None.
+     *         error_code: Why the last download failed (R-QU-08), or None.
      */
     Video: {
+      download?: components['schemas']['Download'] | null
       /** Duration S */
       duration_s: number | null
+      error_code?: components['schemas']['ErrorCode'] | null
       /** Excluded */
       excluded: boolean
+      /** File Size */
+      file_size?: number | null
       /** Gone */
       gone: boolean
+      /** Height */
+      height?: number | null
       /** Id */
       id: string
       /** Is New */
       is_new: boolean
+      /** Job Id */
+      job_id?: string | null
       /** Published Around */
       published_around: number | null
       /** Published At */
@@ -991,6 +1403,39 @@ export interface components {
       video_count: number | null
     }
     /**
+     * VideoDetailsResponse
+     * @description The answer of ``GET /api/videos/{id}``: everything the details panel shows (R-UI-08).
+     *
+     *     Attributes:
+     *         video: The video as a list shows it.
+     *         channel_id: Its channel.
+     *         folder: The channel folder.
+     *         file: The file of a synced video, or None.
+     *         downloaded_at: When the file was completed, or None.
+     *         description: The description from the saved metadata, or None.
+     *         chapters: The chapters from the saved metadata.
+     *         thumbnail_saved: Whether the original thumbnail is in the hidden folder.
+     *         url: The address of the video on YouTube.
+     */
+    VideoDetailsResponse: {
+      /** Channel Id */
+      channel_id: string
+      /** Chapters */
+      chapters: components['schemas']['ChapterInfo'][]
+      /** Description */
+      description: string | null
+      /** Downloaded At */
+      downloaded_at: number | null
+      file: components['schemas']['FileFacts'] | null
+      /** Folder */
+      folder: string
+      /** Thumbnail Saved */
+      thumbnail_saved: boolean
+      /** Url */
+      url: string
+      video: components['schemas']['Video']
+    }
+    /**
      * VideoStatus
      * @description The stored status of a video (docs/ARCHITECTURE.md section 6.1).
      * @enum {string}
@@ -1003,6 +1448,19 @@ export interface components {
       | 'synced'
       | 'file_missing'
       | 'failed'
+    /**
+     * VideoUpdatedEvent
+     * @description The data of the ``video.updated`` event of ``GET /api/events`` (R-FB-03).
+     *
+     *     Attributes:
+     *         channel_id: The channel of the video.
+     *         video: The video as a list shows it now.
+     */
+    VideoUpdatedEvent: {
+      /** Channel Id */
+      channel_id: string
+      video: components['schemas']['Video']
+    }
     /**
      * VideosResponse
      * @description The answer of ``GET /api/channels/{id}/videos``.
@@ -1364,7 +1822,9 @@ export interface operations {
   }
   removeChannel: {
     parameters: {
-      query?: never
+      query?: {
+        keep_files?: boolean
+      }
       header?: never
       path: {
         channel_id: string
@@ -1374,11 +1834,13 @@ export interface operations {
     requestBody?: never
     responses: {
       /** @description Successful Response */
-      204: {
+      200: {
         headers: {
           [name: string]: unknown
         }
-        content?: never
+        content: {
+          'application/json': components['schemas']['RemovedChannelResponse']
+        }
       }
       /** @description Unauthorized */
       401: {
@@ -1616,6 +2078,64 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['CancelCheckResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  getFilesToTrash: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['FilesToTrashResponse']
         }
       }
       /** @description Unauthorized */
@@ -1911,6 +2431,64 @@ export interface operations {
       }
     }
   }
+  cancelJob: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        job_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CancelJobResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   getState: {
     parameters: {
       query?: never
@@ -2084,6 +2662,294 @@ export interface operations {
         content: {
           'application/json': components['schemas']['Tool']
         }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  mirrorVideos: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['MirrorRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MirrorResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  getVideo: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        video_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['VideoDetailsResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  playVideo: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        video_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  retryVideo: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        video_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Video']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  revealVideo: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        video_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
       /** @description Unauthorized */
       401: {

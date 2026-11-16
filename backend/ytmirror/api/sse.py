@@ -24,12 +24,17 @@ from ytmirror.api.catalogue_schemas import (
     BannerChangedEvent,
     Channel,
     ChannelUpdatedEvent,
+    Download,
+    JobProgressEvent,
     Pause,
     Progress,
     TaskProgressEvent,
+    Video,
+    VideoUpdatedEvent,
 )
 from ytmirror.api.schemas import Tool, ToolUpdatedEvent
 from ytmirror.core.channels import ChannelUpdated, TaskProgressed
+from ytmirror.core.jobs import JobProgressed, VideoUpdated
 from ytmirror.core.models import AppEvent, ToolUpdated
 from ytmirror.services.events import EventBus
 
@@ -39,9 +44,18 @@ KEEP_ALIVE_S = 15.0
 TOOL_UPDATED = "tool.updated"
 CHANNEL_UPDATED = "channel.updated"
 TASK_PROGRESS = "task.progress"
+VIDEO_UPDATED = "video.updated"
+JOB_PROGRESS = "job.progress"
 BANNER_CHANGED = "banner.changed"
 
-type EventData = ToolUpdatedEvent | ChannelUpdatedEvent | TaskProgressEvent | BannerChangedEvent
+type EventData = (
+    ToolUpdatedEvent
+    | ChannelUpdatedEvent
+    | TaskProgressEvent
+    | BannerChangedEvent
+    | VideoUpdatedEvent
+    | JobProgressEvent
+)
 """The data of every event of the stream. It is named as the answer of the endpoint,
 so that the generated frontend types know all of them."""
 
@@ -76,6 +90,13 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
             return encode(CHANNEL_UPDATED, ChannelUpdatedEvent(channel=Channel.of(event.view)))
         if isinstance(event, TaskProgressed):
             return encode(TASK_PROGRESS, TaskProgressEvent(progress=Progress.of(event.progress)))
+        if isinstance(event, VideoUpdated):
+            data = VideoUpdatedEvent(
+                channel_id=event.view.video.channel_id, video=Video.of(event.view)
+            )
+            return encode(VIDEO_UPDATED, data)
+        if isinstance(event, JobProgressed):
+            return encode(JOB_PROGRESS, JobProgressEvent(download=Download.of(event.progress)))
         return encode(BANNER_CHANGED, BannerChangedEvent(youtube_pause=Pause.of(event.pause)))
 
     async def stream() -> AsyncIterator[str]:

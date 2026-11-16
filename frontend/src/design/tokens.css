@@ -55,12 +55,16 @@
   /* Animation durations */
   --ytm-duration-fast: 150ms;
   --ytm-duration-base: 200ms;
+  --ytm-duration-arrive: 1200ms;
+  --ytm-duration-working: 1400ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --ytm-duration-fast: 0ms;
     --ytm-duration-base: 0ms;
+    --ytm-duration-arrive: 0ms;
+    --ytm-duration-working: 0ms;
   }
 }
 

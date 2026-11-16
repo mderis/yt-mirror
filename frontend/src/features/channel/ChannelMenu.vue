@@ -56,8 +56,8 @@ const items = computed<MenuItem[]>(() => {
 function choose(id: string): void {
   const channelId = props.channel.id
   const actions: Record<string, () => unknown> = {
-    check: () => ui.run(channels.check(channelId, 'quick')),
-    fullCheck: () => ui.run(channels.check(channelId, 'full')),
+    check: () => ui.run(channels.check(channelId, 'quick', 'menu')),
+    fullCheck: () => ui.run(channels.check(channelId, 'full', 'menu')),
     pause: () => ui.run(channels.setPaused(channelId, true)),
     resume: () => ui.run(channels.setPaused(channelId, false)),
     openFolder: () => ui.run(channels.openFolder(channelId)),

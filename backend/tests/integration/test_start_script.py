@@ -318,9 +318,10 @@ def test_a_python_environment_of_this_folder_is_kept(clone: Path) -> None:
     assert calls(clone, "bundle") == [""]
 
 
-def test_ci_uses_the_same_uv_version_as_the_launcher() -> None:
-    """infra: the automated checks run with the uv version a clone gets."""
-    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+@pytest.mark.parametrize("name", ["ci.yml", "update-screenshots.yml"])
+def test_ci_uses_the_same_uv_version_as_the_launcher(name: str) -> None:
+    """infra: the automated checks, and the screenshots CI makes, run with the uv of a clone."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
 
     match = re.search(r'^  UV_VERSION: "([^"]+)"$', workflow, re.MULTILINE)
 

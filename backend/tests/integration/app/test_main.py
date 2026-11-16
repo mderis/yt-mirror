@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.native_app import FakeNativeApp
+from tests.migrations.helpers import add_a_failing_migration
 from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.app import main as main_module
@@ -25,6 +26,7 @@ from ytmirror.app.config import AppPaths, RunOptions
 from ytmirror.app.container import build_container
 from ytmirror.app.main import (
     BROWSER_HINT,
+    EXIT_DB_UPGRADE_FAILED,
     UPDATE_NOT_AVAILABLE,
     choose_wait,
     main,
@@ -118,7 +120,7 @@ def test_a_run_serves_the_interface_and_the_api_behind_the_session_token(paths: 
     assert visit.redirect_status == 303
     assert visit.page_status == 200
     assert visit.health["status"] == "ok"
-    assert visit.health["schema_version"] == "0005"
+    assert visit.health["schema_version"] == "0008"
 
 
 def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPaths) -> None:
@@ -128,7 +130,7 @@ def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPat
     engine = create_db_engine(paths.database_file)
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0005"
+    assert version == "0008"
 
 
 def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
@@ -302,6 +304,61 @@ def test_the_tools_are_checked_at_every_start(paths: AppPaths) -> None:
     assert [tool["status"] for tool in tools["tools"]][2:] == ["missing", "missing"]  # type: ignore[index, union-attr]
     assert tools["setup_required"] is True
     assert not (paths.home_dir / "tools").exists()
+
+
+def test_a_failed_database_update_says_where_the_copy_is_and_starts_nothing(
+    paths: AppPaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-QA-07: the old database stays, a copy was made, the user is told, the app ends."""
+    before = build_container(paths).schema.bring_up_to_date()
+    add_a_failing_migration(paths.home_dir, monkeypatch)
+    native = FakeNativeApp()
+    visit = Visit()
+
+    exit_code = run_app(
+        options(), paths, build_container(paths, native=native), wait=visit, console=None
+    )
+
+    backups = list((paths.data_dir / "backups").iterdir())
+    assert exit_code == EXIT_DB_UPGRADE_FAILED
+    assert visit.first_url == ""
+    assert len(backups) == 1
+    [(title, message)] = native.alerts
+    assert title == "yt-mirror could not update its database"
+    assert str(backups[0]) in message
+    assert "Your data is safe" in message
+    events = [line["event"] for line in log_lines(paths)]
+    assert "db.backup" in events
+    assert "db.migration.failed" in events
+    assert "app.crashed" not in events
+    engine = create_db_engine(paths.database_file)
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    assert version == before
+
+
+def test_a_damaged_database_file_gets_its_own_message_and_starts_nothing(
+    paths: AppPaths,
+) -> None:
+    """R-QA-07: a file that is not a database is said to be unreadable, and nothing starts."""
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    paths.database_file.write_bytes(b"this is not a database at all " * 200)
+    native = FakeNativeApp()
+    visit = Visit()
+
+    exit_code = run_app(
+        options(), paths, build_container(paths, native=native), wait=visit, console=None
+    )
+
+    assert exit_code == EXIT_DB_UPGRADE_FAILED
+    assert visit.first_url == ""
+    [(title, message)] = native.alerts
+    assert title == "yt-mirror cannot read its database"
+    assert "it may be damaged" in message
+    assert paths.database_file.read_bytes().startswith(b"this is not a database")
+    events = [line["event"] for line in log_lines(paths)]
+    assert "db.unreadable" in events
+    assert "app.crashed" not in events
 
 
 def test_a_crash_is_logged_with_its_stack_trace_and_passed_on(paths: AppPaths) -> None:

@@ -25,6 +25,7 @@ ENV_TOOL_MANIFEST = "YTM_TOOL_MANIFEST"
 ENV_TOOL_SOURCE = "YTM_TOOL_SOURCE"
 ENV_FAKE_YOUTUBE = "YTM_FAKE_YOUTUBE"
 ENV_LIBRARY_DIR = "YTM_LIBRARY_DIR"
+ENV_TRASH_DIR = "YTM_TRASH_DIR"
 
 DEFAULT_DEV_FRONTEND_URL = "http://127.0.0.1:5173/"
 DEFAULT_TOOL_MANIFEST = Path(__file__).resolve().parents[1] / "services" / "toolchain_manifest.json"
@@ -49,6 +50,8 @@ class AppPaths:
         tool_manifest: The file that pins the downloadable tools.
         only_tool_source: The one tool source to use, or None for all. For automated tests.
         fake_youtube: A folder with a recorded world of channels, or None for the real YouTube.
+        trash_dir: A folder that stands for the Trash of macOS, or None for the real one.
+            For tests, so that no test fills the Trash of the person who runs it.
     """
 
     code_root: Path
@@ -64,6 +67,7 @@ class AppPaths:
     tool_manifest: Path = DEFAULT_TOOL_MANIFEST
     only_tool_source: str | None = None
     fake_youtube: Path | None = None
+    trash_dir: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,9 +104,10 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
 
     Args:
         env: The environment variables. ``YTM_HOME`` and ``YTM_DATA_DIR`` override the
-            defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST``, ``YTM_TOOL_SOURCE`` and
-            ``YTM_LIBRARY_DIR`` are for tests. ``YTM_FAKE_YOUTUBE`` names a folder with a
-            recorded world of channels to use in place of the real YouTube.
+            defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST``, ``YTM_TOOL_SOURCE``,
+            ``YTM_LIBRARY_DIR`` and ``YTM_TRASH_DIR`` are for tests. ``YTM_FAKE_YOUTUBE``
+            names a folder with a recorded world of channels to use in place of the
+            real YouTube. ``YTM_TRASH_DIR`` counts only together with ``YTM_FAKE_YOUTUBE``.
 
     Returns:
         The paths. Nothing is created.
@@ -128,6 +133,11 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
         if env.get(ENV_LIBRARY_DIR)
         else Path.home() / "Movies" / "YouTube",
         fake_youtube=Path(env[ENV_FAKE_YOUTUBE]) if env.get(ENV_FAKE_YOUTUBE) else None,
+        # A Trash of its own is for tests only: an app on the real YouTube uses
+        # the Trash of macOS whatever the environment says (R-CH-32).
+        trash_dir=Path(env[ENV_TRASH_DIR])
+        if env.get(ENV_TRASH_DIR) and env.get(ENV_FAKE_YOUTUBE)
+        else None,
     )
 
 

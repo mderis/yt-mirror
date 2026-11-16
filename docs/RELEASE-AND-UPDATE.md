@@ -78,7 +78,7 @@ Trigger: banner, Settings, or `./start --update`.
 2. **Show**: version, release notes, what will happen.
 3. **Preflight**: free space, no jobs in `processing` (wait for them or ask), queue paused.
 4. **Download**: archive and checksums into `data/cache/update/`. Verify.
-5. **Backup**: copy the database with SQLite's backup API to `data/backups/yt-mirror-<old version>-<timestamp>.db`. Keep the 5 most recent backups.
+5. **Backup**: copy the database with SQLite's backup API to `data/backups/yt-mirror-<old version>-<timestamp>.db`. Keep the 5 most recent backups. Since M3 every start copies the database before pending migrations (R-QA-07, step 9 below relies on it): `data/backups/yt-mirror-<date>-<time>-schema-<schema version>.db`, the five newest kept, and no new copy when the newest of the same schema version has the same content (SHA-256), made by `DatabaseSchema.back_up` in `adapters/db/schema.py`. The updater builds its backup and its rollback on the same code.
 6. **Swap code**: `archive` installs move `app/` to `previous/` and unpack the new one. `clone` installs run `git fetch --tags` and check out the release tag, after confirming the working tree is clean (if not, explain and stop).
 7. **Dependencies**: `uv sync --frozen`.
 8. **Restart** into the new version in "migrating" mode.
@@ -92,6 +92,7 @@ Rollback, at any failure in steps 6 to 9: restore `previous/` (or check out the 
 - Alembic, forward only. One migration per schema change, named `NNNN_short_description`.
 - Each migration is written to be safe on a database of any size the app can produce and must not lose data.
 - The app refuses to start on a database whose schema version is higher than it knows (R-UP-05).
+- All pending migrations run in one transaction, and a failed one changes nothing (D-081). Before they run, the database is copied to `data/backups/`; a failed migration stops the start with a message that names the copy (R-QA-07, exit code 3).
 - Tests: for every released version there is a fixture database in `backend/tests/migrations/fixtures/`. A test upgrades each one to the current schema and checks the data (R-QA-04).
 
 ## 8. Uninstall

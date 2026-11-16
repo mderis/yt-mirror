@@ -7,14 +7,20 @@ and pass fakes for the ports they want to control.
 Tests: backend/tests/integration/app/test_container.py
 """
 
+import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+
+from ulid import ULID
 
 from ytmirror import __version__
+from ytmirror.adapters.child_processes_mac import MacChildProcesses
 from ytmirror.adapters.db.app_meta_repository import SqlAppMetaRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
 from ytmirror.adapters.db.engine import create_db_engine
+from ytmirror.adapters.db.job_repository import SqlJobRepository
 from ytmirror.adapters.db.schema import AlembicSchema
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.adapters.filesystem_mac import MacFileSystem
@@ -22,17 +28,19 @@ from ytmirror.adapters.fixture_youtube import FixtureYouTube
 from ytmirror.adapters.folder_picker_webview import WebviewFolderPicker
 from ytmirror.adapters.image_cache import FileImageCache
 from ytmirror.adapters.image_renderer_mac import MacImageRenderer
+from ytmirror.adapters.media_tools import FfprobeMediaTools
 from ytmirror.adapters.native_app_mac import MacNativeApp
 from ytmirror.adapters.system_clock import SystemClock
 from ytmirror.adapters.system_probe import MacSystemProbe
 from ytmirror.adapters.tool_box import LocalToolBox
-from ytmirror.adapters.ytdlp_gateway import YtDlpGateway
+from ytmirror.adapters.ytdlp_gateway import GatewayTools, YtDlpGateway
 from ytmirror.app.config import AppPaths, detect_install_kind
 from ytmirror.core.channels import CheckKind
-from ytmirror.core.models import AppInfo
+from ytmirror.core.models import AppInfo, ToolName
 from ytmirror.core.toolchain import parse_manifest
+from ytmirror.ports.child_processes import ChildProcesses
 from ytmirror.ports.clock import Clock
-from ytmirror.ports.file_system import FileSystem
+from ytmirror.ports.file_system import JOB_LOG_FOLDER, FileSystem
 from ytmirror.ports.folder_picker import FolderPicker
 from ytmirror.ports.image_renderer import ImageRenderer
 from ytmirror.ports.native_app import NativeApp
@@ -43,7 +51,10 @@ from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
 from ytmirror.services.diagnostics import DiagnosticsService
+from ytmirror.services.download_state import DownloadState
+from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.job_logs import JobLogsService
 from ytmirror.services.schema import SchemaService
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
@@ -74,6 +85,8 @@ class Container:
         channels: Looks channels up, adds, pauses and removes them.
         state: The snapshot of the app for the window.
         videos: Reads the catalogue of a channel.
+        downloader: Downloads videos, one job after another (milestone M3).
+        job_logs: Deletes the logs of jobs that are no longer kept.
     """
 
     info: AppInfo
@@ -93,6 +106,8 @@ class Container:
     channels: ChannelsService
     state: StateService
     videos: SqlCatalogueRepository
+    downloader: DownloaderService
+    job_logs: JobLogsService
 
 
 def _in_a_thread(work: Callable[[], None]) -> None:
@@ -166,15 +181,20 @@ def build_container(
     )
     settings = SettingsService(SqlSettingsRepository(engine, used_clock), paths.default_library)
     repository = SqlCatalogueRepository(engine, used_clock)
-    used_files = files if files is not None else MacFileSystem()
+    used_files = files if files is not None else _file_system(paths)
+    used_children = MacChildProcesses()
     used_picker = picker if picker is not None else WebviewFolderPicker()
-    youtube = YouTubeAccess(_gateway(paths, used_clock, gateway), used_clock, events, _later)
+    youtube = YouTubeAccess(
+        _gateway(paths, used_clock, gateway, used_tool_box), used_clock, events, _later
+    )
+    downloads = DownloadState()
     views = ChannelViews(
         repository,
         settings,
         used_clock,
         events,
         youtube_paused=lambda: youtube.pause() is not None,
+        downloads=downloads,
     )
     thumbnails = ThumbnailService(
         repository, youtube, FileImageCache(paths.cache_dir), views, _in_a_thread
@@ -185,9 +205,33 @@ def build_container(
         views,
         used_clock,
         _in_a_thread,
-        after_check=lambda channel_id, kind: thumbnails.fill(
-            channel_id, renew_avatar=kind is CheckKind.FULL
-        ),
+        after_check=lambda channel_id, kind: _after_check(channel_id, kind),
+        found_removed=lambda video_ids: downloader.end_removed(video_ids),
+    )
+
+    def _after_check(channel_id: str, kind: CheckKind) -> None:
+        thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
+        # A check takes over the title and the handle of the channel (R-CH-12, R-FI-05).
+        channels.write_channel_file(channel_id)
+
+    jobs = SqlJobRepository(engine, used_clock)
+    media = FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe"))
+    downloader = DownloaderService(
+        repository=repository,
+        jobs=jobs,
+        youtube=youtube,
+        files=used_files,
+        media=media,
+        settings=settings,
+        views=views,
+        state=downloads,
+        events=events,
+        clock=used_clock,
+        new_job_id=lambda: str(ULID()),
+        job_logs=paths.logs_dir / JOB_LOG_FOLDER,
+        run_in_background=_in_a_thread,
+        stop_tools=lambda: _stop_tools(used_children, used_tool_box),
+        stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
     )
     channels = ChannelsService(
         repository,
@@ -200,6 +244,8 @@ def build_container(
         thumbnails,
         used_clock,
         _in_a_thread,
+        close_downloads=downloader.channel_closed,
+        media=media,
     )
     state = StateService(
         views, settings, used_files, used_picker, SqlAppMetaRepository(engine, used_clock), youtube
@@ -210,7 +256,7 @@ def build_container(
         probe=used_probe,
         native=native if native is not None else MacNativeApp(),
         images=images if images is not None else MacImageRenderer(),
-        schema=SchemaService(schema, used_clock),
+        schema=SchemaService(schema, used_clock, paths.data_dir / BACKUP_FOLDER),
         settings=settings,
         diagnostics=DiagnosticsService(info, schema, used_probe, toolchain),
         events=events,
@@ -222,13 +268,74 @@ def build_container(
         channels=channels,
         state=state,
         videos=repository,
+        downloader=downloader,
+        job_logs=JobLogsService(
+            paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
+        ),
     )
 
 
-def _gateway(paths: AppPaths, clock: Clock, given: YouTubeGateway | None) -> YouTubeGateway:
-    """Return the gateway to YouTube: a given one, the fake from files, or the real one."""
+BACKUP_FOLDER = "backups"
+"""The folder in ``data/`` of the copies of the database made before migrations."""
+
+TOOL_STOP_WAIT_S = 1.0
+"""How long a tool the app started may take to end at quit before it is killed."""
+
+
+def _stop_tools(children: ChildProcesses, tools: ToolBox, job: Path | None = None) -> None:
+    """Stop the tools the app started: all of them at quit (R-PL-13), or one job's ffmpeg.
+
+    Args:
+        children: The child processes of the app.
+        tools: Where the tools are.
+        job: The temp folder of a cancelled job, or None at quit. Only an ffmpeg
+            or ffprobe that names it is stopped; a check's Deno is never touched.
+    """
+    ffmpeg = [
+        tools.program_path(ToolName.FFMPEG, "ffmpeg"),
+        tools.program_path(ToolName.FFMPEG, "ffprobe"),
+    ]
+    if job is None:
+        children.stop([*ffmpeg, tools.program_path(ToolName.DENO, "deno")], wait_s=TOOL_STOP_WAIT_S)
+    else:
+        children.stop(ffmpeg, wait_s=TOOL_STOP_WAIT_S, mentioning=job)
+
+
+def _file_system(paths: AppPaths) -> FileSystem:
+    """Return the file system of macOS, with a folder of its own as the Trash when tests ask."""
+    trash_dir = paths.trash_dir
+    if trash_dir is None:
+        return MacFileSystem()
+
+    def to_folder(path: Path) -> None:
+        trash_dir.mkdir(parents=True, exist_ok=True)
+        target = trash_dir / path.name
+        number = 1
+        while target.exists():
+            number += 1
+            target = trash_dir / f"{path.name} {number}"
+        path.rename(target)
+
+    return MacFileSystem(trash=to_folder)
+
+
+def _gateway(
+    paths: AppPaths, clock: Clock, given: YouTubeGateway | None, tools: ToolBox
+) -> YouTubeGateway:
+    """Return the gateway to YouTube: a given one, the fake from files, or the real one.
+
+    Both write video files with the ffmpeg of the app folder. Deno keeps its
+    cache in the app folder too, not in the user's Library (R-PL-15, D-078).
+    """
     if given is not None:
         return given
+    ffmpeg = tools.program_path(ToolName.FFMPEG, "ffmpeg")
     if paths.fake_youtube is not None:
-        return FixtureYouTube(paths.fake_youtube)
-    return YtDlpGateway(clock)
+        return FixtureYouTube(paths.fake_youtube, ffmpeg=ffmpeg)
+    os.environ["DENO_DIR"] = str(paths.cache_dir / "deno")
+    return YtDlpGateway(
+        clock,
+        tools=GatewayTools(
+            ffmpeg_folder=ffmpeg.parent, deno=tools.program_path(ToolName.DENO, "deno")
+        ),
+    )

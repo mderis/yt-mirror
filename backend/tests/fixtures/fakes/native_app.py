@@ -20,6 +20,7 @@ class FakeNativeApp:
         self._before_end: list[Callable[[], None]] = []
         self.quit_requests = 0
         self.ended = False
+        self.alerts: list[tuple[str, str]] = []
 
     def identity(self) -> AppIdentity:
         """Return the configured identity."""
@@ -55,6 +56,10 @@ class FakeNativeApp:
         """Count the request and end the app, as "Quit" does."""
         self.quit_requests += 1
         self.end()
+
+    def show_alert(self, title: str, text: str) -> None:
+        """Remember the message, as if the user read it and closed it."""
+        self.alerts.append((title, text))
 
     def turn_loop(self) -> None:
         """Play the app's loop: run what was handed to the main thread."""

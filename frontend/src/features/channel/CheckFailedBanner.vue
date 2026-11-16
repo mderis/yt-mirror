@@ -65,7 +65,7 @@ const kept = computed(() => {
       <AppButton
         icon="retry"
         :busy="channel.status === 'checking'"
-        @press="ui.run(channels.check(channel.id, 'quick'))"
+        @press="ui.run(channels.check(channel.id, 'quick', 'retry'))"
       >
         {{ t('channel.failed.tryAgain') }}
       </AppButton>

@@ -11,15 +11,19 @@ Tests: backend/tests/unit/core/test_channels.py
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from ytmirror.core.errors import ErrorCode
+
+if TYPE_CHECKING:
+    from ytmirror.core.jobs import JobProgress
 
 CHANNEL_ADDRESS = "https://www.youtube.com/channel/"
 """What the canonical address of a channel starts with. The channel ID follows."""
 
 
 class Quality(StrEnum):
-    """The quality a channel asks for (R-QL-01). The rules that use it arrive in milestone M3."""
+    """The quality a channel asks for (R-QL-01). Its rules are in ``core/quality.py``."""
 
     BEST = "best"
     P2160 = "2160"
@@ -63,12 +67,36 @@ class ChannelStatus(StrEnum):
     Each milestone adds the statuses that can occur from it on.
     """
 
+    MIRRORING = "mirroring"
     CHECKING = "checking"
     WAITING_FOR_YOUTUBE = "waiting_for_youtube"
     COULD_NOT_CHECK = "could_not_check"
     NEW_VIDEOS = "new_videos"
     PAUSED = "paused"
     UP_TO_DATE = "up_to_date"
+
+
+class CheckTrigger(StrEnum):
+    """What started a check. Logged with every check, so the log alone tells why it ran."""
+
+    BUTTON = "button"
+    """The "Check now" button of the channel page."""
+    MENU = "menu"
+    """An item of the channel menu: "Check now" or "Full check"."""
+    CHECK_ALL = "check_all"
+    """"Check all channels now" in the sidebar."""
+    RETRY = "retry"
+    """"Try again" after a failed check, or work taken up when YouTube is asked again."""
+    ADD = "add"
+    """The first listing of a channel that was just added."""
+    APP_START = "app_start"
+    """A first listing that a quit interrupted, taken up at the next start."""
+    RESUME = "resume"
+    """A paused channel that was never listed was resumed."""
+    SCHEDULE = "schedule"
+    """An automatic check (milestone M4)."""
+    API = "api"
+    """A request to the API that does not say, for example from a script or a test."""
 
 
 class ReferenceKind(StrEnum):
@@ -188,6 +216,8 @@ class Channel:
         last_check_error: The error code of the last check when it failed, or None.
         last_check_error_at: When that check failed, or None.
         position: The place in the sidebar, from 0.
+        folder_created: Whether the app created the channel folder. Only such a folder
+            may go to the Trash when a removal leaves it empty (R-CH-32).
     """
 
     id: str
@@ -207,6 +237,7 @@ class Channel:
     last_check_error: ErrorCode | None = None
     last_check_error_at: int | None = None
     position: int = 0
+    folder_created: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +274,8 @@ class Video:
         last_error_code: The code of the last failure, or None.
         last_error_at: When the last failure happened, or None.
         attempts: Automatic attempts since the last success.
+        placing_file: The file a running download is moving into the channel folder, or
+            None. Set before the move, cleared when the job ends (R-QA-06).
     """
 
     id: str
@@ -274,6 +307,7 @@ class Video:
     last_error_code: ErrorCode | None = None
     last_error_at: int | None = None
     attempts: int = 0
+    placing_file: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,6 +368,8 @@ class ChannelView:
         avatar_version: A number that grows whenever the avatar of this channel was cached anew.
         catalogue_version: A number that grows with every successful check of this channel:
             its catalogue may have changed.
+        mirroring: While videos of the channel are downloaded: how many of them
+            ended, and how many there are (R-FB-01). Otherwise None.
     """
 
     channel: Channel
@@ -344,6 +380,7 @@ class ChannelView:
     pictures: int
     avatar_version: int = 0
     catalogue_version: int = 0
+    mirroring: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,8 +438,12 @@ class VideoView:
         is_new: Whether it counts as new right now (R-CH-15).
         published_around: For an approximate date, the moment to show it from: the
             middle of the range the real date lies in (R-DT-04). Otherwise None.
+        job_id: The job of a download that waits or runs, for Cancel, or None.
+        progress: How far a running download is (R-QU-04), or None.
     """
 
     video: Video
     is_new: bool
     published_around: int | None
+    job_id: str | None = None
+    progress: JobProgress | None = None

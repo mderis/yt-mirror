@@ -8,11 +8,13 @@ Tests: backend/tests/integration/db/test_catalogue_repository.py
 
 import dataclasses
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Engine, case, delete, func, insert, select, update
+from sqlalchemy import Engine, Table, bindparam, case, delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
+from ytmirror.adapters.db.engine import for_reading
+from ytmirror.adapters.db.job_repository import DOWNLOAD_FIELDS
 from ytmirror.adapters.db.tables import ChannelRow, VideoRow
 from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import (
@@ -41,11 +43,12 @@ class SqlCatalogueRepository:
             clock: The source of the ``created_at`` and ``updated_at`` times.
         """
         self._engine = engine
+        self._reader = for_reading(engine)
         self._clock = clock
 
     def channels(self) -> tuple[Channel, ...]:
         """Return every channel, in the order of the sidebar."""
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(select(ChannelRow).order_by(ChannelRow.position, ChannelRow.id))
             return tuple(_channel_of(row) for row in rows)
 
@@ -55,7 +58,7 @@ class SqlCatalogueRepository:
         Args:
             channel_id: The channel ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             row = session.get(ChannelRow, channel_id)
             return None if row is None else _channel_of(row)
 
@@ -94,7 +97,7 @@ class SqlCatalogueRepository:
         Args:
             channel_id: The channel ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             rows = session.scalars(
                 select(VideoRow)
                 .where(VideoRow.channel_id == channel_id)
@@ -108,7 +111,7 @@ class SqlCatalogueRepository:
         Args:
             channel_id: The channel ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             ids = session.scalars(select(VideoRow.id).where(VideoRow.channel_id == channel_id))
             return frozenset(ids)
 
@@ -118,7 +121,7 @@ class SqlCatalogueRepository:
         Args:
             video_id: The video ID.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             row = session.get(VideoRow, video_id)
             return None if row is None else _video_of(row)
 
@@ -130,7 +133,7 @@ class SqlCatalogueRepository:
             other_than: The channel that asks. Its own videos are left out.
         """
         owners: dict[str, str] = {}
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             for start in range(0, len(video_ids), _CHUNK):
                 rows = session.execute(
                     select(VideoRow.id, VideoRow.channel_id).where(
@@ -166,8 +169,35 @@ class SqlCatalogueRepository:
             if changes.updated:
                 session.execute(
                     update(VideoRow),
-                    [{**_values_of(video), "updated_at": now} for video in changes.updated],
+                    [{**_check_values_of(video), "updated_at": now} for video in changes.updated],
                 )
+                # A date from a listing never replaces an exact one that a download
+                # stored while this check ran (R-DT-04, R-DT-05).
+                dates = [
+                    {
+                        "video_id": video.id,
+                        "at": video.published_at,
+                        "precision": getattr(
+                            video.published_precision, "value", video.published_precision
+                        ),
+                    }
+                    for video in changes.updated
+                    if not video.published_exact
+                ]
+                if dates:
+                    videos = cast("Table", VideoRow.__table__)
+                    session.connection().execute(
+                        update(videos)
+                        .where(
+                            videos.c.id == bindparam("video_id"),
+                            videos.c.published_exact.is_(False),
+                        )
+                        .values(
+                            published_at=bindparam("at"),
+                            published_precision=bindparam("precision"),
+                        ),
+                        dates,
+                    )
         return True
 
     def totals(self, new_since: int) -> Mapping[str, ChannelTotals]:
@@ -191,7 +221,7 @@ class SqlCatalogueRepository:
             func.sum(case((synced, func.coalesce(VideoRow.file_size, 0)), else_=0)),
             func.sum(case((new, 1), else_=0)),
         ).group_by(VideoRow.channel_id)
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             return {
                 channel_id: ChannelTotals(
                     videos=videos,
@@ -246,6 +276,15 @@ def _values_of(item: Channel | Video) -> dict[str, Any]:
     }
 
 
+def _check_values_of(video: Video) -> dict[str, Any]:
+    """Return the columns of a video that a check owns: never its status, file or exact date.
+
+    A download that ends while a check runs stores those itself (DOWNLOAD_FIELDS),
+    so the check must not write back what it read before.
+    """
+    return {name: value for name, value in _values_of(video).items() if name not in DOWNLOAD_FIELDS}
+
+
 def _channel_of(row: ChannelRow) -> Channel:
     return Channel(
         id=row.id,
@@ -265,6 +304,7 @@ def _channel_of(row: ChannelRow) -> Channel:
         last_check_error=None if row.last_check_error is None else ErrorCode(row.last_check_error),
         last_check_error_at=row.last_check_error_at,
         position=row.position,
+        folder_created=row.folder_created,
     )
 
 
@@ -301,4 +341,5 @@ def _video_of(row: VideoRow) -> Video:
         last_error_code=None if error is None else ErrorCode(error),
         last_error_at=row.last_error_at,
         attempts=row.attempts,
+        placing_file=row.placing_file,
     )

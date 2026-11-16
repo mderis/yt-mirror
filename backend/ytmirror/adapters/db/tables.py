@@ -7,7 +7,7 @@ in ``backend/ytmirror/migrations/versions/`` in the same commit.
 Tests: backend/tests/migrations/test_schema_matches_tables.py
 """
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -59,6 +59,7 @@ class ChannelRow(Base):
     last_check_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_check_error_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    folder_created: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -104,5 +105,66 @@ class VideoRow(Base):
     last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    placing_file: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class JobRow(Base):
+    """One queued, running or finished piece of work on a video (R-LG-02)."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_state_priority", "state", "priority"),
+        Index("ix_jobs_video", "video_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    video_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+    quality: Mapped[str] = mapped_column(Text, nullable=False)
+    progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stage: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    finished_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class VideoEventRow(Base):
+    """One status change of a video, never changed once written (R-LG-03)."""
+
+    __tablename__ = "video_events"
+    __table_args__ = (Index("ix_video_events_video_at", "video_id", "at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False
+    )
+    at: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_status: Mapped[str] = mapped_column(Text, nullable=False)
+    to_status: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    job_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PendingSideFileRow(Base):
+    """A side file of a synced video that is still to be written (R-MD-02, R-MD-05)."""
+
+    __tablename__ = "pending_side_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False
+    )
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)

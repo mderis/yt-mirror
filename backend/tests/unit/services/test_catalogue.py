@@ -1,15 +1,25 @@
 """Tests of ``ytmirror.services.catalogue``: checks against the fake YouTube."""
 
 import threading
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.catalogue import make_channel
 from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines, new_video
-from ytmirror.core.channels import ChannelStatus, ChannelUpdated, CheckKind, TaskKind
+from ytmirror.core.channels import (
+    ChannelStatus,
+    ChannelUpdated,
+    CheckKind,
+    CheckTrigger,
+    TaskKind,
+    VideoStatus,
+)
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import JobState, Stage, VideoUpdated
 from ytmirror.core.models import AppEvent
 from ytmirror.services.catalogue import PROGRESS_EVERY, CatalogueService
 from ytmirror.services.channel_views import ChannelViews
@@ -276,6 +286,52 @@ def test_a_video_is_removed_only_after_two_full_checks_without_it(tmp_path: Path
     assert world.ids(channel_id).index("big00000093") == 2
 
 
+def test_a_queued_download_ends_the_moment_a_check_marks_its_video_removed(
+    tmp_path: Path,
+) -> None:
+    """R-CH-14: the row never says "Queued" for a removed video; YouTube is not asked."""
+    world = World(tmp_path, big_with({"remove": ["big00000093"]}, {}, {}))
+    channel_id = world.add_and_list("@big")
+    world.check(channel_id, CheckKind.FULL)
+    [job] = world.downloader.mirror(["big00000093"])
+    world.events.clear()
+
+    with capture_logs() as logs:
+        world.check(channel_id, CheckKind.FULL)
+
+    video = world.repository.video("big00000093")
+    assert video is not None
+    assert (video.status, video.gone) == (VideoStatus.NOT_DOWNLOADED, True)
+    assert world.jobs.job(job.id).state is JobState.CANCELLED  # type: ignore[union-attr]
+    assert world.jobs.events("big00000093")[-1].reason == "removed from YouTube"
+    told = [
+        event.view.video.status
+        for event in world.events
+        if isinstance(event, VideoUpdated) and event.view.video.id == "big00000093"
+    ]
+    assert told == [VideoStatus.NOT_DOWNLOADED]
+    assert log_lines(logs, "download.cancelled")[0]["reason"] == "removed from YouTube"
+    assert world.download.calls == []
+
+
+def test_a_running_download_goes_on_when_a_check_marks_its_video_removed(
+    tmp_path: Path,
+) -> None:
+    """R-CH-14: a download that runs is not stopped: it succeeds or fails with YouTube's reason."""
+    world = World(tmp_path, big_with({"remove": ["big00000093"]}, {}, {}))
+    channel_id = world.add_and_list("@big")
+    world.check(channel_id, CheckKind.FULL)
+    world.downloader.mirror(["big00000093"])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = lambda: world.check(channel_id, CheckKind.FULL)
+
+    world.download_all()
+
+    video = world.repository.video("big00000093")
+    assert video is not None
+    assert (video.status, video.gone) == (VideoStatus.SYNCED, True)
+
+
 def test_a_removed_video_that_comes_back_is_no_longer_removed(tmp_path: Path) -> None:
     """R-CH-13: a video that is listed again is no longer removed from YouTube."""
     world = World(tmp_path, big_with({"remove": ["big00000093"]}, {}, {"restore": ["big00000093"]}))
@@ -539,6 +595,33 @@ def test_check_all_checks_every_channel_that_is_not_paused_one_after_another(
     assert ran == [True, True, False]
     assert world.fixture.listings_started[SMALL_ID] == started[SMALL_ID] + 1
     assert world.fixture.listings_started[BIG_ID] == started[BIG_ID]
+
+
+def test_check_all_runs_a_quick_check_of_every_channel_and_no_full_one(tmp_path: Path) -> None:
+    """R-CH-23, R-CH-12: "Check all channels now" runs quick checks, never a full check."""
+    world = World(tmp_path, channel_file(), BIG)
+    for handle in ("@small", "@big"):
+        world.add_and_list(handle)
+    full_checks_before = {
+        channel_id: world.repository.channel(channel_id).last_full_check_at  # pyright: ignore[reportOptionalMemberAccess]
+        for channel_id in (SMALL_ID, BIG_ID)
+    }
+    world.clock.advance(60)
+
+    with capture_logs() as logs:
+        world.catalogue.request_check_all()
+        world.work()
+
+    started = [
+        (line["channel_id"], line["kind"], line["first_listing"])
+        for line in log_lines(logs, "check.started")
+    ]
+    assert sorted(started) == sorted([(SMALL_ID, "quick", False), (BIG_ID, "quick", False)])
+    for channel_id, full_check_before in full_checks_before.items():
+        channel = world.repository.channel(channel_id)
+        assert channel is not None
+        assert channel.last_check_at == world.now()
+        assert channel.last_full_check_at == full_check_before != world.now()
 
 
 def test_a_check_that_already_waits_is_not_put_in_line_twice(tmp_path: Path) -> None:
@@ -981,3 +1064,83 @@ def test_when_the_first_channel_is_removed_the_other_takes_the_video(tmp_path: P
 
     assert "sm000000005" in world.ids(other["id"])
     assert len(world.ids(other["id"])) == 4
+
+
+# --- what started a check, in its log line
+
+
+def triggers(logs: Sequence[Mapping[str, Any]]) -> list[tuple[Any, Any]]:
+    """Return the kind and the trigger of every check that started."""
+    return [(line["kind"], line["trigger"]) for line in log_lines(logs, "check.started")]
+
+
+def test_the_first_listing_of_a_new_channel_says_it_came_from_adding(tmp_path: Path) -> None:
+    """R-CH-11, R-LG-01: the log tells that adding a channel started its first listing."""
+    world = World(tmp_path)
+
+    with capture_logs() as logs:
+        world.add_and_list()
+
+    assert triggers(logs) == [("full", "add")]
+
+
+def test_a_first_listing_taken_up_at_start_says_so(tmp_path: Path) -> None:
+    """R-CH-11, R-LG-01: a first listing a quit interrupted is logged as started by the app."""
+    world = World(tmp_path)
+    channel_id = world.add()
+    world.catalogue.forget(channel_id)
+    world.run_background()
+
+    with capture_logs() as logs:
+        world.catalogue.start()
+        world.background.clear()
+        world.work()
+
+    assert triggers(logs) == [("full", "app_start")]
+
+
+def test_a_first_listing_taken_up_after_the_pause_of_youtube_is_a_retry(tmp_path: Path) -> None:
+    """R-ER-05, R-LG-01: work that waited for YouTube is logged as a retry when it goes on."""
+    world = World(tmp_path)
+    world.catalogue.start()
+    world.background.clear()
+    world.gateway.refuse["listing"] = ErrorCode.BOT_CHECK
+    world.add()
+    world.work()
+    world.gateway.refuse.clear()
+
+    with capture_logs() as logs:
+        world.youtube.try_now()
+        world.work()
+
+    assert triggers(logs) == [("full", "retry")]
+
+
+def test_resuming_a_channel_that_was_never_listed_says_so(tmp_path: Path) -> None:
+    """R-CH-31, R-LG-01: the first listing after a resume is logged as started by the resume."""
+    world = World(tmp_path)
+    channel_id = world.add()
+    world.channels.set_paused(channel_id, True)
+    world.work()
+
+    with capture_logs() as logs:
+        world.channels.set_paused(channel_id, False)
+        world.work()
+
+    assert triggers(logs) == [("full", "resume")]
+
+
+def test_check_all_and_a_full_check_that_takes_its_place_keep_their_own_triggers(
+    tmp_path: Path,
+) -> None:
+    """R-CH-24, R-LG-01: a full check that replaces a waiting quick one keeps its trigger."""
+    world = World(tmp_path, channel_file(), BIG)
+    world.add_and_list()
+    world.add_and_list("@big")
+
+    with capture_logs() as logs:
+        world.catalogue.request_check_all()
+        world.catalogue.request_check(BIG_ID, CheckKind.FULL, trigger=CheckTrigger.MENU)
+        world.work()
+
+    assert sorted(triggers(logs)) == [("full", "menu"), ("quick", "check_all")]

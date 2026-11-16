@@ -4,7 +4,8 @@
  *
  * The real tools are 30 MB each and come from the internet. The tests use
  * tiny shell scripts instead, packed like the real downloads and served from
- * this Mac. The app is pointed at them with YTM_TOOL_MANIFEST.
+ * this Mac. The app is pointed at them with YTM_TOOL_MANIFEST. The scripts of
+ * ffmpeg and ffprobe run the real programs for everything but their version.
  *
  *   node tools.mjs build <folder>         Pack the stand-ins and write the manifests.
  *   node tools.mjs serve <folder> <port>  Serve them.
@@ -36,12 +37,43 @@ const ARCHIVES = [
 const BASE = '{{BASE}}'
 export const SHARED_NAME = 'shared'
 
+/**
+ * The folder of a real ffmpeg and ffprobe, or null. Downloads of the fake
+ * YouTube write real video files (docs/TESTING.md section 4), so the
+ * stand-ins of ffmpeg and ffprobe pass every call but `-version` on to the
+ * real programs: YTM_TEST_FFMPEG_DIR (CI installs it with the app's own
+ * code), else the ffmpeg of this app folder, which is only read (rule 9).
+ */
+function realFfmpeg() {
+  const given = process.env.YTM_TEST_FFMPEG_DIR
+  const folder = given || join(import.meta.dirname, '..', '..', '..', 'tools', 'ffmpeg')
+  return existsSync(join(folder, 'ffmpeg')) && existsSync(join(folder, 'ffprobe')) ? folder : null
+}
+
+function standIn(name, output, real) {
+  if (real === null || name === 'deno') {
+    return `#!/bin/sh\necho '${output}'\n`
+  }
+  return [
+    '#!/bin/sh',
+    `if [ "$1" = "-version" ]; then echo '${output}'; exit 0; fi`,
+    `exec '${join(real, name)}' "$@"`,
+    '',
+  ].join('\n')
+}
+
 function build(folder, port) {
   rmSync(folder, { recursive: true, force: true })
   const programs = join(folder, 'programs')
   mkdirSync(programs, { recursive: true })
+  const real = realFfmpeg()
+  if (real === null && process.env.YTM_REQUIRE_FFMPEG) {
+    throw new Error(
+      'The end-to-end tests need ffmpeg: set YTM_TEST_FFMPEG_DIR or run ../start once',
+    )
+  }
   for (const [name, output] of Object.entries(PROGRAMS)) {
-    writeFileSync(join(programs, name), `#!/bin/sh\necho '${output}'\n`)
+    writeFileSync(join(programs, name), standIn(name, output, real))
     chmodSync(join(programs, name), 0o755)
   }
   const entries = {}

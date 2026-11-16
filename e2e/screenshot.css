@@ -1,0 +1,16 @@
+/*
+ * Applied only while a screenshot is taken (docs/TESTING.md section 6).
+ *
+ * A path or the free space differs from machine to machine, so screenshots
+ * mask it. Its box gets a fixed size here, on one line: the mask is then the
+ * same box on every machine, and nothing below it moves.
+ */
+[data-library],
+[data-free-space],
+[data-folder] {
+  box-sizing: border-box;
+  width: 32rem;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}

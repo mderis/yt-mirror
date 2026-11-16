@@ -135,10 +135,16 @@ describe('the channels store', () => {
 
   it('R-CH-32: a removed channel leaves the sidebar, and is not the last open one any more', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${CHANNEL_ID}`]: () => new Response(null, { status: 204 }),
+      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: jsonResponse({
+        folder: '/Users/sam/Movies/YouTube/Sample Channel',
+        files_trashed: 0,
+        left: [],
+      }),
     })
 
-    await store.remove(CHANNEL_ID)
+    const removed = await store.remove(CHANNEL_ID)
+
+    expect(removed.left).toEqual([])
 
     expect(store.channels).toEqual([other])
     expect(store.lastOpenId).toBeNull()
@@ -146,7 +152,11 @@ describe('the channels store', () => {
 
   it('R-CH-32: removing another channel than the last open one keeps that one remembered', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${OTHER_CHANNEL_ID}`]: () => new Response(null, { status: 204 }),
+      [`DELETE /api/channels/${OTHER_CHANNEL_ID}?keep_files=true`]: jsonResponse({
+        folder: '/Users/sam/Movies/YouTube/Other Channel',
+        files_trashed: 0,
+        left: [],
+      }),
     })
 
     await store.remove(OTHER_CHANNEL_ID)
@@ -156,7 +166,10 @@ describe('the channels store', () => {
 
   it('R-ER-02: a removal that the backend refuses keeps the channel and passes the code on', async () => {
     const { store } = await loaded({
-      [`DELETE /api/channels/${CHANNEL_ID}`]: jsonResponse(errorBody('INTERNAL'), 500),
+      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: jsonResponse(
+        errorBody('INTERNAL'),
+        500,
+      ),
     })
 
     const error = await store.remove(CHANNEL_ID).catch((caught: unknown) => caught)
@@ -188,12 +201,12 @@ describe('the channels store', () => {
       [`POST /api/channels/${CHANNEL_ID}/check`]: jsonResponse(channel({ status: 'checking' })),
     })
 
-    await store.check(CHANNEL_ID, 'quick')
-    await store.check(CHANNEL_ID, 'full')
+    await store.check(CHANNEL_ID, 'quick', 'button')
+    await store.check(CHANNEL_ID, 'full', 'menu')
 
     expect(fetchMock.mock.calls.slice(-2).map(([, init]) => init?.body)).toEqual([
-      JSON.stringify({ kind: 'quick' }),
-      JSON.stringify({ kind: 'full' }),
+      JSON.stringify({ kind: 'quick', trigger: 'button' }),
+      JSON.stringify({ kind: 'full', trigger: 'menu' }),
     ])
   })
 
@@ -204,7 +217,7 @@ describe('the channels store', () => {
         new Promise<Response>((resolve) => (answer = resolve)),
     })
 
-    const asked = store.check(CHANNEL_ID, 'quick')
+    const asked = store.check(CHANNEL_ID, 'quick', 'button')
     store.apply(channel({ status: 'checking' }))
     store.apply(channel({ status: 'new_videos', new_videos: 1, videos: 13, last_check_at: NOW }))
     answer(jsonResponse(channel({ status: 'checking' })))

@@ -24,6 +24,8 @@ function handlers(changes: Partial<EventHandlers> = {}): EventHandlers {
     channelUpdated: nothing,
     taskProgress: nothing,
     pauseChanged: nothing,
+    videoUpdated: nothing,
+    jobProgress: nothing,
     reconnected: nothing,
     ...changes,
   }
@@ -230,15 +232,15 @@ describe('the API client', () => {
       'POST /api/channels/check-all': jsonResponse({ channels: 2 }),
     })
 
-    const checking = await api.checkChannel(CHANNEL_ID, 'quick')
-    await api.checkChannel(CHANNEL_ID, 'full')
+    const checking = await api.checkChannel(CHANNEL_ID, 'quick', 'button')
+    await api.checkChannel(CHANNEL_ID, 'full', 'menu')
     const all = await api.checkAllChannels()
 
     expect(checking.status).toBe('checking')
     expect(all).toEqual({ channels: 2 })
     expect(fetchMock.mock.calls.map(([path, init]) => [path, init?.body])).toEqual([
-      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'quick' })],
-      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'full' })],
+      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'quick', trigger: 'button' })],
+      [`/api/channels/${CHANNEL_ID}/check`, JSON.stringify({ kind: 'full', trigger: 'menu' })],
       ['/api/channels/check-all', undefined],
     ])
   })
@@ -279,17 +281,57 @@ describe('the API client', () => {
     })
   })
 
-  it('R-CH-32: removes a channel', async () => {
+  it('R-CH-32: removes a channel and says whether its files stay or go to the Trash', async () => {
     const fetchMock = mockApi({
-      [`DELETE /api/channels/${CHANNEL_ID}`]: () => new Response(null, { status: 204 }),
+      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: () =>
+        jsonResponse({ folder: '/f', files_trashed: 0, left: [] }),
+      [`DELETE /api/channels/${CHANNEL_ID}?keep_files=false`]: () =>
+        jsonResponse({
+          folder: '/f',
+          files_trashed: 2,
+          left: [{ file: 'Locked.mkv', reason: 'trash_refused' }],
+        }),
     })
 
-    await api.removeChannel(CHANNEL_ID)
+    await api.removeChannel(CHANNEL_ID, true)
+    const trashed = await api.removeChannel(CHANNEL_ID, false)
 
-    expect(fetchMock).toHaveBeenLastCalledWith(`/api/channels/${CHANNEL_ID}`, {
-      credentials: 'same-origin',
-      method: 'DELETE',
+    expect(trashed).toEqual({
+      folder: '/f',
+      files_trashed: 2,
+      left: [{ file: 'Locked.mkv', reason: 'trash_refused' }],
     })
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      `/api/channels/${CHANNEL_ID}?keep_files=true`,
+      `/api/channels/${CHANNEL_ID}?keep_files=false`,
+    ])
+  })
+
+  it('R-MI-01, R-QU-02, R-QU-08, R-UI-08, R-UI-10: asks to mirror, cancel, retry, show and play', async () => {
+    const fetchMock = mockApi({
+      'POST /api/videos/mirror': jsonResponse(
+        { jobs: [{ job_id: 'J1', video_id: 'video000001' }] },
+        202,
+      ),
+      'POST /api/jobs/J1/cancel': jsonResponse({ cancelled: true }),
+      'POST /api/videos/video000001/retry': jsonResponse(video(1), 202),
+      'POST /api/videos/video000001/play': () => new Response(null, { status: 204 }),
+      'POST /api/videos/video000001/reveal': () => new Response(null, { status: 204 }),
+      [`GET /api/channels/${CHANNEL_ID}/files-to-trash`]: jsonResponse({ files: 2, size_bytes: 9 }),
+    })
+
+    const jobs = await api.mirrorVideos(['video000001'])
+    const cancelled = await api.cancelJob('J1')
+    await api.retryVideo('video000001')
+    await api.playVideo('video000001')
+    await api.revealVideo('video000001')
+    const files = await api.getFilesToTrash(CHANNEL_ID)
+
+    expect(jobs).toEqual([{ job_id: 'J1', video_id: 'video000001' }])
+    expect(cancelled).toEqual({ cancelled: true })
+    expect(files).toEqual({ files: 2, size_bytes: 9 })
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ ids: ['video000001'] }))
   })
 
   it('R-CH-10: asks for the catalogue of a channel', async () => {

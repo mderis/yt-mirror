@@ -14,6 +14,7 @@ from ytmirror.core.channels import (
     ChannelStatus,
     ChannelView,
     CheckKind,
+    CheckTrigger,
     DatePrecision,
     Quality,
     TaskKind,
@@ -23,7 +24,9 @@ from ytmirror.core.channels import (
     YouTubePause,
 )
 from ytmirror.core.errors import ErrorCode
-from ytmirror.services.channels import ChannelLookup, ChosenFolder
+from ytmirror.core.jobs import JobProgress, Stage
+from ytmirror.services.channels import ChannelLookup, ChosenFolder, KeptFile, KeptReason
+from ytmirror.services.downloader import VideoDetails
 from ytmirror.services.state import AppState
 
 
@@ -82,6 +85,8 @@ class Channel(BaseModel):
         pictures: A number that grows when more pictures of the channel are cached.
         avatar_version: A number that grows when the avatar of the channel was cached anew.
         catalogue_version: A number that grows with every successful check of the channel.
+        mirroring: While videos of the channel are downloaded, how many ended and how
+            many there are (R-FB-01: "Mirroring X of Y"). Otherwise None.
     """
 
     id: str
@@ -109,6 +114,7 @@ class Channel(BaseModel):
     pictures: int
     avatar_version: int
     catalogue_version: int
+    mirroring: Mirroring | None = None
 
     @classmethod
     def of(cls, view: ChannelView) -> Channel:
@@ -140,6 +146,64 @@ class Channel(BaseModel):
             pictures=view.pictures,
             avatar_version=view.avatar_version,
             catalogue_version=view.catalogue_version,
+            mirroring=None
+            if view.mirroring is None
+            else Mirroring(done=view.mirroring[0], total=view.mirroring[1]),
+        )
+
+
+class Mirroring(BaseModel):
+    """How far the downloads of a channel are (R-FB-01).
+
+    Attributes:
+        done: How many ended, well or not.
+        total: How many there are in all.
+    """
+
+    done: int
+    total: int
+
+
+class Download(BaseModel):
+    """How far the running download of a video is (R-QU-04).
+
+    Attributes:
+        job_id: The job.
+        video_id: The video.
+        channel_id: Its channel.
+        stage: Video, audio or processing.
+        fraction: How much of the whole video is done, its streams together, from 0
+            to 1. None while it is processed, or when a size is not known.
+        speed_bps: Bytes per second, or None.
+        left_s: Seconds left of the download, or None.
+        height: The height being downloaded, or None.
+        downloaded_bytes: How many bytes arrived, or None. Shown when the
+            fraction is not known.
+    """
+
+    job_id: str
+    video_id: str
+    channel_id: str
+    stage: Stage
+    fraction: float | None
+    speed_bps: float | None
+    left_s: int | None
+    height: int | None
+    downloaded_bytes: int | None
+
+    @classmethod
+    def of(cls, progress: JobProgress) -> Download:
+        """Return the wire form of a progress."""
+        return cls(
+            job_id=progress.job_id,
+            video_id=progress.video_id,
+            channel_id=progress.channel_id,
+            stage=progress.stage,
+            fraction=progress.fraction,
+            speed_bps=progress.speed_bps,
+            left_s=progress.left_s,
+            height=progress.height,
+            downloaded_bytes=progress.downloaded_bytes,
         )
 
 
@@ -158,6 +222,11 @@ class Video(BaseModel):
         is_new: Whether the video counts as new (R-CH-15).
         gone: Whether it is removed from YouTube (R-CH-14).
         excluded: Whether it is excluded.
+        job_id: The job of a download that waits or runs, for Cancel, or None.
+        download: How far a running download is (R-QU-04), or None.
+        height: The height of the file of a synced video (R-FB-02), or None.
+        file_size: The size of its file in bytes, or None.
+        error_code: Why the last download failed (R-QU-08), or None.
     """
 
     id: str
@@ -171,6 +240,11 @@ class Video(BaseModel):
     is_new: bool
     gone: bool
     excluded: bool
+    job_id: str | None = None
+    download: Download | None = None
+    height: int | None = None
+    file_size: int | None = None
+    error_code: ErrorCode | None = None
 
     @classmethod
     def of(cls, view: VideoView) -> Video:
@@ -188,6 +262,157 @@ class Video(BaseModel):
             is_new=view.is_new,
             gone=video.gone,
             excluded=video.excluded,
+            job_id=view.job_id,
+            download=None if view.progress is None else Download.of(view.progress),
+            height=video.height,
+            file_size=video.file_size,
+            error_code=video.last_error_code,
+        )
+
+
+class MirrorRequest(BaseModel):
+    """The body of ``POST /api/videos/mirror`` (R-MI-01).
+
+    Attributes:
+        ids: The videos to put in line, in this order.
+    """
+
+    ids: list[str]
+
+
+class QueuedJob(BaseModel):
+    """A download that was put in line.
+
+    Attributes:
+        job_id: The job.
+        video_id: The video.
+    """
+
+    job_id: str
+    video_id: str
+
+
+class MirrorResponse(BaseModel):
+    """The answer of ``POST /api/videos/mirror``.
+
+    Attributes:
+        jobs: The downloads that were put in line. A video that waits, runs or is
+            synced already is left out.
+    """
+
+    jobs: list[QueuedJob]
+
+
+class CancelJobResponse(BaseModel):
+    """The answer of ``POST /api/jobs/{id}/cancel`` (R-QU-02).
+
+    Attributes:
+        cancelled: Whether there was a download that waited or ran.
+    """
+
+    cancelled: bool
+
+
+class ChapterInfo(BaseModel):
+    """One chapter of a video (R-UI-08).
+
+    Attributes:
+        start_s: Where it starts, in seconds.
+        title: Its title.
+    """
+
+    start_s: float
+    title: str
+
+
+class FileFacts(BaseModel):
+    """The file of a synced video, as the details panel shows it (R-UI-08).
+
+    Attributes:
+        name: The file name.
+        size: Its size in bytes.
+        width: The width of the video, or None.
+        height: The height of the video, or None.
+        fps: Frames per second, or None.
+        vcodec: The video codec, or None.
+        acodec: The audio codec, or None.
+        audio_channels: The number of audio channels, or None.
+        subtitles: ``manual``, ``auto`` or None.
+        cover_embedded: Whether the thumbnail is inside the file.
+    """
+
+    name: str
+    size: int | None
+    width: int | None
+    height: int | None
+    fps: float | None
+    vcodec: str | None
+    acodec: str | None
+    audio_channels: int | None
+    subtitles: str | None
+    cover_embedded: bool
+
+
+class VideoDetailsResponse(BaseModel):
+    """The answer of ``GET /api/videos/{id}``: everything the details panel shows (R-UI-08).
+
+    Attributes:
+        video: The video as a list shows it.
+        channel_id: Its channel.
+        folder: The channel folder.
+        file: The file of a synced video, or None.
+        downloaded_at: When the file was completed, or None.
+        description: The description from the saved metadata, or None.
+        chapters: The chapters from the saved metadata.
+        thumbnail_saved: Whether the original thumbnail is in the hidden folder.
+        url: The address of the video on YouTube.
+    """
+
+    video: Video
+    channel_id: str
+    folder: str
+    file: FileFacts | None
+    downloaded_at: int | None
+    description: str | None
+    chapters: list[ChapterInfo]
+    thumbnail_saved: bool
+    url: str
+
+    @classmethod
+    def of(cls, details: VideoDetails) -> VideoDetailsResponse:
+        """Return the wire form of the details of a video."""
+        video = details.view.video
+        media = details.media
+        file = (
+            None
+            if details.file is None
+            else FileFacts(
+                name=details.file.name,
+                size=video.file_size,
+                width=None if media is None else media.width,
+                height=video.height if media is None else media.height,
+                fps=None if media is None else media.fps,
+                vcodec=video.vcodec if media is None else media.vcodec,
+                acodec=video.acodec if media is None else media.acodec,
+                audio_channels=None if media is None else media.audio_channels,
+                subtitles=video.has_subtitles,
+                cover_embedded=media is not None
+                and any(name.startswith("cover") for name in media.attachments),
+            )
+        )
+        return cls(
+            video=Video.of(details.view),
+            channel_id=video.channel_id,
+            folder=str(details.folder),
+            file=file,
+            downloaded_at=video.downloaded_at,
+            description=details.description,
+            chapters=[
+                ChapterInfo(start_s=chapter.start_s, title=chapter.title)
+                for chapter in details.chapters
+            ],
+            thumbnail_saved=details.thumbnail_saved,
+            url=f"https://www.youtube.com/watch?v={video.id}",
         )
 
 
@@ -394,9 +619,12 @@ class CheckRequest(BaseModel):
 
     Attributes:
         kind: A quick check ("Check now") or a full check (R-CH-23).
+        trigger: What the user pressed: the button, the menu, or "Try again". It is
+            logged with the check, so the log alone tells why it ran.
     """
 
     kind: CheckKind = CheckKind.QUICK
+    trigger: CheckTrigger = CheckTrigger.API
 
 
 class CheckAllResponse(BaseModel):
@@ -407,6 +635,52 @@ class CheckAllResponse(BaseModel):
     """
 
     channels: int
+
+
+class FilesToTrashResponse(BaseModel):
+    """The answer of ``GET /api/channels/{id}/files-to-trash`` (R-CH-32).
+
+    Attributes:
+        files: How many visible files "Delete the files" moves to the Trash.
+        size_bytes: How much room they take, the hidden folder of the app included.
+    """
+
+    files: int
+    size_bytes: int
+
+
+class KeptFileResponse(BaseModel):
+    """A file that "Delete the files" left in the folder, and why (R-CH-32).
+
+    Attributes:
+        file: The path, relative to the channel folder.
+        reason: ``trash_refused`` (macOS refused), ``another_video`` (another
+            video is inside), ``not_checked`` (the video inside could not be
+            read) or ``outside_folder`` (it leads out of the folder).
+    """
+
+    file: str
+    reason: KeptReason
+
+    @classmethod
+    def of(cls, kept: KeptFile) -> KeptFileResponse:
+        """Return the wire form of a kept file."""
+        return cls(file=kept.file, reason=kept.reason)
+
+
+class RemovedChannelResponse(BaseModel):
+    """The answer of ``DELETE /api/channels/{id}`` (R-CH-32).
+
+    Attributes:
+        folder: The folder of the channel.
+        files_trashed: How many files and folders went to the Trash.
+        left: Every file that should have gone to the Trash and stayed, with
+            its reason. Empty when every file went, or when the files were kept.
+    """
+
+    folder: str
+    files_trashed: int
+    left: list[KeptFileResponse]
 
 
 class CancelCheckResponse(BaseModel):
@@ -427,6 +701,28 @@ class ChannelUpdatedEvent(BaseModel):
     """
 
     channel: Channel
+
+
+class VideoUpdatedEvent(BaseModel):
+    """The data of the ``video.updated`` event of ``GET /api/events`` (R-FB-03).
+
+    Attributes:
+        channel_id: The channel of the video.
+        video: The video as a list shows it now.
+    """
+
+    channel_id: str
+    video: Video
+
+
+class JobProgressEvent(BaseModel):
+    """The data of the ``job.progress`` event of ``GET /api/events`` (R-QU-04).
+
+    Attributes:
+        download: How far the download is.
+    """
+
+    download: Download
 
 
 class TaskProgressEvent(BaseModel):

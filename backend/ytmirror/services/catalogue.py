@@ -38,6 +38,7 @@ from ytmirror.core.channels import (
     Channel,
     ChannelListing,
     CheckKind,
+    CheckTrigger,
     ListedVideo,
     TaskKind,
     TaskProgress,
@@ -62,6 +63,7 @@ class _Request:
     channel_id: str
     kind: CheckKind
     by_user: bool
+    trigger: CheckTrigger
     preview_count: int | None = None
     delay_s: float = 0.0
 
@@ -81,6 +83,7 @@ class CatalogueService:
         clock: Clock,
         run_in_background: Callable[[Callable[[], None]], None],
         after_check: Callable[[str, CheckKind], None] | None = None,
+        found_removed: Callable[[Sequence[str]], None] | None = None,
         choose_delay: Callable[[float, float], float] = random.uniform,
         wait: Callable[[float], None] | None = None,
     ) -> None:
@@ -95,6 +98,9 @@ class CatalogueService:
             after_check: Told the channel ID and the kind of check after every
                 successful check, for work that follows a check, such as caching
                 its pictures.
+            found_removed: Told the IDs of the videos a stored check holds as
+                removed from YouTube, so that their waiting downloads end at once
+                (R-CH-14).
             choose_delay: Chooses the seconds to wait between two channels of "Check
                 all channels now", between a least and a most (R-CH-24).
             wait: Waits a number of seconds. Default: a wait that ends early when
@@ -106,6 +112,7 @@ class CatalogueService:
         self._clock = clock
         self._run_in_background = run_in_background
         self._after_check = after_check
+        self._found_removed = found_removed
         self._choose_delay = choose_delay
         self._wait = wait
         self._wake = threading.Condition()
@@ -116,9 +123,9 @@ class CatalogueService:
 
     def start(self) -> None:
         """Start the worker, and take up the first listings that a quit interrupted (R-CH-11)."""
-        self._youtube.when_asking_again(self.resume_first_listings)
+        self._youtube.when_asking_again(lambda: self.resume_first_listings(CheckTrigger.RETRY))
         self._run_in_background(self._work_until_stopped)
-        self.resume_first_listings()
+        self.resume_first_listings(CheckTrigger.APP_START)
 
     def stop(self) -> None:
         """Stop the worker. A check that is running ends at the next video and stores nothing."""
@@ -132,6 +139,7 @@ class CatalogueService:
         kind: CheckKind,
         *,
         by_user: bool = True,
+        trigger: CheckTrigger = CheckTrigger.API,
         preview_count: int | None = None,
         delay_s: float = 0.0,
     ) -> None:
@@ -146,6 +154,8 @@ class CatalogueService:
             channel_id: The channel ID.
             kind: A quick or a full check.
             by_user: Whether the user started it. Otherwise a pause of the app holds it up.
+            trigger: What started it, for the log. A full check that takes the place of
+                a waiting quick one brings its own trigger.
             preview_count: For a first listing, the video count the preview showed.
             delay_s: Seconds the worker waits before this check (R-CH-24).
 
@@ -160,7 +170,7 @@ class CatalogueService:
             raise AppError(ErrorCode.INVALID_REQUEST, {"reason": "paused", "channel": channel_id})
         if channel.first_listed_at is None:
             kind = CheckKind.FULL
-        request = _Request(channel_id, kind, by_user, preview_count, delay_s)
+        request = _Request(channel_id, kind, by_user, trigger, preview_count, delay_s)
         with self._wake:
             if not self._put_in_line(request):
                 return
@@ -181,18 +191,23 @@ class CatalogueService:
         channels = [channel for channel in self._repository.channels() if not channel.paused]
         for index, channel in enumerate(channels):
             delay_s = 0.0 if index == 0 else self._choose_delay(*CHECK_ALL_DELAY_S)
-            self.request_check(channel.id, CheckKind.QUICK, delay_s=delay_s)
+            self.request_check(
+                channel.id, CheckKind.QUICK, trigger=CheckTrigger.CHECK_ALL, delay_s=delay_s
+            )
         return len(channels)
 
-    def resume_first_listings(self) -> None:
+    def resume_first_listings(self, trigger: CheckTrigger = CheckTrigger.APP_START) -> None:
         """Put the first listing of every channel in line that has none yet (R-CH-11).
 
         A channel whose first listing failed is left to the user: its error
         and "Try again" are on its page (R-CH-25).
+
+        Args:
+            trigger: Why: the start of the app, or YouTube being asked again.
         """
         for channel in self._repository.channels():
             if channel.first_listed_at is None and channel.last_check_error is None:
-                self.request_check(channel.id, CheckKind.FULL, by_user=False)
+                self.request_check(channel.id, CheckKind.FULL, by_user=False, trigger=trigger)
 
     def cancel(self, channel_id: str) -> bool:
         """Cancel the full check of a channel that waits or runs (R-CH-27).
@@ -210,13 +225,24 @@ class CatalogueService:
             return False
         return self._drop(channel_id)
 
-    def forget(self, channel_id: str) -> None:
+    def forget(self, channel_id: str, *, wait_s: float = 0.0) -> bool:
         """Drop every check of a channel, because the channel is paused or removed.
 
         Args:
             channel_id: The channel ID.
+            wait_s: How long to wait for a check of the channel that runs to
+                end. A removal waits, so that no check writes into a folder it
+                moves to the Trash (R-CH-32).
+
+        Returns:
+            Whether no check of the channel runs any more.
         """
         self._drop(channel_id)
+        with self._wake:
+            return self._wake.wait_for(
+                lambda: self._running is None or self._running.channel_id != channel_id,
+                timeout=wait_s,
+            )
 
     def work_once(self) -> bool:
         """Run the next check that waits, if there is one.
@@ -237,6 +263,7 @@ class CatalogueService:
             with self._wake:
                 self._running = None
                 self._cancelled.discard(request.channel_id)
+                self._wake.notify_all()
             self._views.set_checking(request.channel_id, False)
         return True
 
@@ -297,7 +324,10 @@ class CatalogueService:
         kind = request.kind.value
         log = _log.bind(channel_id=channel.id, kind=kind)
         log.info(
-            "check.started", msg="Check started", first_listing=channel.first_listed_at is None
+            "check.started",
+            msg="Check started",
+            first_listing=channel.first_listed_at is None,
+            trigger=request.trigger.value,
         )
         try:
             changes = self._read_and_store(channel, request)
@@ -321,6 +351,9 @@ class CatalogueService:
             )
         else:
             if changes is not None:
+                removed = [video.id for video in changes.updated if video.gone]
+                if removed and self._found_removed is not None:
+                    self._found_removed(removed)
                 log.info(
                     "check.finished",
                     msg="Check finished",

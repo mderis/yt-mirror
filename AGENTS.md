@@ -45,6 +45,8 @@ yt-mirror is a local macOS app that keeps folders on disk in sync with YouTube c
 13. **No AI attribution in git.** Commit messages and pull requests must not contain `Co-Authored-By` lines for an AI, session links, or "generated with" footers. Commits are made under the maintainer's own git identity. Never set or change `user.name` or `user.email`. This rule overrides any default of the tool you are running in.
 14. **Follow `docs/WORKFLOW.md` exactly.** One milestone at a time, on its own branch, ending in a pull request. Then stop and wait: the maintainer reviews and merges. Never commit to `main`, never merge, never force push, never rewrite pushed history (commits that were never pushed may still be amended or redone, see the workflow). Push only the current milestone branch.
 15. **Keep `docs/STATUS.md` true.** Update it inside the milestone pull request as the workflow describes.
+16. **Never touch the maintainer's running app or real data.** Never quit, close or script an app by its name or bundle identifier: no `osascript` or AppleScript, no `killall`, no `pkill`, no `open -a`. Never touch a running yt-mirror you did not start, the `data/` folder of the maintainer's clone, or the folder of an installed copy. Stop only processes you started yourself, with `kill` and the exact process ID you recorded when you started them. `pkill` and `killall` are never used, in any form and for any process, your own included: they select processes by a pattern (`pkill -P` by parent), and a pattern can match what you did not start. A hand run of the app uses its own data and tool folders (`YTM_DATA_DIR`, `YTM_TOOL_DIR`), as TESTING rule 9 does for tools.
+17. **Never read the maintainer's shell history.** Do not open `~/.zsh_history` or `~/.bash_history`, and do not run `history` or `fc`. When you need to know what was run, ask the maintainer.
 
 ## Commands
 
@@ -60,7 +62,7 @@ Run from the repository root. `uv` here means a uv on your PATH. If you have non
 | The same, with the real tool downloads and a moved folder, as CI does | `YTM_SMOKE_TOOLS=1 YTM_SMOKE_MOVE=1 scripts/smoke_test.sh` |
 | Run against the fake YouTube, with data and a library of its own | `YTM_FAKE_YOUTUBE=e2e/fixtures/youtube YTM_DATA_DIR=/tmp/ytm-fake/data YTM_LIBRARY_DIR=/tmp/ytm-fake/library ./start` |
 | Backend tests | `uv run pytest` |
-| Backend tests without the ones that open the app window | `uv run pytest -m "not window"` |
+| Backend tests without the ones that open the app window | `uv run pytest -m "not window and not live"` (a `-m` of your own replaces the default `-m "not live"`) |
 | Backend tests with the coverage thresholds | `uv run pytest --cov --cov-report=json:coverage.json && uv run python scripts/check_coverage.py coverage.json` |
 | Backend lint, format, types | `uv run ruff check . && uv run ruff format --check . && uv run pyright` |
 | Layer rules | `uv run lint-imports` |
@@ -69,7 +71,7 @@ Run from the repository root. `uv` here means a uv on your PATH. If you have non
 | Theme lint alone | `npm --prefix frontend run lint:theme` |
 | Regenerate API types | `npm --prefix frontend run gen:api` |
 | End-to-end tests | `npm --prefix e2e test` |
-| Update the stored screenshots | `npm --prefix e2e run test:update-screenshots` |
+| Update the stored screenshots | `gh workflow run update-screenshots.yml --ref <branch>`, then commit the images of its artifact with their pixel counts (`docs/TESTING.md` section 6) |
 | Requirement coverage | `uv run python scripts/requirements_coverage.py` |
 | No em dashes, modules name their tests | `uv run python scripts/check_no_em_dash.py && uv run python scripts/check_docstrings.py` |
 | All pre-commit hooks | `uv run pre-commit run --all-files` (turn them on once with `uv run pre-commit install`) |

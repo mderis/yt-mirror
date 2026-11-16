@@ -16,6 +16,7 @@ import {
   TOOLS_PORT,
   TOOLS_URL,
 } from './settings'
+import { LIMIT_PIXELS, THRESHOLD } from './screenshot-limits.ts'
 
 /**
  * End-to-end tests of yt-mirror (docs/TESTING.md section 6).
@@ -27,6 +28,13 @@ import {
  * Google Chrome can be used instead: YTM_E2E_CHROME_CHANNEL=chrome npm test
  */
 const chromeChannel = process.env.YTM_E2E_CHROME_CHANNEL
+
+/**
+ * With YTM_SCREENSHOT_DIR set, every screenshot is written into that folder instead of
+ * being compared, so that screenshot-counts.ts can count each against the stored image,
+ * and CI can make all images (docs/TESTING.md section 6).
+ */
+const madeScreenshots = process.env.YTM_SCREENSHOT_DIR
 const viewport = { width: 1280, height: 800 }
 
 export default defineConfig({
@@ -37,10 +45,18 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: [['list'], ['html', { open: 'never' }]],
-  // One baseline per browser. They are compared on every platform the tests run on.
-  snapshotPathTemplate: '{testDir}/__screenshots__/{testFileName}/{arg}-{projectName}{ext}',
+  // One image per browser, made and compared on the macOS of CI (TESTING.md section 6).
+  snapshotPathTemplate: `${madeScreenshots ? resolve(madeScreenshots) : '{testDir}/__screenshots__'}/{testFileName}/{arg}-{projectName}{ext}`,
+  ...(madeScreenshots ? { updateSnapshots: 'all' as const } : {}),
   expect: {
-    toHaveScreenshot: { maxDiffPixelRatio: 0.02, animations: 'disabled' },
+    // At most so many differing pixels, never a share of the image; a pixel differs from
+    // the threshold on. Text that differs between machines gets a fixed box (screenshot.css).
+    toHaveScreenshot: {
+      maxDiffPixels: LIMIT_PIXELS,
+      threshold: THRESHOLD,
+      animations: 'disabled',
+      stylePath: resolve(import.meta.dirname, 'screenshot.css'),
+    },
   },
   use: {
     baseURL: APP_URL,
@@ -49,7 +65,10 @@ export default defineConfig({
     timezoneId: 'UTC',
   },
   projects: [
-    { name: 'webkit', use: { ...devices['Desktop Safari'], viewport } },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'], viewport },
+    },
     {
       name: 'chromium',
       use: {
@@ -75,6 +94,8 @@ export default defineConfig({
         // No test asks the real YouTube or writes into the real library.
         YTM_FAKE_YOUTUBE: resolve(FAKE_YOUTUBE_DIR),
         YTM_LIBRARY_DIR: resolve(SHARED_LIBRARY_DIR),
+        // Files that a test deletes go here, never into the Trash of the person who runs it.
+        YTM_TRASH_DIR: resolve(`${DATA_DIR}/shared-trash`),
       },
       reuseExistingServer: false,
       // The first start downloads uv, Python and packages, and builds the interface.

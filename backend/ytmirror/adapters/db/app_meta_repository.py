@@ -9,6 +9,7 @@ Tests: backend/tests/integration/test_app_meta_repository_contract.py
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.tables import AppMetaRow
 from ytmirror.ports.clock import Clock
 
@@ -24,6 +25,7 @@ class SqlAppMetaRepository:
             clock: The source of the ``created_at`` and ``updated_at`` times.
         """
         self._engine = engine
+        self._reader = for_reading(engine)
         self._clock = clock
 
     def get(self, key: str) -> str | None:
@@ -32,7 +34,7 @@ class SqlAppMetaRepository:
         Args:
             key: The name of the fact.
         """
-        with Session(self._engine) as session:
+        with Session(self._reader) as session:
             row = session.get(AppMetaRow, key)
             return None if row is None else row.value
 

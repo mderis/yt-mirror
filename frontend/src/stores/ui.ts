@@ -9,9 +9,17 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { ApiError, type ErrorCode } from '@/api/client'
+import { ApiError, type ErrorCode, type KeptFile } from '@/api/client'
 
 const UNKNOWN_ERROR: ErrorCode = 'INTERNAL'
+
+/** Files a removal could not move to the Trash, shown once the channel is gone (R-CH-32). */
+export interface FilesLeft {
+  channel: string
+  folder: string
+  /** Every file that stayed, with why. */
+  files: KeptFile[]
+}
 
 /** Where a menu opens: at a place of the window, or under the button that opened it. */
 export interface MenuPlace {
@@ -30,6 +38,8 @@ export const useUiStore = defineStore('ui', () => {
   const existingChannelId = ref<string | null>(null)
   /** The code of the last action that failed, until the user dismisses it (R-ER-02). */
   const actionError = ref<ErrorCode | null>(null)
+  /** The files a removal left in the folder, until the user closes the message. */
+  const filesLeft = ref<FilesLeft | null>(null)
 
   /** Open the add channel dialog, with what the user already typed. */
   function openAddChannel(text = ''): void {
@@ -48,6 +58,15 @@ export const useUiStore = defineStore('ui', () => {
 
   function closeRemove(): void {
     removeChannelId.value = null
+  }
+
+  /** Say which files a removal could not move to the Trash (R-CH-32). */
+  function showFilesLeft(left: FilesLeft): void {
+    filesLeft.value = left
+  }
+
+  function closeFilesLeft(): void {
+    filesLeft.value = null
   }
 
   /** Open the menu of a channel. */
@@ -91,10 +110,13 @@ export const useUiStore = defineStore('ui', () => {
     menu,
     existingChannelId,
     actionError,
+    filesLeft,
     openAddChannel,
     closeAddChannel,
     askRemove,
     closeRemove,
+    showFilesLeft,
+    closeFilesLeft,
     openMenu,
     closeMenu,
     noteExisting,

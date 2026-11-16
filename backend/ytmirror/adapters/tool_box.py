@@ -63,6 +63,10 @@ class LocalToolBox:
         except OSError, ValueError, KeyError, TypeError:
             return None
 
+    def program_path(self, tool: ToolName, program: str) -> Path:
+        """Return where a program of a tool is when the tool is in place."""
+        return self._place(tool) / program
+
     def run(self, tool: ToolName, program: str, arguments: Sequence[str]) -> str | None:
         """Run a program of a tool that is in place and return its first line of output."""
         try:

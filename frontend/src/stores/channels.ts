@@ -17,10 +17,13 @@ import {
   type Channel,
   type ChannelLookup,
   type CheckKind,
+  type CheckTrigger,
   type ChosenFolder,
   type NewChannel,
   type Pause,
   type Progress,
+  type FilesToTrash,
+  type RemovedChannel,
 } from '@/api/client'
 
 export const useChannelsStore = defineStore('channels', () => {
@@ -111,13 +114,19 @@ export const useChannelsStore = defineStore('channels', () => {
     return added
   }
 
-  /** Remove a channel with its catalogue (R-CH-32). */
-  async function remove(channelId: string): Promise<void> {
-    await api.removeChannel(channelId)
+  /** Remove a channel with its catalogue, and its files or not (R-CH-32). */
+  async function remove(channelId: string, keepFiles = true): Promise<RemovedChannel> {
+    const removed = await api.removeChannel(channelId, keepFiles)
     channels.value = channels.value.filter((channel) => channel.id !== channelId)
     if (lastOpenId.value === channelId) {
       lastOpenId.value = null
     }
+    return removed
+  }
+
+  /** Ask what "Delete the files" would move to the Trash (R-CH-32). */
+  async function filesToTrash(channelId: string): Promise<FilesToTrash> {
+    return api.getFilesToTrash(channelId)
   }
 
   /** Pause or resume a channel (R-CH-31). */
@@ -130,8 +139,8 @@ export const useChannelsStore = defineStore('channels', () => {
    * being checked, and what the check found, arrives with the events: the
    * answer of this call can be older than they are.
    */
-  async function check(channelId: string, kind: CheckKind): Promise<void> {
-    await api.checkChannel(channelId, kind)
+  async function check(channelId: string, kind: CheckKind, trigger: CheckTrigger): Promise<void> {
+    await api.checkChannel(channelId, kind, trigger)
   }
 
   /** Cancel the full check of a channel (R-CH-27). */
@@ -178,6 +187,7 @@ export const useChannelsStore = defineStore('channels', () => {
     chooseFolder,
     add,
     remove,
+    filesToTrash,
     setPaused,
     check,
     cancelCheck,

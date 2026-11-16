@@ -34,6 +34,7 @@ from ytmirror.core.models import AppEvent
 from ytmirror.core.status import NEW_FOR_S, channel_status, is_new, waits_for_youtube
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
+from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
 from ytmirror.services.settings import SettingsService
 
@@ -48,6 +49,7 @@ class ChannelViews:
         clock: Clock,
         events: EventBus,
         youtube_paused: Callable[[], bool] = lambda: False,
+        downloads: DownloadState | None = None,
     ) -> None:
         """Create the views.
 
@@ -57,12 +59,14 @@ class ChannelViews:
             clock: The source of time.
             events: Where changes are published, and where the pause of YouTube is heard.
             youtube_paused: Tells whether the app pauses what it asks of YouTube by itself.
+            downloads: The downloads that wait or run.
         """
         self._repository = repository
         self._settings = settings
         self._clock = clock
         self._events = events
         self._youtube_paused = youtube_paused
+        self._downloads = downloads if downloads is not None else DownloadState()
         events.subscribe(self._on_event)
         self._lock = threading.Lock()
         self._checking: set[str] = set()
@@ -120,8 +124,29 @@ class ChannelViews:
                 published_around=None
                 if video.published_at is None or video.published_precision is None
                 else moment_to_show(video.published_at, video.published_precision),
+                job_id=self._downloads.job_of(video.id),
+                progress=self._downloads.progress_of(video.id),
             )
             for video in self._repository.videos(channel_id)
+        )
+
+    def video(self, video_id: str) -> VideoView | None:
+        """Return one video as the interface shows it, or None when no catalogue has it.
+
+        Args:
+            video_id: The video ID.
+        """
+        video = self._repository.video(video_id)
+        if video is None:
+            return None
+        return VideoView(
+            video=video,
+            is_new=is_new(video, int(self._clock.now().timestamp())),
+            published_around=None
+            if video.published_at is None or video.published_precision is None
+            else moment_to_show(video.published_at, video.published_precision),
+            job_id=self._downloads.job_of(video.id),
+            progress=self._downloads.progress_of(video.id),
         )
 
     def publish(self, channel_id: str) -> None:
@@ -222,6 +247,7 @@ class ChannelViews:
             pictures = self._pictures.get(channel.id, 0)
             avatar_version = self._avatars.get(channel.id, 0)
             catalogue_version = self._catalogues.get(channel.id, 0)
+        mirroring = self._downloads.mirroring(channel.id)
         return ChannelView(
             channel=channel,
             status=channel_status(
@@ -231,6 +257,7 @@ class ChannelViews:
                 waiting_for_youtube=waits_for_youtube(
                     channel, youtube_paused=self._youtube_paused()
                 ),
+                mirroring=mirroring is not None,
             ),
             totals=totals,
             progress=progress,
@@ -238,6 +265,7 @@ class ChannelViews:
             pictures=pictures,
             avatar_version=avatar_version,
             catalogue_version=catalogue_version,
+            mirroring=None if mirroring is None else (mirroring.done, mirroring.total),
         )
 
     def _new_since(self) -> int:

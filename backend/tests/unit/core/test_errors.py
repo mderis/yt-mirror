@@ -31,6 +31,11 @@ def test_the_kinds_of_the_codes_match_the_logging_document() -> None:
         ErrorCode.CHECKSUM_MISMATCH,
         ErrorCode.DISK_FULL,
         ErrorCode.TOOL_MISSING,
+        ErrorCode.NOT_YET_AVAILABLE,
+        ErrorCode.FFMPEG_FAILED,
+        ErrorCode.VERIFY_FAILED,
+        ErrorCode.DATES_NOT_APPLIED,
+        ErrorCode.CHANNEL_BUSY,
     }
 
 

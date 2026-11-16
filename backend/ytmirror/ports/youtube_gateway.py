@@ -1,8 +1,9 @@
 """The YouTubeGateway port: everything the app asks of YouTube.
 
 From milestone M2: looking a channel up, listing its regular videos, the
-optional video count of a channel preview, and fetching a picture. Metadata
-of one video and downloads arrive in milestone M3.
+optional video count of a channel preview, and fetching a picture. From
+milestone M3: downloading one video into the temp folder of its job
+(docs/ARCHITECTURE.md sections 7.2 and 7.3).
 
 Every method raises ``AppError`` with a code of docs/LOGGING.md section 4
 when YouTube cannot be asked: ``NETWORK_UNREACHABLE``, ``RATE_LIMITED``,
@@ -12,9 +13,11 @@ channel is named.
 Tests: backend/tests/integration/test_youtube_gateway_contract.py
 """
 
+from collections.abc import Callable
 from typing import Protocol
 
 from ytmirror.core.channels import ChannelFacts, ChannelListing, ChannelReference
+from ytmirror.core.jobs import DownloadProgress, DownloadRequest, DownloadResult
 
 
 class YouTubeGateway(Protocol):
@@ -72,5 +75,32 @@ class YouTubeGateway(Protocol):
 
         Raises:
             AppError: When the picture cannot be fetched.
+        """
+        ...
+
+    def download(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        *,
+        start_writing: Callable[[], None] = lambda: None,
+    ) -> DownloadResult:
+        """Download one video as an MKV with its metadata, into the temp folder of its job.
+
+        Args:
+            request: What to download, and where to.
+            on_progress: Told how far the download is (R-QU-04).
+            is_cancelled: Asked while the download runs. When it says yes, the
+                download ends at its next step.
+            start_writing: Called once, right before the first file of the job is
+                written, after what only reads from YouTube. It raises
+                ``DownloadCancelledError`` when the job was cancelled meanwhile:
+                then nothing is written (R-QU-02).
+
+        Raises:
+            AppError: With the code of what went wrong, for example ``MEMBERS_ONLY``.
+            DownloadCancelledError: When it was cancelled.
+            SubtitlesFailedError: When only the subtitles failed (R-MD-04).
         """
         ...

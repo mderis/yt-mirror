@@ -256,6 +256,25 @@ describe('the radio group', () => {
     expect(emitted()['update:modelValue']).toEqual([['after']])
   })
 
+  it('R-UI-13: each option is a real radio input of the system, and an option can be disabled', () => {
+    render(RadioGroup, {
+      props: {
+        modelValue: 'pick',
+        legend: 'What to mirror',
+        options: [...options, { value: 'later', label: 'Later', disabled: true }],
+      },
+    })
+
+    const later = screen.getByLabelText('Later') as HTMLInputElement
+
+    expect(later.tagName).toBe('INPUT')
+    expect(later.type).toBe('radio')
+    // jsdom changes even a disabled radio on a click: e2e/tests/radio.spec.ts tests that one.
+    expect(later.disabled).toBe(true)
+    // Drawn from tokens, never by the system's accent colour.
+    expect(later.className).not.toContain('accent-accent')
+  })
+
   it('R-CH-05: what belongs to one option is shown only while that option is chosen', () => {
     const slots = { extra: () => h('input', { 'aria-label': 'Date' }) }
     render(RadioGroup, { props: { modelValue: 'after', legend: 'What', options }, slots })
