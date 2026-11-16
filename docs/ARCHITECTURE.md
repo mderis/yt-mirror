@@ -395,9 +395,11 @@ Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D
 - Every error text of yt-dlp is turned into an error code in this adapter. A text it does not know is logged in full and becomes `YOUTUBE_CHANGED`.
 
 ### 7.4 Exact dates (`services/dates.py`)
-- With an API key: `videos.list` with `part=snippet,liveStreamingDetails`, 50 IDs per request (1 quota unit per request, default quota 10,000 units per day).
+- With an API key: `videos.list` with `part=snippet,liveStreamingDetails`, 50 IDs per request (1 quota unit per request, default quota 10,000 units per day), for the videos without an exact date, after every check. No pass over the uploads playlist (D-082). The exact time is `liveStreamingDetails.actualStartTime` when it is there, else `snippet.publishedAt` when there are no `liveStreamingDetails`; with `liveStreamingDetails` and no actual start the video has not been released and gets none (R-DT-03). A video missing from the answer keeps its date and its status (D-083). The key is sent in the `X-Goog-Api-Key` header, never in an address, so it cannot appear in an error text. The API is asked during the pause of R-ER-05 too.
 - Without a key: one metadata lookup per video through yt-dlp, paused while downloads are running or after any rate-limit signal (back off 15 minutes, doubling up to 6 hours), and under the pause of the whole app after a "not a bot" check (R-ER-05).
 - What one lookup costs was measured in milestone M2 on 32 videos from the maintainer's network (D-072). With yt-dlp's default options: 10.3 seconds. With the lightest options that still return the exact time (the `web` client, `player_skip: configs, js`, `skip: hls, dash, translated_subs`, `process=False`): 3.5 seconds. Lookups in parallel with these options: 2.0 seconds per video with two at a time, 1.4 with three, 0.9 with four, without an error in 96 lookups. No longer run was made, so how many lookups YouTube accepts in a row is still open (Q-08). The rate the app uses and the time it tells the user come from what it measures while it runs, never from a fixed number.
+- The lookup takes the release time before the upload time (`core/dates.published_time(release_timestamp, timestamp)`), as a download does. A video yt-dlp marks `is_upcoming` gets no exact date: its `release_timestamp` is only the scheduled time.
+- Measured in M4 on a channel of 1,103 videos (OPEN-QUESTIONS, facts of M4): two in parallel, 996 lookups in 25 minutes at 1.4 to 1.7 seconds per video, then YouTube's "not a bot" check, with no `RATE_LIMITED` before it. The pace without a key is chosen in Q-31.
 - There is no other source without a key. The channel feed (`feeds/videos.xml`) answered "not found" for every channel from three networks during M2 and is not used. A listing, of the channel or of its uploads playlist, has approximate dates only.
 - Each exact date found updates `published_at`, sets `published_exact`, and emits an update.
 
@@ -556,7 +558,7 @@ Outside `/api`, and without the session token: the built interface, and the app 
 - No remote content is rendered as HTML. Descriptions are shown as text.
 - File operations accept video and channel IDs, never paths from the client, except folder choices that come from the native folder picker.
 - Downloaded tools and releases are verified against SHA-256 checksums before use.
-- The API key is stored in the database, redacted in logs and debug reports.
+- The API key is never stored in the database, a settings file, a log or an error text; the debug report says only whether one is set (R-SE-03). Where it is kept is decided in Q-32. Its value is registered with the redactor of the logs (R-LG-07) whenever the app holds it.
 
 ## 10. Testing seams
 
