@@ -40,7 +40,9 @@ export default defineConfig({
   // One baseline per browser. They are compared on every platform the tests run on.
   snapshotPathTemplate: '{testDir}/__screenshots__/{testFileName}/{arg}-{projectName}{ext}',
   expect: {
-    toHaveScreenshot: { maxDiffPixelRatio: 0.02, animations: 'disabled' },
+    // An absolute limit, never a share of the image: 2% of a tall page is a whole section.
+    // The threshold keeps anti-aliasing out. A test that needs more says why (TESTING.md 6).
+    toHaveScreenshot: { maxDiffPixels: 100, threshold: 0.02, animations: 'disabled' },
   },
   use: {
     baseURL: APP_URL,

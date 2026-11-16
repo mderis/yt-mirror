@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { PREVIEW_URL } from '../settings'
 
@@ -74,11 +74,44 @@ test('R-TH-08: the preview lists every token of the token file in both themes', 
   expect(counts.light).toBeGreaterThanOrEqual(51)
 })
 
-test('R-TH-09: the preview page looks as recorded, in both themes', async ({ page }) => {
+/**
+ * One image per section and theme: each group of tokens, the brand icon, and
+ * each shared component. A change shows up in the image of the section where
+ * it happens, and the limit of differing pixels counts for that section only
+ * (docs/TESTING.md section 6).
+ */
+for (const theme of ['light', 'dark']) {
+  test(`R-TH-09: each section of the preview looks as recorded, ${theme} theme`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await openPreview(page)
+    const column = page.getByTestId(`theme-${theme}`)
+
+    const sections: [string, Locator][] = [['heading', column.locator(':scope > h2')]]
+    for (const section of await column.locator(':scope > section[data-group]').all()) {
+      const group = await section.getAttribute('data-group')
+      if (group !== 'components') sections.push([group ?? '', section])
+    }
+    for (const sample of await column.locator('[data-samples] > [data-component]').all()) {
+      sections.push([`component-${await sample.getAttribute('data-component')}`, sample])
+    }
+    // Every sample has a name of its own, so none is left out of the images.
+    await expect(column.locator('[data-samples] > :not([data-component])')).toHaveCount(0)
+    expect(new Set(sections.map(([name]) => name)).size).toBe(sections.length)
+    expect(sections.length).toBe(26)
+
+    for (const [name, section] of sections) {
+      await expect.soft(section, name).toHaveScreenshot(`theme-preview-${theme}-${name}.png`)
+    }
+  })
+}
+
+test('R-TH-09: the page heading of the preview looks as recorded', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
   await openPreview(page)
 
-  await expect(page).toHaveScreenshot('theme-preview.png', { fullPage: true })
+  await expect(page.locator('header')).toHaveScreenshot('theme-preview-header.png')
 })
 
 test('R-TH-08: the preview page is not part of the built app', async ({ request }) => {

@@ -189,9 +189,9 @@ function ref(name: string): string {
           </h3>
           <div
             class="flex flex-col gap-3 rounded-md border border-line bg-surface px-3 py-3"
-            data-component="button"
+            data-samples
           >
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3" data-component="button">
               <AppButton variant="primary">{{ t('themePreview.sampleButton') }}</AppButton>
               <AppButton icon="retry">{{ t('themePreview.sampleSecondaryButton') }}</AppButton>
               <AppButton variant="primary" disabled>
@@ -211,8 +211,12 @@ function ref(name: string): string {
                 <AppButton icon="download">{{ t('themePreview.sampleBannerAction') }}</AppButton>
               </template>
             </AppBanner>
-            <AppBanner tone="error">{{ t('themePreview.sampleErrorBanner') }}</AppBanner>
-            <AppBanner tone="info">{{ t('themePreview.sampleInfoBanner') }}</AppBanner>
+            <AppBanner tone="error" data-component="banner-error">{{
+              t('themePreview.sampleErrorBanner')
+            }}</AppBanner>
+            <AppBanner tone="info" data-component="banner-info">{{
+              t('themePreview.sampleInfoBanner')
+            }}</AppBanner>
             <div class="flex flex-wrap items-center gap-3" data-component="more-buttons">
               <AppButton variant="ghost">{{ t('themePreview.sampleGhostButton') }}</AppButton>
               <AppButton variant="danger" icon="trash">
