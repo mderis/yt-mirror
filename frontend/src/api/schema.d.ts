@@ -122,7 +122,7 @@ export interface paths {
      * Remove Channel
      * @description Remove a channel with its catalogue, and its files or not (R-CH-32).
      *
-     *     The answer lists the files macOS refused to move to the Trash.
+     *     The answer lists every file that stayed, with its reason.
      */
     delete: operations['removeChannel']
     options?: never
@@ -1034,6 +1034,27 @@ export interface components {
       download: components['schemas']['Download']
     }
     /**
+     * KeptFileResponse
+     * @description A file that "Delete the files" left in the folder, and why (R-CH-32).
+     *
+     *     Attributes:
+     *         file: The path, relative to the channel folder.
+     *         reason: ``trash_refused`` (macOS refused), ``another_video`` (another
+     *             video is inside), ``not_checked`` (the video inside could not be
+     *             read) or ``outside_folder`` (it leads out of the folder).
+     */
+    KeptFileResponse: {
+      /** File */
+      file: string
+      reason: components['schemas']['KeptReason']
+    }
+    /**
+     * KeptReason
+     * @description Why "Delete the files" left a file in the folder (R-CH-32).
+     * @enum {string}
+     */
+    KeptReason: 'trash_refused' | 'another_video' | 'not_checked' | 'outside_folder'
+    /**
      * LookupRequest
      * @description The body of ``POST /api/channels/lookup``.
      *
@@ -1182,8 +1203,8 @@ export interface components {
      *     Attributes:
      *         folder: The folder of the channel.
      *         files_trashed: How many files and folders went to the Trash.
-     *         left: The files, relative to the folder, that macOS refused to move to
-     *             the Trash. Empty when every file went, or when the files were kept.
+     *         left: Every file that should have gone to the Trash and stayed, with
+     *             its reason. Empty when every file went, or when the files were kept.
      */
     RemovedChannelResponse: {
       /** Files Trashed */
@@ -1191,7 +1212,7 @@ export interface components {
       /** Folder */
       folder: string
       /** Left */
-      left: string[]
+      left: components['schemas']['KeptFileResponse'][]
     }
     /**
      * Stage

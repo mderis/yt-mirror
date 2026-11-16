@@ -9,7 +9,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { ApiError, type ErrorCode } from '@/api/client'
+import { ApiError, type ErrorCode, type KeptFile } from '@/api/client'
 
 const UNKNOWN_ERROR: ErrorCode = 'INTERNAL'
 
@@ -17,7 +17,8 @@ const UNKNOWN_ERROR: ErrorCode = 'INTERNAL'
 export interface FilesLeft {
   channel: string
   folder: string
-  files: string[]
+  /** Every file that stayed, with why. */
+  files: KeptFile[]
 }
 
 /** Where a menu opens: at a place of the window, or under the button that opened it. */

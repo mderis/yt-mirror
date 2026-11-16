@@ -28,6 +28,7 @@ class FakeMediaTools:
     Attributes:
         facts: The facts of particular files.
         unreadable: Files that cannot be read as media.
+        fails: Files whose reading raises the given error, as a broken ffprobe can.
         probed: Every file that was read.
     """
 
@@ -41,11 +42,14 @@ class FakeMediaTools:
         self._files = files
         self.facts: dict[Path, MediaFacts] = {}
         self.unreadable: set[Path] = set()
+        self.fails: dict[Path, Exception] = {}
         self.probed: list[Path] = []
 
     def probe(self, path: Path) -> MediaFacts:
         """Return the facts of a file, or fail for an unreadable one."""
         self.probed.append(path)
+        if path in self.fails:
+            raise self.fails[path]
         if path in self.unreadable:
             raise AppError(ErrorCode.VERIFY_FAILED, {"file": str(path)})
         if path in self.facts or self._files is None:

@@ -19,6 +19,7 @@ from ytmirror.api.catalogue_schemas import (
     CheckRequest,
     ChosenFolderResponse,
     FilesToTrashResponse,
+    KeptFileResponse,
     LookupRequest,
     LookupResponse,
     RemovedChannelResponse,
@@ -103,11 +104,13 @@ def build_router(
     def remove_channel(channel_id: str, keep_files: bool = True) -> RemovedChannelResponse:
         """Remove a channel with its catalogue, and its files or not (R-CH-32).
 
-        The answer lists the files macOS refused to move to the Trash.
+        The answer lists every file that stayed, with its reason.
         """
         removed = channels.remove(channel_id, keep_files=keep_files)
         return RemovedChannelResponse(
-            folder=removed.folder, files_trashed=removed.files_trashed, left=list(removed.left)
+            folder=removed.folder,
+            files_trashed=removed.files_trashed,
+            left=[KeptFileResponse.of(kept) for kept in removed.left],
         )
 
     def files_to_trash(channel_id: str) -> FilesToTrashResponse:

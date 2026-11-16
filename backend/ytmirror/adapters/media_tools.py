@@ -69,7 +69,14 @@ class FfprobeMediaTools:
                 ErrorCode.VERIFY_FAILED,
                 {"file": str(path), "reason": result.stderr.strip()[-500:]},
             )
-        return facts_of(json.loads(result.stdout))
+        try:
+            answer = json.loads(result.stdout)
+        except ValueError as error:
+            raise AppError(
+                ErrorCode.VERIFY_FAILED,
+                {"file": str(path), "reason": f"ffprobe gave no JSON: {error}"},
+            ) from error
+        return facts_of(_mapping(answer))
 
 
 def facts_of(answer: Mapping[str, Any]) -> MediaFacts:

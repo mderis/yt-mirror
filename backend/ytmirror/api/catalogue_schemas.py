@@ -25,7 +25,7 @@ from ytmirror.core.channels import (
 )
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.jobs import JobProgress, Stage
-from ytmirror.services.channels import ChannelLookup, ChosenFolder
+from ytmirror.services.channels import ChannelLookup, ChosenFolder, KeptFile, KeptReason
 from ytmirror.services.downloader import VideoDetails
 from ytmirror.services.state import AppState
 
@@ -649,19 +649,38 @@ class FilesToTrashResponse(BaseModel):
     size_bytes: int
 
 
+class KeptFileResponse(BaseModel):
+    """A file that "Delete the files" left in the folder, and why (R-CH-32).
+
+    Attributes:
+        file: The path, relative to the channel folder.
+        reason: ``trash_refused`` (macOS refused), ``another_video`` (another
+            video is inside), ``not_checked`` (the video inside could not be
+            read) or ``outside_folder`` (it leads out of the folder).
+    """
+
+    file: str
+    reason: KeptReason
+
+    @classmethod
+    def of(cls, kept: KeptFile) -> KeptFileResponse:
+        """Return the wire form of a kept file."""
+        return cls(file=kept.file, reason=kept.reason)
+
+
 class RemovedChannelResponse(BaseModel):
     """The answer of ``DELETE /api/channels/{id}`` (R-CH-32).
 
     Attributes:
         folder: The folder of the channel.
         files_trashed: How many files and folders went to the Trash.
-        left: The files, relative to the folder, that macOS refused to move to
-            the Trash. Empty when every file went, or when the files were kept.
+        left: Every file that should have gone to the Trash and stayed, with
+            its reason. Empty when every file went, or when the files were kept.
     """
 
     folder: str
     files_trashed: int
-    left: list[str]
+    left: list[KeptFileResponse]
 
 
 class CancelCheckResponse(BaseModel):

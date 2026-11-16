@@ -11,6 +11,7 @@ import threading
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
 
 import structlog
@@ -66,12 +67,40 @@ class FilesToTrash:
         files: How many visible files: videos and their thumbnails.
         size_bytes: How much room they take, the hidden folder included.
         owners: The video ID each video file must carry inside to be moved.
+        outside: Tracked paths that lead out of the folder: they stay.
     """
 
     paths: tuple[Path, ...]
     files: int
     size_bytes: int
     owners: Mapping[Path, str] = field(default_factory=dict[Path, str])
+    outside: tuple[Path, ...] = ()
+
+
+class KeptReason(StrEnum):
+    """Why "Delete the files" left a file in the folder (R-CH-32)."""
+
+    TRASH_REFUSED = "trash_refused"
+    """macOS did not let it go to the Trash, for example because it is locked."""
+    ANOTHER_VIDEO = "another_video"
+    """The file has the name of a video of the channel, but another video is inside."""
+    NOT_CHECKED = "not_checked"
+    """The video ID inside could not be read: ffprobe failed, timed out or was stopped."""
+    OUTSIDE_FOLDER = "outside_folder"
+    """The path leads out of the channel folder through a symlink."""
+
+
+@dataclass(frozen=True, slots=True)
+class KeptFile:
+    """A file that "Delete the files" left in the folder, and why (R-CH-32).
+
+    Attributes:
+        file: The path, relative to the channel folder.
+        reason: Why it stayed.
+    """
+
+    file: str
+    reason: KeptReason
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,13 +110,13 @@ class RemovedChannel:
     Attributes:
         folder: The folder of the channel.
         files_trashed: How many files and folders went to the Trash.
-        left: The paths, relative to the folder, that should have gone to the
-            Trash and did not, because macOS refused. Empty when all went.
+        left: Every file that should have gone to the Trash and stayed, with
+            its reason. Empty when all went.
     """
 
     folder: str
     files_trashed: int
-    left: tuple[str, ...]
+    left: tuple[KeptFile, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -533,6 +562,7 @@ class ChannelsService:
                 candidates.append(cover)
         candidates += hidden_files
         paths: list[Path] = []
+        outside: list[Path] = []
         for path in candidates:
             if not self._files.exists(path):
                 continue
@@ -543,6 +573,7 @@ class ChannelsService:
                     channel_id=channel_id,
                     file=str(path),
                 )
+                outside.append(path)
                 continue
             paths.append(path)
         return FilesToTrash(
@@ -550,6 +581,7 @@ class ChannelsService:
             files=sum(1 for path in paths if path.parent != hidden),
             size_bytes=sum(self._files.size_of(path) for path in paths),
             owners={path: owners[path] for path in paths if path in owners},
+            outside=tuple(outside),
         )
 
     def remove(self, channel_id: str, *, keep_files: bool = True) -> RemovedChannel:
@@ -589,11 +621,14 @@ class ChannelsService:
                     {"channel": channel_id, "reason": "a check did not stop in time"},
                 )
             with self._close_downloads(channel_id):
-                left = self._forget_in_channel_file(channel_id, folder)
+                left = [
+                    (path, KeptReason.TRASH_REFUSED)
+                    for path in self._forget_in_channel_file(channel_id, folder)
+                ]
                 trashed = 0
                 if not keep_files:
-                    trashed, refused = self._trash_files(channel, folder)
-                    left += refused
+                    trashed, kept = self._trash_files(channel, folder)
+                    left += kept
                 video_ids = self._repository.video_ids(channel_id)
                 self._repository.remove_channel(channel_id)
         finally:
@@ -615,22 +650,27 @@ class ChannelsService:
         return RemovedChannel(
             folder=str(folder),
             files_trashed=trashed,
-            left=tuple(str(path.relative_to(folder)) for path in left),
+            left=tuple(KeptFile(str(path.relative_to(folder)), reason) for path, reason in left),
         )
 
-    def _trash_files(self, channel: Channel, folder: Path) -> tuple[int, list[Path]]:
+    def _trash_files(
+        self, channel: Channel, folder: Path
+    ) -> tuple[int, list[tuple[Path, KeptReason]]]:
         """Move the tracked files of a channel to the Trash.
 
-        Returns how many paths went, and the paths macOS refused.
+        One file never stops the others: every file that stays is returned
+        with its reason, and logged.
+
+        Returns how many paths went, and every path that stayed with its reason.
         """
         moved = 0
-        refused: list[Path] = []
+        kept: list[tuple[Path, KeptReason]] = []
 
         def trash(path: Path, msg: str) -> None:
             nonlocal moved
             try:
                 self._files.trash(path)
-            except (AppError, OSError) as error:
+            except Exception as error:  # noqa: BLE001  (one file never stops the removal)
                 _log.warning(
                     "file.trash_failed",
                     msg="A file of the channel could not be moved to the Trash",
@@ -638,24 +678,32 @@ class ChannelsService:
                     file=str(path),
                     error_code=_code_of(error),
                 )
-                refused.append(path)
+                kept.append((path, KeptReason.TRASH_REFUSED))
                 return
             moved += 1
             _log.info("file.trashed", msg=msg, file=str(path))
 
         found = self.files_to_trash(channel.id)
+        kept += [(path, KeptReason.OUTSIDE_FOLDER) for path in found.outside]
         for path in found.paths:
             owner = found.owners.get(path)
-            if owner is not None and not self._carries(path, owner):
+            carries = True if owner is None else self._carries(path, owner)
+            if carries is not True:
                 # A file under a tracked name that is another video, for example one
-                # of another channel in a shared folder, is not the app's to move.
+                # of another channel in a shared folder, is not the app's to move. Nor
+                # is one whose inside could not be read.
+                reason = KeptReason.ANOTHER_VIDEO if carries is False else KeptReason.NOT_CHECKED
                 _log.warning(
                     "file.kept",
-                    msg="A file has the name of a video of the channel but is another video",
+                    msg="A file has the name of a video of the channel but is another video"
+                    if carries is False
+                    else "The video ID inside a file could not be read. The file stays",
                     channel_id=channel.id,
                     video_id=owner,
                     file=str(path),
+                    reason=reason.value,
                 )
+                kept.append((path, reason))
                 continue
             trash(path, "File moved to the Trash")
         hidden = folder / HIDDEN_DIR
@@ -667,14 +715,18 @@ class ChannelsService:
             and self._is_empty(folder)
         ):
             trash(folder, "Empty channel folder moved to the Trash")
-        return moved, refused
+        return moved, kept
 
-    def _carries(self, path: Path, video_id: str) -> bool:
-        """Whether a file carries this video ID inside, as every download of the app does."""
+    def _carries(self, path: Path, video_id: str) -> bool | None:
+        """Whether a file carries this video ID inside, as every download of the app does.
+
+        None when that cannot be told: ffprobe failed, timed out, was stopped or
+        gave an answer that cannot be read.
+        """
         try:
             return self._media.probe(path).tags.get("video_id") == video_id
-        except AppError:
-            return False
+        except Exception:  # noqa: BLE001  (any failure of the check keeps the file)
+            return None
 
     def _may_trash_folder(self, channel: Channel, folder: Path) -> bool:
         """Only a folder the app created may go; never the library or a folder the user chose."""
@@ -770,5 +822,5 @@ class _LeaveAloneError(Exception):
     """A channel file that is there but cannot be read or understood: it stays as it is."""
 
 
-def _code_of(error: AppError | OSError) -> str:
+def _code_of(error: Exception) -> str:
     return error.code.value if isinstance(error, AppError) else ErrorCode.INTERNAL.value

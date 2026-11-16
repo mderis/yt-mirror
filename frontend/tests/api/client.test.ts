@@ -286,13 +286,21 @@ describe('the API client', () => {
       [`DELETE /api/channels/${CHANNEL_ID}?keep_files=true`]: () =>
         jsonResponse({ folder: '/f', files_trashed: 0, left: [] }),
       [`DELETE /api/channels/${CHANNEL_ID}?keep_files=false`]: () =>
-        jsonResponse({ folder: '/f', files_trashed: 2, left: ['Locked.mkv'] }),
+        jsonResponse({
+          folder: '/f',
+          files_trashed: 2,
+          left: [{ file: 'Locked.mkv', reason: 'trash_refused' }],
+        }),
     })
 
     await api.removeChannel(CHANNEL_ID, true)
     const trashed = await api.removeChannel(CHANNEL_ID, false)
 
-    expect(trashed).toEqual({ folder: '/f', files_trashed: 2, left: ['Locked.mkv'] })
+    expect(trashed).toEqual({
+      folder: '/f',
+      files_trashed: 2,
+      left: [{ file: 'Locked.mkv', reason: 'trash_refused' }],
+    })
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       `/api/channels/${CHANNEL_ID}?keep_files=true`,

@@ -13,7 +13,7 @@ from ytmirror.core.channel_file import channel_entries
 from ytmirror.core.channels import ChannelStatus, CheckKind, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import Job, JobKind, JobState
-from ytmirror.services.channels import COUNT_TIME_LIMIT_S, NewChannel
+from ytmirror.services.channels import COUNT_TIME_LIMIT_S, KeptFile, KeptReason, NewChannel
 
 BIG = channel_file(BIG_ID, title="Big Channel", handle="@big", videos=40, prefix="big")
 
@@ -569,11 +569,12 @@ def test_a_file_that_leads_out_of_the_folder_is_never_moved(tmp_path: Path) -> N
     world.files.outside.add(folder / "Video 2.mkv")
 
     with capture_logs() as logs:
-        world.channels.remove(SMALL_ID, keep_files=False)
+        removed = world.channels.remove(SMALL_ID, keep_files=False)
 
     assert folder / "Video 2.mkv" not in world.files.trashed
     assert world.files.exists(folder / "Video 2.mkv")
     assert log_lines(logs, "file.kept")[0]["file"] == str(folder / "Video 2.mkv")
+    assert KeptFile("Video 2.mkv", KeptReason.OUTSIDE_FOLDER) in removed.left
 
 
 def test_keep_the_files_leaves_everything_in_place(tmp_path: Path) -> None:
@@ -695,7 +696,10 @@ def test_a_file_the_trash_refuses_never_stops_the_removal_halfway(tmp_path: Path
     with capture_logs() as logs:
         removed = world.channels.remove(SMALL_ID, keep_files=False)
 
-    assert removed.left == ("Video 1.mkv", ".yt-mirror")
+    assert removed.left == (
+        KeptFile("Video 1.mkv", KeptReason.TRASH_REFUSED),
+        KeptFile(".yt-mirror", KeptReason.TRASH_REFUSED),
+    )
     assert removed.folder == str(folder)
     assert folder / "Video 2.mkv" in world.files.trashed
     assert world.files.file_names(folder, hidden=True) == [".yt-mirror", "Video 1.mkv"]
@@ -958,11 +962,40 @@ def test_delete_the_files_keeps_a_file_whose_inside_is_another_video(tmp_path: P
     world.files.add_files(shared, ["Q and A.mkv"], data=own_file(world.ids(BIG_ID)[0]))
 
     with capture_logs() as logs:
-        world.channels.remove(SMALL_ID, keep_files=False)
+        removed = world.channels.remove(SMALL_ID, keep_files=False)
 
     assert world.files.exists(shared / "Q and A.mkv")
     assert shared / "Q and A.mkv" not in world.files.trashed
     assert log_lines(logs, "file.kept")[0]["video_id"] == "sm000000001"
+    assert removed.left == (KeptFile("Q and A.mkv", KeptReason.ANOTHER_VIDEO),)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        AppError(ErrorCode.TOOL_MISSING, {"tool": "ffprobe", "reason": "timed out"}),
+        AppError(ErrorCode.VERIFY_FAILED, {"reason": "ffprobe was stopped"}),
+        ValueError("Expecting value: line 1 column 1"),
+    ],
+    ids=["timeout", "killed", "bad json"],
+)
+def test_a_file_that_cannot_be_checked_is_kept_named_and_the_removal_goes_on(
+    tmp_path: Path, error: Exception
+) -> None:
+    """R-CH-32: one file whose video ID cannot be read never stops the removal halfway."""
+    world = World(tmp_path)
+    world.add_and_list()
+    folder = synced_files(world, {"sm000000001": "Video 1.mkv", "sm000000002": "Video 2.mkv"})
+    world.media.fails[folder / "Video 1.mkv"] = error
+
+    with capture_logs() as logs:
+        removed = world.channels.remove(SMALL_ID, keep_files=False)
+
+    assert removed.left == (KeptFile("Video 1.mkv", KeptReason.NOT_CHECKED),)
+    assert world.files.exists(folder / "Video 1.mkv")
+    assert folder / "Video 2.mkv" in world.files.trashed
+    assert world.repository.channels() == ()
+    assert log_lines(logs, "file.kept")[0]["file"] == str(folder / "Video 1.mkv")
 
 
 # --- second review of M3, M3: a removal never goes on while something may write

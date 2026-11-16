@@ -11,7 +11,7 @@ const FILES_TO_TRASH = `GET /api/channels/${CHANNEL_ID}/files-to-trash`
 const FOLDER = '/Users/sam/Movies/YouTube/Sample Channel'
 
 /** The answer of a removal that left these files in the folder. */
-function removedWith(left: string[] = []) {
+function removedWith(left: { file: string; reason: string }[] = []) {
   return jsonResponse({ folder: FOLDER, files_trashed: 3, left })
 }
 
@@ -155,8 +155,17 @@ describe('the remove channel dialog', () => {
     expect(await screen.findByRole('dialog', { name: 'Remove Sample Channel?' })).toBeTruthy()
   })
 
-  it('R-CH-32: files macOS refused to move to the Trash are listed once the channel is gone', async () => {
-    const left = Array.from({ length: 12 }, (_, index) => `Locked ${index + 1}.mkv`)
+  it('R-CH-32: every file that stayed is named with its reason once the channel is gone', async () => {
+    const left = [
+      { file: 'Locked 1.mkv', reason: 'trash_refused' },
+      { file: 'Q and A.mkv', reason: 'another_video' },
+      { file: 'Unreadable.mkv', reason: 'not_checked' },
+      { file: 'Linked.mkv', reason: 'outside_folder' },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        file: `Locked ${index + 2}.mkv`,
+        reason: 'trash_refused',
+      })),
+    ]
     const { dialog } = await askToRemove({
       channels: [channel(), channel({ id: OTHER_CHANNEL_ID, title: 'Other Channel' })],
       answers: { [REMOVE_AND_TRASH]: removedWith(left) },
@@ -167,10 +176,18 @@ describe('the remove channel dialog', () => {
 
     const message = await screen.findByRole('dialog', { name: 'Sample Channel was removed' })
     expect(within(message).getByRole('alert').textContent).toContain(
-      `macOS did not let yt-mirror move 12 files to the Trash. They are still in ${FOLDER}:`,
+      `12 files stayed in ${FOLDER}:`,
     )
-    expect(part('[data-files-left]').querySelectorAll('li')).toHaveLength(10)
-    expect(message.textContent).toContain('Locked 1.mkv')
+    const items = [...part('[data-files-left]').querySelectorAll('li')].map((item) =>
+      item.textContent?.replace(/\s+/g, ' ').trim(),
+    )
+    expect(items).toHaveLength(10)
+    expect(items.slice(0, 4)).toEqual([
+      'Locked 1.mkv macOS did not let it go to the Trash',
+      'Q and A.mkv another video is inside',
+      'Unreadable.mkv its video could not be checked',
+      'Linked.mkv it leads outside the folder',
+    ])
     expect(message.textContent).toContain('and 2 more')
     expect(screen.queryByRole('dialog', { name: 'Remove Sample Channel?' })).toBeNull()
 

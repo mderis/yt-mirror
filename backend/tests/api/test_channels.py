@@ -611,5 +611,5 @@ def test_a_removal_says_which_files_macos_refused_to_move(client: TestClient, wo
     removed = client.delete(f"/api/channels/{SMALL_ID}", params={"keep_files": "false"})
 
     assert removed.status_code == 200
-    assert removed.json()["left"] == ["Video 1.mkv"]
+    assert removed.json()["left"] == [{"file": "Video 1.mkv", "reason": "trash_refused"}]
     assert client.get(f"/api/channels/{SMALL_ID}").status_code == 404

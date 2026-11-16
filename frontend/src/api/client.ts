@@ -23,6 +23,7 @@ export type Channel = components['schemas']['Channel']
 export type ChannelStatus = components['schemas']['ChannelStatus']
 /** One video of a catalogue, with the fields a list needs (R-CH-10). */
 export type Video = components['schemas']['Video']
+export type KeptFile = components['schemas']['KeptFileResponse']
 export type VideoStatus = components['schemas']['VideoStatus']
 /** How far the running download of a video is (R-QU-04). */
 export type Download = components['schemas']['Download']

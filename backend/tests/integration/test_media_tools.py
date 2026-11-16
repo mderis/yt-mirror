@@ -87,6 +87,18 @@ def test_a_file_that_is_not_media_fails_with_its_reason(ffmpeg: Path, tmp_path: 
     assert failure.value.details["reason"]
 
 
+def test_an_answer_of_ffprobe_that_is_not_json_fails_verification(tmp_path: Path) -> None:
+    """R-QA-06, R-CH-32: a broken answer is a failed check of the file, never another error."""
+    ffprobe = tmp_path / "ffprobe"
+    ffprobe.write_text("#!/bin/bash\necho '{not json'\n")
+    ffprobe.chmod(0o755)
+
+    with pytest.raises(AppError) as failed:
+        FfprobeMediaTools(ffprobe).probe(tmp_path / "video.mkv")
+
+    assert failed.value.code is ErrorCode.VERIFY_FAILED
+
+
 def test_a_missing_ffprobe_is_a_missing_tool(tmp_path: Path) -> None:
     """R-IN-04: when ffprobe cannot run, the tool is reported missing."""
     with pytest.raises(AppError) as failure:

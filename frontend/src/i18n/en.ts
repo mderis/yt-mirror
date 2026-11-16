@@ -392,7 +392,13 @@ export const en = {
   /** Files a removal could not move to the Trash (R-CH-32). */
   filesLeft: {
     title: '{channel} was removed',
-    body: 'macOS did not let yt-mirror move {count} file to the Trash. It is still in {folder}: | macOS did not let yt-mirror move {count} files to the Trash. They are still in {folder}:',
+    body: '{count} file stayed in {folder}: | {count} files stayed in {folder}:',
+    reasons: {
+      trash_refused: 'macOS did not let it go to the Trash',
+      another_video: 'another video is inside',
+      not_checked: 'its video could not be checked',
+      outside_folder: 'it leads outside the folder',
+    },
     more: 'and {count} more | and {count} more',
     done: 'OK',
     close: 'Close',

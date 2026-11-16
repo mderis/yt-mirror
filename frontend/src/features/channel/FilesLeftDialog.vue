@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * Says which files a removal could not move to the Trash (R-CH-32). The
- * channel is gone already: macOS refused these files, for example because
- * they are locked, and they are still in the folder.
+ * Says which files a removal of a channel with "Delete the files" left in its
+ * folder, each with its reason (R-CH-32): macOS refused it, another video is
+ * inside, its video could not be checked, or it leads outside the folder. The
+ * channel is gone already; these files are still there.
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -45,8 +46,12 @@ const more = computed(() => props.left.files.length - shown.value.length)
         )
       }}
     </p>
-    <ul class="break-all font-mono text-meta" data-files-left>
-      <li v-for="file in shown" :key="file">{{ file }}</li>
+    <ul class="flex flex-col gap-1 break-all text-meta" data-files-left>
+      <li v-for="kept in shown" :key="kept.file">
+        <span class="font-mono">{{ kept.file }}</span>
+        {{ ' ' }}
+        <span class="text-text-dim">{{ t(`filesLeft.reasons.${kept.reason}`) }}</span>
+      </li>
     </ul>
     <p v-if="more > 0">{{ t('filesLeft.more', { count: formatNumber(more) }, more) }}</p>
     <template #actions>
