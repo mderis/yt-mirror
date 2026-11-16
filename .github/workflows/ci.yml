@@ -193,8 +193,9 @@ jobs:
           YTM_REQUIRE_FFMPEG: "1"
           YTM_TEST_FFMPEG_DIR: ${{ runner.temp }}/ffmpeg-first/ffmpeg
           YTM_SCREENSHOT_DIR: ${{ runner.temp }}/screenshots
+        # Its own output folder: the traces of a failure of the run above stay for the artifact.
         run: |
-          npm --prefix e2e test -- --grep R-TH-09
+          npm --prefix e2e test -- --grep R-TH-09 --output "$RUNNER_TEMP/screenshot-results"
           node e2e/screenshot-counts.ts "$YTM_SCREENSHOT_DIR" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Keep the screenshots this run made
         if: success() || failure()
