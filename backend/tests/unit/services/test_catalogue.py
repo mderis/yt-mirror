@@ -16,8 +16,10 @@ from ytmirror.core.channels import (
     CheckKind,
     CheckTrigger,
     TaskKind,
+    VideoStatus,
 )
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.jobs import JobState, Stage, VideoUpdated
 from ytmirror.core.models import AppEvent
 from ytmirror.services.catalogue import PROGRESS_EVERY, CatalogueService
 from ytmirror.services.channel_views import ChannelViews
@@ -282,6 +284,52 @@ def test_a_video_is_removed_only_after_two_full_checks_without_it(tmp_path: Path
     assert (after_a_quick_one.missing_checks, after_a_quick_one.gone) == (1, False)
     assert (after_two.missing_checks, after_two.gone) == (2, True)
     assert world.ids(channel_id).index("big00000093") == 2
+
+
+def test_a_queued_download_ends_the_moment_a_check_marks_its_video_removed(
+    tmp_path: Path,
+) -> None:
+    """R-CH-14: the row never says "Queued" for a removed video; YouTube is not asked."""
+    world = World(tmp_path, big_with({"remove": ["big00000093"]}, {}, {}))
+    channel_id = world.add_and_list("@big")
+    world.check(channel_id, CheckKind.FULL)
+    [job] = world.downloader.mirror(["big00000093"])
+    world.events.clear()
+
+    with capture_logs() as logs:
+        world.check(channel_id, CheckKind.FULL)
+
+    video = world.repository.video("big00000093")
+    assert video is not None
+    assert (video.status, video.gone) == (VideoStatus.NOT_DOWNLOADED, True)
+    assert world.jobs.job(job.id).state is JobState.CANCELLED  # type: ignore[union-attr]
+    assert world.jobs.events("big00000093")[-1].reason == "removed from YouTube"
+    told = [
+        event.view.video.status
+        for event in world.events
+        if isinstance(event, VideoUpdated) and event.view.video.id == "big00000093"
+    ]
+    assert told == [VideoStatus.NOT_DOWNLOADED]
+    assert log_lines(logs, "download.cancelled")[0]["reason"] == "removed from YouTube"
+    assert world.download.calls == []
+
+
+def test_a_running_download_goes_on_when_a_check_marks_its_video_removed(
+    tmp_path: Path,
+) -> None:
+    """R-CH-14: a download that runs is not stopped: it succeeds or fails with YouTube's reason."""
+    world = World(tmp_path, big_with({"remove": ["big00000093"]}, {}, {}))
+    channel_id = world.add_and_list("@big")
+    world.check(channel_id, CheckKind.FULL)
+    world.downloader.mirror(["big00000093"])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = lambda: world.check(channel_id, CheckKind.FULL)
+
+    world.download_all()
+
+    video = world.repository.video("big00000093")
+    assert video is not None
+    assert (video.status, video.gone) == (VideoStatus.SYNCED, True)
 
 
 def test_a_removed_video_that_comes_back_is_no_longer_removed(tmp_path: Path) -> None:

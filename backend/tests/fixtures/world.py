@@ -338,6 +338,7 @@ class World:
             self.clock,
             self.background.append,
             after_check=self._after_check,
+            found_removed=lambda video_ids: self.downloader.end_removed(video_ids),
             choose_delay=lambda least, most: (least + most) / 2,
             wait=self._wait,
         )

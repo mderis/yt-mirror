@@ -206,6 +206,7 @@ def build_container(
         used_clock,
         _in_a_thread,
         after_check=lambda channel_id, kind: _after_check(channel_id, kind),
+        found_removed=lambda video_ids: downloader.end_removed(video_ids),
     )
 
     def _after_check(channel_id: str, kind: CheckKind) -> None:

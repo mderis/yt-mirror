@@ -413,6 +413,41 @@ class DownloaderService:
         )
         return True
 
+    def end_removed(self, video_ids: Sequence[str]) -> None:
+        """End the waiting downloads of videos a check found removed from YouTube (R-CH-14).
+
+        Each ends at once, so its row never says "Queued" for a removed video. A
+        download that already runs goes on: it succeeds, or fails with YouTube's
+        reason. A failure here is logged and never fails the check.
+
+        Args:
+            video_ids: The videos the check holds as removed.
+        """
+        for video_id in video_ids:
+            try:
+                with self._wake:
+                    job = self._jobs.active_job_of(video_id)
+                    if job is None or job.state is not JobState.WAITING or job.id in self._running:
+                        continue
+                    video = self._repository.video(video_id)
+                    self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, _GONE)
+            except Exception:  # noqa: BLE001  (a check is never failed by this)
+                _log.error(
+                    "download.failed",
+                    msg="A waiting download of a removed video could not be ended",
+                    video_id=video_id,
+                    error_code=ErrorCode.INTERNAL.value,
+                    exc_info=True,
+                )
+                continue
+            _log.info(
+                "download.cancelled",
+                msg="The video is gone from YouTube. Its waiting download ended",
+                job_id=job.id,
+                video_id=video_id,
+                reason=_GONE,
+            )
+
     def cancel_channel(self, channel_id: str, wait_s: float = 30.0) -> bool:
         """Cancel every download of a channel, and wait until none of them runs (R-CH-32).
 

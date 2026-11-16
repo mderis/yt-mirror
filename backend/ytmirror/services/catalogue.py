@@ -83,6 +83,7 @@ class CatalogueService:
         clock: Clock,
         run_in_background: Callable[[Callable[[], None]], None],
         after_check: Callable[[str, CheckKind], None] | None = None,
+        found_removed: Callable[[Sequence[str]], None] | None = None,
         choose_delay: Callable[[float, float], float] = random.uniform,
         wait: Callable[[float], None] | None = None,
     ) -> None:
@@ -97,6 +98,9 @@ class CatalogueService:
             after_check: Told the channel ID and the kind of check after every
                 successful check, for work that follows a check, such as caching
                 its pictures.
+            found_removed: Told the IDs of the videos a stored check holds as
+                removed from YouTube, so that their waiting downloads end at once
+                (R-CH-14).
             choose_delay: Chooses the seconds to wait between two channels of "Check
                 all channels now", between a least and a most (R-CH-24).
             wait: Waits a number of seconds. Default: a wait that ends early when
@@ -108,6 +112,7 @@ class CatalogueService:
         self._clock = clock
         self._run_in_background = run_in_background
         self._after_check = after_check
+        self._found_removed = found_removed
         self._choose_delay = choose_delay
         self._wait = wait
         self._wake = threading.Condition()
@@ -346,6 +351,9 @@ class CatalogueService:
             )
         else:
             if changes is not None:
+                removed = [video.id for video in changes.updated if video.gone]
+                if removed and self._found_removed is not None:
+                    self._found_removed(removed)
                 log.info(
                     "check.finished",
                     msg="Check finished",
