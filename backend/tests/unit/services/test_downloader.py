@@ -1006,6 +1006,32 @@ def test_quitting_while_ffmpeg_runs_cancels_and_never_fails_or_retries(
     assert len(world.download.calls) == 1
 
 
+def test_quitting_while_the_finished_file_is_checked_cancels_and_never_fails(
+    world: World,
+) -> None:
+    """R-PL-13, R-QU-02: ffprobe stopped by a quit fails the check; that is the cancel."""
+    world.downloader.mirror([FIRST])
+    held, killed = threading.Event(), threading.Event()
+
+    def probe_until_killed(path: Path) -> object:
+        held.set()
+        killed.wait(10)
+        raise AppError(ErrorCode.VERIFY_FAILED, {"reason": "ffprobe was stopped"})
+
+    world.media.probe = probe_until_killed  # type: ignore[method-assign]
+    world.stop_tools = killed.set
+    worker = in_a_thread(world.downloader.work_once)
+    assert held.wait(10)
+
+    world.downloader.stop(wait_s=10)
+    worker.join(10)
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+
+
 # --- Cancel stops the ffmpeg of its job (second review of M3, M3)
 
 
@@ -1173,6 +1199,50 @@ def test_a_file_that_cannot_be_moved_back_keeps_its_marker(world: World) -> None
 
     assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
     assert world.files.trashed == [folder / name]
+
+
+def test_a_name_another_video_is_being_placed_under_stays_taken(world: World) -> None:
+    """R-FN-05, R-QA-06: a marker holds its name, even before its file is on the disk."""
+    name = f"{title_of(world, FIRST)}.mkv"
+    other = world.repository.video(SECOND)
+    assert other is not None
+    world.jobs.record(
+        Job(
+            id=job_id(70),
+            video_id=SECOND,
+            kind=JobKind.DOWNLOAD,
+            state=JobState.CANCELLED,
+            priority=1,
+            quality=Quality.BEST,
+            created_at=world.now(),
+        ),
+        dataclasses.replace(other, placing_file=name),
+    )
+    world.downloader.mirror([FIRST])
+
+    world.download_all()
+
+    assert world.repository.video(FIRST).file_name == f"{title_of(world, FIRST)} [{FIRST}].mkv"  # type: ignore[union-attr]
+
+
+def test_a_job_that_could_not_be_ended_at_start_keeps_its_temp_folder(world: World) -> None:
+    """R-FI-03, R-QA-06: the sweep never removes the temp folder of a job that is still active."""
+    [job] = world.downloader.mirror([FIRST])
+    temp = folder_of(world) / ".yt-mirror" / "tmp"
+    world.files.add_files(temp / job.id, ["part.mkv"])
+    video = world.repository.video
+
+    def broken(video_id: str) -> object:
+        if video_id == FIRST:
+            raise RuntimeError("the database could not be read")
+        return video(video_id)
+
+    world.repository.video = broken  # type: ignore[method-assign]
+    world.downloader.start()
+    world.repository.video = video  # type: ignore[method-assign]
+
+    assert world.jobs.job(job.id).state is JobState.WAITING  # type: ignore[union-attr]
+    assert world.files.exists(temp / job.id / "part.mkv")
 
 
 def test_a_start_sweeps_the_temp_folders_of_jobs_that_ended(world: World) -> None:
