@@ -180,7 +180,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           </AppButton>
         </template>
         <AppButton
-          v-else-if="video.status === 'not_downloaded' || video.status === 'file_missing'"
+          v-else-if="
+            (video.status === 'not_downloaded' || video.status === 'file_missing') && !video.gone
+          "
           variant="primary"
           icon="download"
           @press="ui.run(videos.mirror(video.id))"

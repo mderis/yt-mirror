@@ -167,6 +167,25 @@ describe('downloading videos', () => {
     )
   })
 
+  it.each(['not_downloaded', 'file_missing'] as const)(
+    'R-CH-14: a video removed from YouTube offers no Mirror (%s)',
+    async (status) => {
+      await openWith({ status, gone: true })
+
+      expect(within(row()).getByText('Removed from YouTube')).toBeTruthy()
+      expect(within(row()).queryByRole('button', { name: 'Mirror' })).toBeNull()
+    },
+  )
+
+  it('R-CH-14, R-UI-10: a synced video removed from YouTube still plays and shows in Finder', async () => {
+    await openWith({ status: 'synced', gone: true, height: 1080, file_size: 412_000_000 })
+
+    expect(within(row()).getByText('Removed from YouTube')).toBeTruthy()
+    expect(within(row()).getByRole('button', { name: 'Play' })).toBeTruthy()
+    expect(within(row()).getByRole('button', { name: 'Show in Finder' })).toBeTruthy()
+    expect(within(row()).queryByRole('button', { name: 'Mirror' })).toBeNull()
+  })
+
   it('R-QU-08, R-ER-03: a failed video says why and offers Retry', async () => {
     const app = await openWith(
       {},
@@ -312,5 +331,22 @@ describe('the details panel', () => {
     expect(part('[data-details-description]').textContent).toContain(
       'The description is saved with the file when the video is mirrored.',
     )
+  })
+
+  it('R-CH-14, R-UI-09: the details of a video removed from YouTube offer no Mirror', async () => {
+    const gone = video(1, { gone: true })
+    await openWith(
+      { gone: true },
+      {
+        [`GET /api/videos/${ID}`]: jsonResponse(
+          details({ video: gone, file: null, description: null, chapters: [] }),
+        ),
+      },
+    )
+    await fireEvent.click(within(row()).getByRole('button', { name: 'Details of Video 1' }))
+    const panel = await screen.findByRole('complementary', { name: 'Video details' })
+
+    await within(panel).findByRole('link', { name: 'Open on YouTube' })
+    expect(within(panel).queryByRole('button', { name: 'Mirror' })).toBeNull()
   })
 })

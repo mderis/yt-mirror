@@ -4,7 +4,8 @@
  *
  * The row shows the status of the video as it is now: the list as loaded,
  * with the changes the events told since (R-FB-03). Its actions follow the
- * status (R-UI-09): Mirror a video that is not downloaded (R-MI-01), Cancel
+ * status (R-UI-09): Mirror a video that is not downloaded and still on YouTube
+ * (R-MI-01, R-CH-14), Cancel
  * one that waits, downloads or is processed, up to the move of its file into
  * place (R-QU-02; Main.html shows no Cancel while processing), Retry a failed one (R-QU-08), Play
  * and Show in Finder a synced one (R-UI-10). The title opens the details
@@ -208,7 +209,9 @@ function cancel(): void {
     <template #actions>
       <div class="flex min-w-33 flex-none items-center justify-end gap-0.5" data-actions>
         <AppButton
-          v-if="video.status === 'not_downloaded' || video.status === 'file_missing'"
+          v-if="
+            (video.status === 'not_downloaded' || video.status === 'file_missing') && !video.gone
+          "
           icon="download"
           @press="ui.run(videos.mirror(video.id))"
         >
