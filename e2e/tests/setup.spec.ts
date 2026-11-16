@@ -139,7 +139,9 @@ for (const theme of ['light', 'dark'] as const) {
       await freshApp.failDownload('both.tar.xz')
       await openFirstRun(page, freshApp)
       await expect(row(page, 'ffmpeg')).toContainText('Download failed')
-      await expect(row(page, 'deno')).toContainText('Installed')
+      // Deno is installed after both sources of ffmpeg failed: on a busy CI runner that took
+      // longer than the default 5 s once (run 43841427970).
+      await expect(row(page, 'deno')).toContainText('Installed', { timeout: 30_000 })
       await page.evaluate(() => document.fonts.ready)
 
       await expect(page).toHaveScreenshot(`setup-${theme}.png`)
