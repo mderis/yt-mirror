@@ -27,6 +27,20 @@ import {
  * Google Chrome can be used instead: YTM_E2E_CHROME_CHANNEL=chrome npm test
  */
 const chromeChannel = process.env.YTM_E2E_CHROME_CHANNEL
+
+/**
+ * How a screenshot is compared (docs/TESTING.md section 6): at most 100 differing pixels,
+ * never a share of the image, and a pixel differs from the given colour difference on.
+ * Text that differs from machine to machine gets a fixed box while the image is taken.
+ */
+function screenshots(threshold: number) {
+  return {
+    maxDiffPixels: 100,
+    threshold,
+    animations: 'disabled' as const,
+    stylePath: resolve(import.meta.dirname, 'screenshot.css'),
+  }
+}
 const viewport = { width: 1280, height: 800 }
 
 export default defineConfig({
@@ -40,9 +54,7 @@ export default defineConfig({
   // One baseline per browser. They are compared on every platform the tests run on.
   snapshotPathTemplate: '{testDir}/__screenshots__/{testFileName}/{arg}-{projectName}{ext}',
   expect: {
-    // An absolute limit, never a share of the image: 2% of a tall page is a whole section.
-    // The threshold keeps anti-aliasing out. A test that needs more says why (TESTING.md 6).
-    toHaveScreenshot: { maxDiffPixels: 100, threshold: 0.02, animations: 'disabled' },
+    toHaveScreenshot: screenshots(0.02),
   },
   use: {
     baseURL: APP_URL,
@@ -51,7 +63,14 @@ export default defineConfig({
     timezoneId: 'UTC',
   },
   projects: [
-    { name: 'webkit', use: { ...devices['Desktop Safari'], viewport } },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'], viewport },
+      // Its images are made on a developer's Mac and compared on the macOS of CI, which
+      // draws text a little differently: up to 572 pixels apart at 0.02, under 100 at 0.05
+      // (measured 2026-11-16). The limit of pixels stays (TESTING.md section 6).
+      expect: { toHaveScreenshot: screenshots(0.05) },
+    },
     {
       name: 'chromium',
       use: {
