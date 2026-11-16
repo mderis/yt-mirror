@@ -341,7 +341,7 @@ class YtDlpGateway:
         return DownloadResult(
             file=file,
             thumbnail=thumbnail if thumbnail.is_file() else None,
-            info_json=json.dumps(answer, ensure_ascii=False, default=str),
+            info_json=_json_text(answer),
             title=str(answer.get("title") or info.get("title") or ""),
             description=str(answer.get("description") or info.get("description") or ""),
             duration_s=_int(answer.get("duration") or info.get("duration")),
@@ -659,6 +659,21 @@ def _english(tracks: object) -> list[str]:
 
 def _mapping(value: object) -> dict[str, Any]:
     return cast(dict[str, Any], value) if isinstance(value, dict) else {}
+
+
+def _json_text(answer: Mapping[str, Any]) -> str:
+    """The raw metadata as JSON text that can always be written as UTF-8 (R-MD-02).
+
+    Readable text is kept as it is. YouTube can give a lone surrogate, for
+    example half an emoji cut off in a description: then everything outside
+    ASCII is escaped, which keeps the exact text and is still valid JSON.
+    """
+    text = json.dumps(answer, ensure_ascii=False, default=str)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return json.dumps(answer, ensure_ascii=True, default=str)
+    return text
 
 
 def _int(value: object) -> int | None:

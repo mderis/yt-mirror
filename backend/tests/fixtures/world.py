@@ -215,6 +215,8 @@ class FakeDownload:
         self.published: int | None = 1_793_379_761
         self.release: int | None = None
         self.no_thumbnail = False
+        self.info_json: str | None = None
+        """The raw metadata to give, or None for a small valid one."""
 
     def __call__(
         self,
@@ -248,7 +250,9 @@ class FakeDownload:
             thumbnail=None
             if self.no_thumbnail
             else request.work_folder / f"{request.video_id}.jpg",
-            info_json=json.dumps({"id": request.video_id}),
+            info_json=json.dumps({"id": request.video_id})
+            if self.info_json is None
+            else self.info_json,
             title="Title at YouTube",
             description="A description.",
             duration_s=2,

@@ -40,6 +40,7 @@ class FakeYtDlp:
         write_mkv: Whether the merged file is written.
         video_size: The size YouTube gives for the video stream, or None.
         audio_size: The size YouTube gives for the audio stream, or None.
+        extra: More fields of the metadata yt-dlp gives back.
     """
 
     def __init__(self) -> None:
@@ -50,6 +51,7 @@ class FakeYtDlp:
         self.write_mkv = True
         self.video_size: int | None = 3000
         self.audio_size: int | None = 1000
+        self.extra: dict[str, Any] = {}
 
     def __call__(
         self, address: str, options: Mapping[str, Any], tags: Mapping[str, str]
@@ -108,7 +110,13 @@ class FakeYtDlp:
             if step == "Merger" and self.write_mkv:
                 (folder / f"{VIDEO_ID}.mkv").write_bytes(b"mkv")
             processing({"status": "finished", "postprocessor": step})
-        return {"id": VIDEO_ID, "title": "A recorded video", "duration": 19, "height": 480}
+        return {
+            "id": VIDEO_ID,
+            "title": "A recorded video",
+            "duration": 19,
+            "height": 480,
+            **self.extra,
+        }
 
 
 @pytest.fixture
@@ -332,6 +340,28 @@ def test_a_finished_download_gives_its_file_thumbnail_metadata_and_chapters(
     assert json.loads(result.info_json)["id"] == VIDEO_ID
     assert (result.title, result.duration_s) == ("A recorded video", 19)
     assert [chapter.title for chapter in result.chapters] == ["Chapter 1", "Chapter 2", "Chapter 3"]
+
+
+def test_the_raw_metadata_can_always_be_written_as_utf_8(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-MD-02, R-QA-06: a lone surrogate from YouTube is kept, escaped, and breaks no write."""
+    ytdlp.extra = {"description": "half an emoji \ud83d and caf\u00e9"}
+
+    result = gateway(replay, ytdlp).download(request(tmp_path), lambda _progress: None, never)
+
+    assert json.loads(result.info_json.encode("utf-8"))["description"] == (
+        "half an emoji \ud83d and caf\u00e9"
+    )
+
+
+def test_readable_metadata_stays_readable(tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp) -> None:
+    """R-MD-02: text without a lone surrogate is kept as it is, not escaped."""
+    ytdlp.extra = {"description": "caf\u00e9"}
+
+    result = gateway(replay, ytdlp).download(request(tmp_path), lambda _progress: None, never)
+
+    assert "caf\u00e9" in result.info_json
 
 
 def test_everything_yt_dlp_says_goes_into_the_log_of_the_job(

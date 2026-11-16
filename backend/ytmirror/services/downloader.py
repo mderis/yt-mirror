@@ -106,6 +106,24 @@ class _Place:
     work: Path
 
 
+@dataclass(frozen=True, slots=True)
+class _SideData:
+    """What the side files of a download hold, read before its file is moved into place."""
+
+    info_json: bytes
+    cover: bytes | None
+    next_to_video: bool
+
+    def files(self, video_id: str, name: str) -> list[tuple[str, bytes]]:
+        """The side files: the info JSON, the original thumbnail, the cover next to the video."""
+        files = [(f"{HIDDEN_DIR}/{video_id}.info.json", self.info_json)]
+        if self.cover is not None:
+            files.append((f"{HIDDEN_DIR}/{video_id}.jpg", self.cover))
+            if self.next_to_video:
+                files.append((str(Path(name).with_suffix(".jpg")), self.cover))
+        return files
+
+
 class DownloaderService:
     """Puts videos in line, downloads them one after another, and stores the result."""
 
@@ -174,6 +192,12 @@ class DownloaderService:
         self._videos: dict[str, Video] = {}
         """The video of each running job, as it is now."""
         self._cancelled: set[str] = set()
+        self._nothing_placed: set[str] = set()
+        """The running jobs of which no file stands in a channel folder under a marker.
+
+        Only for these may the end of the job clear the marker. For any other the
+        marker stays, and the next job of the video or the next start cleans it up.
+        """
         self._closed: set[str] = set()
         self._writing_side_files_of: str | None = None
         self._stopped = False
@@ -292,6 +316,7 @@ class DownloaderService:
                 self._work_of.pop(job.id, None)
                 self._last_told.pop(job.id, None)
                 self._cancelled.discard(job.id)
+                self._nothing_placed.discard(job.id)
                 self._wake.notify_all()
         return True
 
@@ -517,16 +542,24 @@ class DownloaderService:
         try:
             video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
             self._videos[job.id] = video
+            video = self._clean_marker_first(running, video, place)
             self._files.make_folder(place.work, inside=place.folder)
             result = self._download(running, video, place, log)
             video = self._processing(running)
             self._finish(running, video, channel, place, result, log, started)
         except Exception as error:  # noqa: BLE001  (a cancel is asked before any error is read)
+            # A file of the job that could not leave the channel folder keeps its marker.
+            keep_marker = job.id not in self._nothing_placed
             # A job that was cancelled, or an app that quits, stopped the tools: the error
             # that follows is the cancel, never a failure nor a retry (R-QU-02, R-PL-13).
             if isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id):
                 self._end(
-                    running, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled"
+                    running,
+                    video,
+                    JobState.CANCELLED,
+                    VideoStatus.NOT_DOWNLOADED,
+                    "cancelled",
+                    keep_marker=keep_marker,
                 )
                 log.info(
                     "download.cancelled",
@@ -534,14 +567,22 @@ class DownloaderService:
                     duration_ms=self._ms_since(started),
                 )
             elif isinstance(error, AppError):
-                self._failed(running, video, error.code, log, started, error.details)
+                self._failed(
+                    running, video, error.code, log, started, error.details, keep_marker=keep_marker
+                )
             else:
-                self._failed_unexpectedly(running, video, log, started)
+                self._failed_unexpectedly(running, video, log, started, keep_marker=keep_marker)
         finally:
             self._files.remove_temp_folder(place.work)
 
     def _failed_unexpectedly(
-        self, job: Job, video: Video, log: FilteringBoundLogger, started: float
+        self,
+        job: Job,
+        video: Video,
+        log: FilteringBoundLogger,
+        started: float,
+        *,
+        keep_marker: bool,
     ) -> None:
         log.error(
             "download.failed",
@@ -549,7 +590,33 @@ class DownloaderService:
             error_code=ErrorCode.INTERNAL.value,
             exc_info=True,
         )
-        self._failed(job, video, ErrorCode.INTERNAL, None, started, {})
+        self._failed(job, video, ErrorCode.INTERNAL, None, started, {}, keep_marker=keep_marker)
+
+    def _clean_marker_first(self, job: Job, video: Video, place: _Place) -> Video:
+        """Clean up the file an earlier download of the video left under its marker (R-QA-06).
+
+        That file goes to the Trash when the video ID inside it shows it is that
+        download, so its name is free again. While its folder cannot be reached,
+        the job fails and the marker stays: no path clears a marker without a cleanup.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE``, or the error of the Trash.
+        """
+        if video.placing_file:
+            problem = self._clean_placed(video, place.folder, job_id=job.id)
+            if problem is not None:
+                raise AppError(
+                    problem,
+                    {
+                        "folder": str(place.folder),
+                        "reason": "the file of an interrupted download is cleaned up first",
+                    },
+                )
+            self._jobs.clear_placing_file(video.id)
+            video = replace(video, placing_file=None)
+            self._videos[job.id] = video
+        self._nothing_placed.add(job.id)
+        return video
 
     def _download(
         self, job: Job, video: Video, place: _Place, log: FilteringBoundLogger
@@ -615,27 +682,32 @@ class DownloaderService:
         # The dates are set while the file is still in the temp folder: a move keeps them, so
         # the file never stands in the channel folder with other dates (R-DT-07, R-QA-06).
         self._files.set_dates(result.file, published)
+        # Everything that can fail on its own is done before the move.
+        side = self._side_data_of(result)
         if self._is_cancelled(job.id):
             raise DownloadCancelledError("cancelled before the file was put in its place")
         name = self._move_into_place(job, video, place, result.file)
         target = place.folder / name
-        synced = replace(
-            video,
-            file_name=name,
-            height=facts.height,
-            vcodec=facts.vcodec,
-            acodec=facts.acodec,
-            has_subtitles=None if result.subtitles is None else result.subtitles.value,
-            downloaded_at=self._now(),
-            published_at=published,
-            published_exact=True,
-            published_precision=None,
-            last_error_code=None,
-            last_error_at=None,
-            attempts=0,
-        )
-        side_files = self._side_files_of(video, name, result)
+        # The rule from here: between the move into the channel folder and the synced
+        # commit, every line is inside this try, whose failure moves the file back. A file
+        # in the folder is never left unknown to the app (R-QA-06).
         try:
+            synced = replace(
+                video,
+                file_name=name,
+                height=facts.height,
+                vcodec=facts.vcodec,
+                acodec=facts.acodec,
+                has_subtitles=None if result.subtitles is None else result.subtitles.value,
+                downloaded_at=self._now(),
+                published_at=published,
+                published_exact=True,
+                published_precision=None,
+                last_error_code=None,
+                last_error_at=None,
+                attempts=0,
+            )
+            side_files = side.files(video.id, name)
             self._verify_dates(target, published, log)
             synced = replace(synced, file_size=self._files.size_of(target))
             done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
@@ -643,14 +715,21 @@ class DownloaderService:
             # write (R-QA-06). That commit is the point of no return: nothing after it
             # moves, trashes or deletes the file.
             stored = self._store_end(
-                done, synced, JobState.DONE, VideoStatus.SYNCED, "verified", side_files
+                done,
+                synced,
+                JobState.DONE,
+                VideoStatus.SYNCED,
+                "verified",
+                side_files,
+                keep_marker=False,
             )
         except BaseException as error:
             if not isinstance(error, Exception):
                 raise  # the end of the process: the next start cleans up by the marker
             # Until the video is recorded as synced, a file in the folder must not stay
             # unknown to the app (R-QA-06): it goes back to the temp folder of the job.
-            self._files.move(target, place.work / "not-finished.mkv")
+            if self._move_back(target, place, log):
+                self._nothing_placed.add(job.id)
             if isinstance(error, AppError):
                 raise
             if isinstance(error, OSError):
@@ -686,6 +765,7 @@ class DownloaderService:
             current = self._videos.get(job.id, video)
             self._jobs.record(job, replace(current, placing_file=name))
             if self._files.move(file, place.folder / name):
+                self._nothing_placed.discard(job.id)
                 _log.info("file.moved", msg="File moved into its place", file=name)
                 return name
             self._jobs.record(job, replace(current, placing_file=None))
@@ -728,19 +808,31 @@ class DownloaderService:
 
     # --- side files: the info JSON, the original thumbnail, the thumbnail next to the video
 
-    def _side_files_of(
-        self, video: Video, name: str, result: DownloadResult
-    ) -> list[tuple[str, bytes]]:
-        """The side files of a download: the info JSON, the original thumbnail, the cover."""
-        files: list[tuple[str, bytes]] = [
-            (f"{HIDDEN_DIR}/{video.id}.info.json", result.info_json.encode())
-        ]
+    def _side_data_of(self, result: DownloadResult) -> _SideData:
+        """Read what the side files of a download hold. Done before the move: it can fail."""
         cover = None if result.thumbnail is None else self._files.read_bytes(result.thumbnail)
-        if cover is not None:
-            files.append((f"{HIDDEN_DIR}/{video.id}.jpg", cover))
-            if self._settings.current().thumbnail_next_to_video:
-                files.append((str(Path(name).with_suffix(".jpg")), cover))
-        return files
+        return _SideData(
+            info_json=result.info_json.encode("utf-8"),
+            cover=cover,
+            next_to_video=cover is not None and self._settings.current().thumbnail_next_to_video,
+        )
+
+    def _move_back(self, target: Path, place: _Place, log: FilteringBoundLogger) -> bool:
+        """Move a file that was not recorded back to the temp folder. Returns whether it went."""
+        try:
+            if self._files.move(target, place.work / "not-finished.mkv"):
+                return True
+        except (AppError, OSError) as error:
+            reason = str(error)
+        else:
+            reason = "a file of that name is in the temp folder"
+        log.warning(
+            "file.move_back_failed",
+            msg="A file of a failed download could not leave the channel folder. Its marker stays",
+            file=str(target),
+            reason=reason,
+        )
+        return False
 
     def _write_side_files_of(self, video: Video, folder: Path, log: FilteringBoundLogger) -> None:
         """Write the side files a synced video keeps waiting. One that fails waits on."""
@@ -835,11 +927,20 @@ class DownloaderService:
         log: FilteringBoundLogger | None,
         started: float,
         details: dict[str, str],
+        *,
+        keep_marker: bool = True,
     ) -> None:
         if code is ErrorCode.BOT_CHECK:
             # One condition of the whole app, never one error per video (R-ER-05): the job
             # waits in line until YouTube is asked again.
-            self._end(job, video, JobState.WAITING, VideoStatus.QUEUED, "youtube paused")
+            self._end(
+                job,
+                video,
+                JobState.WAITING,
+                VideoStatus.QUEUED,
+                "youtube paused",
+                keep_marker=keep_marker,
+            )
             self._tell(replace(video, status=VideoStatus.QUEUED))
             if log is not None:
                 log.warning(
@@ -857,6 +958,7 @@ class DownloaderService:
             JobState.FAILED,
             VideoStatus.FAILED,
             code.value,
+            keep_marker=keep_marker,
         )
         if log is not None:
             log_at = log.warning if code.kind is ErrorKind.PERMANENT else log.error
@@ -878,11 +980,13 @@ class DownloaderService:
         status: VideoStatus | None,
         reason: str,
         *,
-        keep_marker: bool = False,
+        keep_marker: bool = True,
     ) -> None:
         """Store how a job ended, with its video and the status change, and tell everyone.
 
-        ``keep_marker`` keeps the marker of a placed file that could not be cleaned up.
+        ``keep_marker`` keeps the stored marker of a placed file. Only an end that
+        knows no file stands under it clears it: no path clears a marker without a
+        cleanup (R-QA-06).
         """
         self._announce(self._store_end(job, video, state, status, reason, keep_marker=keep_marker))
 
@@ -895,7 +999,7 @@ class DownloaderService:
         reason: str,
         side_files: Sequence[tuple[str, bytes]] = (),
         *,
-        keep_marker: bool = False,
+        keep_marker: bool = True,
     ) -> Video | None:
         """Store how a job ended, in one transaction. Returns the video to tell about, or None."""
         ended = replace(
@@ -911,8 +1015,7 @@ class DownloaderService:
             return None
         change: StatusChange | None = None
         if video is not None and current is not None and status is not None:
-            if not keep_marker:
-                video = replace(video, placing_file=None)
+            video = replace(video, placing_file=current.placing_file if keep_marker else None)
             if status is not VideoStatus.SYNCED:
                 video = replace(video, file_name=None, file_size=None)
             if current.status is not status:
@@ -973,7 +1076,7 @@ class DownloaderService:
                 self._files.remove_temp_folder(place.work)
             except (AppError, OSError, ValueError) as error:
                 self._cleanup_failed(job.video_id, error, job_id=job.id)
-            cleaned = self._clean_placed(video, place.folder, job_id=job.id)
+            cleaned = self._clean_placed(video, place.folder, job_id=job.id) is None
         self._end(
             job,
             video,
@@ -989,14 +1092,17 @@ class DownloaderService:
             video_id=job.video_id,
         )
 
-    def _clean_placed(self, video: Video, folder: Path, job_id: str | None = None) -> bool:
-        """Clean up the file a video's marker names. Returns whether it is done.
+    def _clean_placed(
+        self, video: Video, folder: Path, job_id: str | None = None
+    ) -> ErrorCode | None:
+        """Clean up the file a video's marker names. Returns None when it is done.
 
         Not done while the channel folder cannot be reached, for example on a
-        drive that is not connected, or when the Trash refused.
+        drive that is not connected (``FOLDER_UNAVAILABLE``), or when the Trash
+        refused (its error code).
         """
         if not video.placing_file:
-            return True
+            return None
         if not self._files.folder_exists(folder):
             _log.warning(
                 "file.unreachable",
@@ -1004,13 +1110,13 @@ class DownloaderService:
                 video_id=video.id,
                 folder=str(folder),
             )
-            return False
+            return ErrorCode.FOLDER_UNAVAILABLE
         try:
             self._trash_own_download(video, folder / video.placing_file)
         except (AppError, OSError) as error:
             self._cleanup_failed(video.id, error, job_id=job_id)
-            return False
-        return True
+            return error.code if isinstance(error, AppError) else ErrorCode.PERMISSION_DENIED
+        return None
 
     def _cleanup_failed(self, video_id: str, error: Exception, job_id: str | None = None) -> None:
         _log.warning(
@@ -1028,7 +1134,7 @@ class DownloaderService:
             for video in self._repository.videos(channel.id):
                 if not video.placing_file or self._jobs.active_job_of(video.id) is not None:
                     continue
-                if self._clean_placed(video, folder):
+                if self._clean_placed(video, folder) is None:
                     self._jobs.clear_placing_file(video.id)
 
     def _sweep_temp_folders(self) -> None:

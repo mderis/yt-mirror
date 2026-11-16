@@ -3,7 +3,8 @@
 import dataclasses
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -943,6 +944,20 @@ def test_a_crash_right_after_the_synced_commit_keeps_the_side_files_to_write(
     assert world.files.exists(folder_of(world) / ".yt-mirror" / f"{FIRST}.info.json")
 
 
+def test_metadata_that_cannot_be_written_fails_before_the_file_is_moved(world: World) -> None:
+    """R-QA-06: a lone surrogate in the raw metadata fails the job; no unknown file stays."""
+    world.download.info_json = '{"description": "half an emoji \ud83d"}'
+    world.downloader.mirror([FIRST])
+
+    world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.FAILED, None, None)
+    assert everything(world) == []
+    assert world.files.trashed == []
+
+
 # --- a quit is a cancel (second review of M3, M2)
 
 
@@ -1036,6 +1051,124 @@ def test_a_marker_stays_until_its_folder_can_be_reached(world: World) -> None:
     assert world.files.trashed == []
 
     world.files.folder_exists = exists  # type: ignore[method-assign]
+    world.downloader.start()
+
+    assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
+    assert world.files.trashed == [folder / name]
+
+
+def kept_marker(world: World) -> str:
+    """Leave a marker that a start could not clean up: the file is placed, its drive was away.
+
+    Returns the name of the placed file. The folder can be reached again afterwards.
+    """
+    world.downloader.mirror([FIRST])
+    name = f"{title_of(world, FIRST)}.mkv"
+    ours(world, name)
+    read_dates = world.files.read_dates
+
+    def die(path: Path) -> object:
+        raise Killed
+
+    world.files.read_dates = die  # type: ignore[method-assign]
+    with pytest.raises(Killed):
+        world.downloader.work_once()
+    world.files.read_dates = read_dates  # type: ignore[method-assign]
+    with drive_away(world):
+        world.downloader.start()
+    assert world.repository.video(FIRST).placing_file == name  # type: ignore[union-attr]
+    world.background.clear()
+    return name
+
+
+@contextmanager
+def drive_away(world: World) -> Generator[None]:
+    """The channel folder cannot be reached, as on a drive that is not connected."""
+    folder = folder_of(world)
+    exists = world.files.folder_exists
+    world.files.folder_exists = lambda path: path != folder and exists(path)  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        world.files.folder_exists = exists  # type: ignore[method-assign]
+
+
+def test_a_new_download_cleans_up_a_kept_marker_first(world: World) -> None:
+    """R-QA-06, R-FN-05: the drive is back and Mirror is pressed before a restart."""
+    name = kept_marker(world)
+    folder = folder_of(world)
+
+    world.downloader.mirror([FIRST])
+    world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.SYNCED, name, None)
+    assert world.files.trashed == [folder / name]
+    assert visible(world) == [name]
+
+
+def test_a_download_while_a_kept_marker_cannot_be_reached_fails_and_keeps_it(
+    world: World,
+) -> None:
+    """R-QA-06: Mirror while the drive is away fails clearly; the marker waits for the drive."""
+    name = kept_marker(world)
+    asked = len(world.download.calls)
+
+    with drive_away(world):
+        world.downloader.mirror([FIRST])
+        world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.last_error_code) == (
+        VideoStatus.FAILED,
+        ErrorCode.FOLDER_UNAVAILABLE,
+    )
+    assert video.placing_file == name
+    assert len(world.download.calls) == asked
+    assert world.files.trashed == []
+
+    world.downloader.start()
+
+    assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
+    assert world.files.trashed == [folder_of(world) / name]
+
+
+def test_cancelling_a_waiting_download_keeps_a_kept_marker(world: World) -> None:
+    """R-QA-06: no path clears a marker without cleaning up its file."""
+    name = kept_marker(world)
+
+    with drive_away(world):
+        [job] = world.downloader.mirror([FIRST])
+        world.downloader.cancel(job.id)
+
+    assert world.repository.video(FIRST).placing_file == name  # type: ignore[union-attr]
+
+
+def test_a_file_that_cannot_be_moved_back_keeps_its_marker(world: World) -> None:
+    """R-QA-06: when the move back after a failure fails too, the marker stays: no unknown file."""
+    world.downloader.mirror([FIRST])
+    name = f"{title_of(world, FIRST)}.mkv"
+    ours(world, name)
+    folder = folder_of(world)
+    move = world.files.move
+
+    def stuck_on_the_way_back(source: Path, target: Path) -> bool:
+        if source == folder / name:
+            raise AppError(ErrorCode.PERMISSION_DENIED, {"file": str(source)})
+        return move(source, target)
+
+    world.files.move = stuck_on_the_way_back  # type: ignore[method-assign]
+    world.files.read_dates = lambda path: (_ for _ in ()).throw(OSError("unreadable"))  # type: ignore[method-assign]
+
+    world.download_all()
+
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.placing_file) == (VideoStatus.FAILED, name)
+    assert world.files.exists(folder / name)
+
     world.downloader.start()
 
     assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]

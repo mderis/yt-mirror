@@ -240,7 +240,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | last_seen_at | int | The last successful check that listed it (R-DT-01) |
 | seen_in_first_listing | bool | false means it can be "new" (R-CH-15) |
 | file_name | text, null | Relative to the channel folder. Stored only when the video is recorded as synced |
-| placing_file | text, null | The marker of a file being moved into the channel folder: set before the move, cleared in the same write that records the video as synced or ends the job (R-QA-06). Migration 0007 |
+| placing_file | text, null | The marker of a file being moved into the channel folder: set before the move, cleared in the same write that records the video as synced, or once the file is known to be out of the folder (R-QA-06). Migration 0007 |
 | file_size | int, null | |
 | height | int, null | Downloaded height |
 | vcodec, acodec | text, null | |
@@ -361,7 +361,8 @@ Checks never run side by side: one worker takes them one after another (R-CH-24)
 
 What milestone M3 builds of this flow (`services/downloader.py`): one worker, which takes jobs in the order of their priority under a lock and keeps everything about a job by its ID, so that M5 can run more. Step 1 checks only that the folder is available; the disk guard (R-QU-10) and the retry policy of step 10 (R-QU-07) arrive with M5. Cancel is asked by the hooks of yt-dlp and before the move of step 7, which is the point of no return (R-QU-02). After a cancel, a failure or a quit, the temp folder of the job is deleted; a start cleans up jobs that a crash left waiting or running, and their videos are "not downloaded" again. M5 replaces this with R-QU-05 (resume from the partial file) and R-QU-06 (queued again at start). YouTube's "not a bot" check (R-ER-05) puts a running job back in line, and the worker takes no job while the app pauses. A subtitle failure is tried once more without subtitles (R-MD-04). Every file the app puts in a channel folder is known to it at once (R-QA-06):
 - Before the move of step 7 the video gets the marker `placing_file`. The name goes into `file_name` only in the write of step 9, which clears the marker. The same write keeps its side files in `pending_side_files`. That write is the point of no return: nothing after it moves, trashes or deletes the file, and the interface is told only after it, where a failure is logged and changes nothing.
-- Any failure between the move and that write, an error of the file system included, moves the file out of the channel folder again, so it never looks finished.
+- Everything that can fail on its own (reading the side files, the settings) is done before the move. Between the move and that write every line is inside the one `try` whose failure moves the file out of the channel folder again, so it never looks finished. If that move back fails too, the marker stays.
+- No path clears a marker without a cleanup. Only the synced write, or the end of a job whose file is known to be out of the folder, clears it. A new job of a video that has a marker first moves the marked file to the Trash (when the video ID inside it matches); while its folder cannot be reached, the job fails with `FOLDER_UNAVAILABLE` and the marker waits for the folder.
 - The side files (the info JSON, the thumbnail in the hidden folder, the thumbnail next to the video) are written after step 9. One that fails is logged, the video stays synced, and the file waits in `pending_side_files`.
 - A start ends the jobs a quit or a crash left, one at a time. A marked file goes to the Trash only when the video ID inside it is the one of the job; a Trash that refuses is logged and the start goes on.
 
