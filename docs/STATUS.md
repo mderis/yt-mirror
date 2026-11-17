@@ -3,7 +3,7 @@
 This file is the single source of truth for where the project stands. Read it at the start of every session. It is updated only inside milestone pull requests, so `main` always shows what has really been merged.
 
 **Version in progress:** 1.0
-**Next milestone to start:** M4
+**Next milestone to start:** M5
 
 | Milestone | Title | Status | Branch | Pull request | Merged |
 |---|---|---|---|---|---|
@@ -11,7 +11,7 @@ This file is the single source of truth for where the project stands. Read it at
 | M1 | Toolchain and app identity | Done | `m1-toolchain-and-app-identity` | [#2](https://github.com/mderis/yt-mirror/pull/2) | 2026-11-14 |
 | M2 | Channels and catalogue | Done | `m2-channels-and-catalogue` | [#3](https://github.com/mderis/yt-mirror/pull/3) | 2026-11-14 |
 | M3 | Downloading one video correctly | Done | `m3-download-one-video` | [#4](https://github.com/mderis/yt-mirror/pull/4) | 2026-11-16 |
-| M4 | Exact dates and automatic checks | In progress | `m4-exact-dates-and-checks` | [#5](https://github.com/mderis/yt-mirror/pull/5) | |
+| M4 | Exact dates and automatic checks | In review | `m4-exact-dates-and-checks` | [#5](https://github.com/mderis/yt-mirror/pull/5) | |
 | M5 | Queue | Not started | | | |
 | M6 | Excluding | Not started | | | |
 | M7 | Settings, feedback, activity, help | Not started | | | |
@@ -26,11 +26,11 @@ Status values: `Not started`, `In progress` (branch and draft pull request), `In
 
 Short facts the next session needs and cannot get from the code or the other docs: an open question that was answered, something that was deliberately postponed, a known problem. Newest first. Remove a note when it no longer matters.
 
+- **M4's pace without a key is unproven (Q-08, D-084).** 300 lookups an hour is an eighth of the rate that brought YouTube's "not a bot" check once; real use decides, from the `youtube.lookups.hour` lines of the log. The number is `LOOKUPS_PER_HOUR` in `core/pacing.py`.
+- **The end-to-end apps look up no exact dates without a key** (`YTM_FAKE_LOOKUPS_PER_HOUR=0`, D-084, TESTING section 4). A test of exact dates asks its app for a fast pace (`test.use({ lookupsPerHour })`).
 - **M5 must keep renames and re-downloads apart (R-FN-06).** In M4 a synced video is never downloaded again, so the rename after a new title and the date repair (`services/repair.py`) touch only files no download works on, under one lock of their own. When M5 lets a synced video be downloaded again, the finishing step of the downloader must take the same lock and read the video's current file name, so a rename between the start and the end of a re-download is not undone.
 - **M7 owes the activity entry of a rename (R-FN-06).** Until the activity log exists, a rename is the log event `file.renamed` with the old and the new name. The key guide (`features/settings/ApiKeyDialog.vue`) is the key setting until M7's settings screen shows it.
 - **M9's uninstall must handle the API key file (D-085).** The key is kept in `data/youtube-api-key`. When the uninstall moves `data/` to the Trash, the key goes with it; M9 decides whether to delete that file instead.
-- **M4 is measured, not built yet (2026-11-17).** The experiments of the M4 plan are done and written into OPEN-QUESTIONS (facts of M4), the spec (R-DT-03, R-DT-05, R-DT-06, R-DT-12, R-DT-14, R-DT-15, R-FB-01, R-SE-03), ARCHITECTURE 7.4 and D-082 to D-085. The maintainer decided the pace without a key (D-084) and the key file (D-085) on 2026-11-17. Building waits for the approval of the build plan.
-- **M4 owes the rename of a file named by its video ID (R-FN-01, R-FN-06).** A title with nothing storable gives `<video id>.mkv`. When the title later changes to one that leaves something, the rename of R-FN-06 gives the file its title. The maintainer asked for a test of exactly that case.
 - **The real Trash of macOS has not run in a test (M3).** Every test and every end-to-end app uses a folder of its own as the Trash (`YTM_TRASH_DIR`), so no test fills the Trash of the person who runs it. On the manual checklist: remove a channel with "Delete the files", see the files in the Trash, and "Put Back" one.
 - **M8 must tag adopted files with their video ID (R-CH-32).** From M3, "Delete the files" moves a video file to the Trash only when the video ID inside it matches. A downloaded file carries it; an adopted file must get it in M8 (when its metadata is repaired), or a removal keeps it in the folder.
 - **M8 reads `.yt-mirror/channel.json` (R-FI-05).** From M3 every channel folder lists its channels there (ID, handle, title), and a shared folder lists each of them. Reading it, to adopt a folder or to recover a lost database, belongs to the adoption of existing files: in a shared folder, each video file is matched to its channel by the video ID inside the file, not by the folder. One channel folder can lie inside another (for example a custom folder that is the library): each keeps its own channel file, and removing one never touches the other's files (tested).
@@ -43,16 +43,15 @@ Short facts the next session needs and cannot get from the code or the other doc
 - **In M5, an abandoned request must not hold up the queue.** In M3 a cancel during the metadata lookup ends the job at once, but the one worker still waits for that lookup to answer (3 to 10 s with real YouTube) before it takes the next job (accepted for M3, 2026-11-16). With the parallel workers of M5 (R-QU-01), the next job starts at once on a free worker, and the abandoned request counts against no limit. The e2e test "R-QU-02: a cancel while YouTube is only asked ends within half a second, and Mirror works again" in `e2e/tests/downloads.spec.ts` then allows less than 20 s for the next download.
 - **R-MI-01 is partly done (M3).** Mirror works for one video, from its row and from the details panel, and several presses queue several jobs. Selecting several rows and the bulk bar arrive in M5. No test names R-MI-01 for selection.
 - **The settings of downloads are stored with their defaults (M3), without controls.** Default quality (Best available), English subtitles and the auto-generated fallback (on), the thumbnail next to the video (off). Their controls come with the settings screen of M7.
-- **Q-27 moved to M4.** No channel with a scheduled premiere or a members-only video was found in M3. The fixture channel `premieres` stands in for both until then.
+- **Q-27 still has no real scheduled premiere (M4).** Members-only entries were recorded in M4; a scheduled premiere was not found among 125 upcoming search results. The fake YouTube (`premieres`) stands in for it, and a download of one fails with `NOT_YET_AVAILABLE`.
 - **Not checked by a person yet (M3).** On the manual checklist (TESTING section 8): a downloaded file plays in IINA with its chapters, subtitles and cover; Finder sorts by Date Created in the order of the channel; Get Info shows the published time. The live test downloaded a real video and checked the file and its dates by program.
 - **`YTM_TRASH_DIR` (M3).** Tests and the end-to-end apps give the app a folder of its own as the Trash, so that "Delete the files" never fills the Trash of the person who runs them. No test may use the real Trash.
 - **The help of M7 recommends IINA for playing the MKV files (R-UI-10).** "Play" keeps opening the user's default player. The help says why: IINA is free and plays MKV with its chapters and subtitles.
 - **Hand tests that delete a tool are done on a copy of the app folder (TESTING rule 9).** In the review of M2, `rm -r tools/deno tools/ffmpeg` followed by `./start` was run again from the shell history of M1, so the tools were downloaded again at two starts. No code was at fault. The backend test session and the smoke test now fail when the tools of the app folder change.
-- **The design of the exact date fetch for M4 is a proposal in OPEN-QUESTIONS,** with the measurements with and without the free API key. With the key, 6,599 videos got their exact dates in 132 requests and 153 seconds. Decide it in the plan of M4.
 - **`YTM_YOUTUBE_API_KEY` is read by nothing but the log redactor (M2).** Live tests and probes take a key from it. It is never written to a file, a fixture or a commit.
 - **A paused channel with new videos says "N new videos", not "Paused" (R-FB-01).** New outranks paused for 14 days. The menu of the channel says "Resume channel". Raised with the maintainer in the review of M2.
 - **The yt-dlp update of M9 must update `yt-dlp-ejs` with it (D-078).** The JavaScript challenge solver is the package `yt-dlp-ejs`, in the version yt-dlp pins. A yt-dlp without its matching solver offers fewer formats.
-- **A metadata lookup of one video takes 3.5 to 10 seconds from the maintainer's network (M2, for M4).** The numbers and what follows from them are in OPEN-QUESTIONS (Q-08). From the CI runners of GitHub every such lookup was refused with the "not a bot" check, so nothing that looks up a video can be tested live in CI.
+- **A metadata lookup of one video takes 3.5 to 10 seconds from the maintainer's network (M2).** The numbers and what follows from them are in OPEN-QUESTIONS (Q-08). From the CI runners of GitHub every such lookup was refused with the "not a bot" check, so nothing that looks up a video can be tested live in CI.
 - **YouTube is reachable from the maintainer's Mac only on and off.** Requests sometimes stall completely for a while. The gateway has its own time limits. Live tests can fail for this reason alone: run them again before believing a failure.
 - **The video list is not virtual before M5.** A channel of 5,000 videos takes about two seconds to draw in WebKit, once per load of its catalogue. The list is built so that nothing else draws it again (D-073).
 - **"What to mirror" of a channel is only stored (M2).** It takes effect in M5 (auto-mirror). The quality of a channel applies to downloads from M3. The date of "only videos uploaded after" is stored as the start of that day in the time zone of the Mac.
