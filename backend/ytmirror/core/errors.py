@@ -53,6 +53,9 @@ class ErrorCode(StrEnum):
     DB_UPGRADE_FAILED = "DB_UPGRADE_FAILED"
     CHANNEL_BUSY = "CHANNEL_BUSY"
     DB_UNREADABLE = "DB_UNREADABLE"
+    API_KEY_INVALID = "API_KEY_INVALID"
+    API_QUOTA_EXCEEDED = "API_QUOTA_EXCEEDED"
+    API_KEY_UNREADABLE = "API_KEY_UNREADABLE"
     INTERNAL = "INTERNAL"
 
     @property
@@ -97,6 +100,10 @@ _KINDS: dict[ErrorCode, ErrorKind] = {
     ErrorCode.DB_UPGRADE_FAILED: ErrorKind.PERMANENT,
     ErrorCode.CHANNEL_BUSY: ErrorKind.TRANSIENT,
     ErrorCode.DB_UNREADABLE: ErrorKind.PERMANENT,
+    # Never shown as an error dialog: the app does without the key (R-DT-12).
+    ErrorCode.API_KEY_INVALID: ErrorKind.TRANSIENT,
+    ErrorCode.API_QUOTA_EXCEEDED: ErrorKind.TRANSIENT,
+    ErrorCode.API_KEY_UNREADABLE: ErrorKind.TRANSIENT,
     ErrorCode.INTERNAL: ErrorKind.TRANSIENT,
 }
 

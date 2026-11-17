@@ -14,7 +14,9 @@ shows while a listing runs can be seen and tested. Pictures are plain
 coloured rectangles. The exact date of a video comes from its ``published_at``
 and ``release_at``; a video can fail its lookup (``exact_date_fails``), be slow
 (``exact_date_delay_ms``) or not be released yet (``upcoming``), and a whole
-channel can refuse every lookup (``exact_dates_fail``).
+channel can refuse every lookup (``exact_dates_fail``). The fake of the YouTube
+API (``fixture_youtube_api.py``) reads the same videos, and leaves out a video
+marked ``api_missing``.
 
 This module must not talk to the network and must not decide anything
 about the catalogue.
@@ -199,6 +201,27 @@ class FixtureYouTube:
         if plan.upcoming:
             return None
         return plan.release_time if plan.release_time is not None else plan.upload_time
+
+    def api_date(self, video_id: str) -> tuple[bool, int | None]:
+        """Return what the YouTube API says of a fixture video: whether it returns it, and when.
+
+        The API leaves out an unknown video and one marked ``api_missing``, and
+        gives no time for one marked ``upcoming``. It is never slow and never
+        refuses a video: the fake of the API fails by its key.
+
+        Args:
+            video_id: The video ID.
+        """
+        for channel in self._channels.values():
+            plan = channel.download_plan(video_id)
+            if plan is None:
+                continue
+            if plan.api_missing:
+                return False, None
+            if plan.upcoming:
+                return True, None
+            return True, plan.release_time if plan.release_time is not None else plan.upload_time
+        return False, None
 
     def download(
         self,
@@ -562,6 +585,7 @@ class _FixtureChannel:
             exact_date_fails=ErrorCode(exact_fails) if exact_fails else None,
             exact_date_delay_s=float(entry.get("exact_date_delay_ms", 0)) / 1000,
             upcoming=bool(entry.get("upcoming", False)),
+            api_missing=bool(entry.get("api_missing", False)),
             chapters=tuple(
                 Chapter(start_s=float(start), title=str(title))
                 for start, title in entry.get("chapters", [[0, "Start"], [1, "The middle"]])
@@ -629,6 +653,7 @@ class _DownloadPlan:
     exact_date_fails: ErrorCode | None
     exact_date_delay_s: float
     upcoming: bool
+    api_missing: bool
     chapters: tuple[Chapter, ...]
 
 
