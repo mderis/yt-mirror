@@ -80,8 +80,23 @@ function stop(process: ChildProcess): Promise<void> {
   })
 }
 
-export const test = base.extend<{ freshApp: FreshApp }>({
-  freshApp: async ({}, use, testInfo) => {
+export const test = base.extend<{
+  freshApp: FreshApp
+  lookupsPerHour: number
+  holdDownloads: boolean
+}>({
+  /**
+   * The exact-date lookups an hour of the fresh app (YTM_FAKE_LOOKUPS_PER_HOUR). 0, the
+   * default, means none without a key, so that the dates of M2 and M3 stay as recorded;
+   * a test of exact dates asks for a fast pace with `test.use({ lookupsPerHour })`.
+   */
+  lookupsPerHour: [0, { option: true }],
+  /**
+   * Whether the fake YouTube holds the videos that name a hold (YTM_FAKE_HOLD_DOWNLOADS),
+   * for a screenshot in the middle of a download. Off by default.
+   */
+  holdDownloads: [false, { option: true }],
+  freshApp: async ({ lookupsPerHour, holdDownloads }, use, testInfo) => {
     const name = `fresh-${testInfo.project.name}-${testInfo.testId}`
     const folder = mkdtempSync(join(tmpdir(), 'ytm-e2e-'))
     const port = await freePort()
@@ -101,6 +116,8 @@ export const test = base.extend<{ freshApp: FreshApp }>({
       YTM_LIBRARY_DIR: join(folder, 'library'),
       // Files that a test deletes go here, never into the Trash of the person who runs it.
       YTM_TRASH_DIR: join(folder, 'trash'),
+      YTM_FAKE_LOOKUPS_PER_HOUR: String(lookupsPerHour),
+      YTM_FAKE_HOLD_DOWNLOADS: holdDownloads ? '1' : '0',
     }
     const headers = { Authorization: `Bearer ${TOKEN}` }
     const send = async (method: string, path: string, body?: unknown): Promise<unknown> => {

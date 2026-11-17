@@ -3,7 +3,8 @@
 From milestone M2: looking a channel up, listing its regular videos, the
 optional video count of a channel preview, and fetching a picture. From
 milestone M3: downloading one video into the temp folder of its job
-(docs/ARCHITECTURE.md sections 7.2 and 7.3).
+(docs/ARCHITECTURE.md sections 7.2 and 7.3). From milestone M4: the exact
+published time of one video (ARCHITECTURE section 7.4).
 
 Every method raises ``AppError`` with a code of docs/LOGGING.md section 4
 when YouTube cannot be asked: ``NETWORK_UNREACHABLE``, ``RATE_LIMITED``,
@@ -78,6 +79,24 @@ class YouTubeGateway(Protocol):
         """
         ...
 
+    def exact_date(self, video_id: str) -> int | None:
+        """Return the exact published time of one video, with the lightest lookup (R-DT-05).
+
+        The release time of a premiere or a scheduled video comes before the
+        time of its upload (R-DT-03).
+
+        Args:
+            video_id: The video ID.
+
+        Returns:
+            Seconds since the Unix epoch, UTC, or None for a video that has not
+            been released yet.
+
+        Raises:
+            AppError: With the code of what went wrong, for example ``VIDEO_PRIVATE``.
+        """
+        ...
+
     def download(
         self,
         request: DownloadRequest,
@@ -85,6 +104,7 @@ class YouTubeGateway(Protocol):
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download one video as an MKV with its metadata, into the temp folder of its job.
 
@@ -97,6 +117,9 @@ class YouTubeGateway(Protocol):
                 written, after what only reads from YouTube. It raises
                 ``DownloadCancelledError`` when the job was cancelled meanwhile:
                 then nothing is written (R-QU-02).
+            on_lookup_again: Told of each time the metadata of the video is read again,
+                when it was too old or its stream links were refused, so the budget of
+                lookups counts it (R-DT-06).
 
         Raises:
             AppError: With the code of what went wrong, for example ``MEMBERS_ONLY``.

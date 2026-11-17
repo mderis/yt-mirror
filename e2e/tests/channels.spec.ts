@@ -279,7 +279,10 @@ test('R-CH-25, R-CH-13: a failed check shows a banner, keeps the list, and "Try 
   const banner = page.locator('[data-banner="check-failed"]')
   await expect(banner).toContainText('Could not reach YouTube')
   await expect(banner).toContainText('The video list below is from the last successful check')
-  await expect(sidebar(page).locator('[data-status]')).toHaveText('Could not check')
+  // The automatic retry of R-CH-25 is named with the status (from M4).
+  await expect(sidebar(page).locator('[data-status]')).toHaveText(
+    'Could not check · retrying in 5 min',
+  )
   await expect(rows(page)).toHaveCount(48)
   await expect(row(page, 'chg00000042')).toContainText('Removed from YouTube')
 
@@ -287,7 +290,7 @@ test('R-CH-25, R-CH-13: a failed check shows a banner, keeps the list, and "Try 
 
   await expect(banner).toHaveCount(0)
   await expect(row(page, 'chg00000042')).not.toContainText('Removed from YouTube')
-  await expect(sidebar(page).locator('[data-status]')).not.toHaveText('Could not check')
+  await expect(sidebar(page).locator('[data-status]')).not.toContainText('Could not check')
 })
 
 test('R-CH-31, R-CH-32: a channel is paused, resumed and removed from its menu, and its folder stays', async ({
@@ -436,7 +439,10 @@ test('R-CH-25, R-FB-01, R-UI-11: a retry after a failed check is seen the whole 
   await page.reload()
   const banner = page.locator('[data-banner="check-failed"]')
   await expect(banner).toContainText('The check failed on')
-  await expect(sidebar(page).locator('[data-status]')).toHaveText('Could not check')
+  // The automatic retry of R-CH-25 is named with the status (from M4).
+  await expect(sidebar(page).locator('[data-status]')).toHaveText(
+    'Could not check · retrying in 5 min',
+  )
 
   await banner.getByRole('button', { name: 'Try again' }).click()
   await expect(banner).toContainText('Trying again now.')

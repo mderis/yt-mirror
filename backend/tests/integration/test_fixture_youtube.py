@@ -46,17 +46,19 @@ def ids(youtube: FixtureYouTube, channel_id: str) -> list[str]:
 
 
 def test_the_world_has_the_channels_this_milestone_needs() -> None:
-    """infra: the channels of TESTING section 4 exist: those of M2 and those of M3."""
+    """infra: the channels of TESTING section 4 exist: those of M2, M3 and M4."""
     names = sorted(file.stem for file in WORLD.glob("*.json"))
 
     assert names == [
         "auto-subtitles-only",
+        "bot-check-dates",
         "changing",
         "empty",
         "failures",
         "large",
         "no-subtitles",
         "premieres",
+        "renaming",
         "slow",
         "slow-start",
         "small",
@@ -364,3 +366,93 @@ def test_one_listing_can_be_slow_and_one_can_fail_by_its_number(tmp_path: Path) 
     assert waits_before_third == []
     assert len(third) == 3
     assert waits == [1.5]
+
+
+# --- exact dates (R-DT-03, R-DT-05)
+
+
+def dated(folder: Path, **values: Any) -> FixtureYouTube:
+    """Return a fake YouTube with one channel whose videos have exact times."""
+    return one_channel(
+        folder,
+        videos=[
+            {
+                "id": "test0000003",
+                "title": "Premiere",
+                "point": "2026-11-05",
+                "published_at": "2026-11-04T10:00:00Z",
+                "release_at": "2026-11-04T10:01:48Z",
+            },
+            {
+                "id": "test0000002",
+                "title": "Regular",
+                "point": "2026-11-05",
+                "published_at": "2026-11-03T08:30:15Z",
+            },
+            {"id": "test0000001", "title": "Upcoming", "point": "2026-11-05", "upcoming": True},
+        ],
+        **values,
+    )
+
+
+def test_the_exact_date_of_a_fixture_video_is_its_release_else_its_upload(tmp_path: Path) -> None:
+    """R-DT-03: a premiere has its release time, a regular video its upload time."""
+    youtube = dated(tmp_path)
+
+    assert youtube.exact_date("test0000003") == 1_793_786_508
+    assert youtube.exact_date("test0000002") == 1_793_694_615
+
+
+def test_a_fixture_video_not_released_yet_has_no_exact_date(tmp_path: Path) -> None:
+    """R-DT-03: an upcoming video gives no exact date."""
+    assert dated(tmp_path).exact_date("test0000001") is None
+
+
+def test_an_unknown_video_has_no_exact_date_to_give(tmp_path: Path) -> None:
+    """R-DT-05: the fake answers an unknown video as removed."""
+    with pytest.raises(AppError) as failure:
+        dated(tmp_path).exact_date("nothere0001")
+
+    assert failure.value.code is ErrorCode.VIDEO_REMOVED
+
+
+def test_one_video_or_a_whole_channel_can_fail_its_exact_date(tmp_path: Path) -> None:
+    """infra: the fake can fail the lookup of one video, or of every video of a channel."""
+    (tmp_path / "one").mkdir()
+    (tmp_path / "all").mkdir()
+    one = one_channel(
+        tmp_path / "one",
+        videos=[
+            {
+                "id": "test0000001",
+                "title": "T",
+                "point": "2026-11-05",
+                "exact_date_fails": "VIDEO_PRIVATE",
+            }
+        ],
+    )
+    every = dated(tmp_path / "all", exact_dates_fail="BOT_CHECK")
+
+    with pytest.raises(AppError) as private:
+        one.exact_date("test0000001")
+    with pytest.raises(AppError) as refused:
+        every.exact_date("test0000002")
+
+    assert private.value.code is ErrorCode.VIDEO_PRIVATE
+    assert refused.value.code is ErrorCode.BOT_CHECK
+
+
+def test_an_exact_date_lookup_can_be_slow(tmp_path: Path) -> None:
+    """infra: a fixture video can make its lookup wait, so that "updating" can be seen."""
+    slept: list[float] = []
+    one_channel(
+        tmp_path,
+        videos=[
+            {"id": "test0000001", "title": "T", "point": "2026-11-05", "exact_date_delay_ms": 1500}
+        ],
+    )
+    youtube = FixtureYouTube(tmp_path, sleep=slept.append)
+
+    youtube.exact_date("test0000001")
+
+    assert slept == [1.5]

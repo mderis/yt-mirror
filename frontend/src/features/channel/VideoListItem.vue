@@ -27,7 +27,7 @@ import IconButton from '@/components/IconButton.vue'
 import ProgressBar from '@/components/ProgressBar.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import VideoRow from '@/components/VideoRow.vue'
-import { formatBytes, formatDuration } from '@/format'
+import { formatBytes, formatBytesOf, roughTime } from '@/format'
 import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
 import { useVideosStore } from '@/stores/videos'
@@ -74,23 +74,34 @@ const downloadingText = computed(() => {
     : t('channel.list.downloadingStarting')
 })
 
-/** "1080p · 3.1 MB/s · 1 min left" while bytes arrive (R-QU-04). */
+/**
+ * "340 of 550 MB · about 2 min left" while bytes arrive, after the chip "Downloading 62%"
+ * (R-QU-04, D-088). The time left appears once the measured speed is stable. A second
+ * download of the video, without its subtitles, says so first.
+ */
 const progressFacts = computed(() => {
   const running = download.value
   if (running === null || video.value.status !== 'downloading' || cancelling.value) {
     return null
   }
-  const parts = [t(`channel.list.stage.${running.stage}`)]
-  if (running.height !== null) {
-    parts.push(t('channel.list.quality', { height: running.height }))
+  const parts: string[] = []
+  if (running.again) {
+    parts.push(t('channel.list.again'))
   }
-  if (running.speed_bps !== null) {
-    parts.push(t('channel.list.speed', { size: formatBytes(running.speed_bps) }))
+  const total = running.total_bytes ?? null
+  const done = running.downloaded_bytes ?? null
+  if (total !== null && done !== null) {
+    parts.push(t('channel.list.bytesOf', formatBytesOf(done, total)))
   }
   if (running.left_s !== null) {
-    parts.push(t('channel.list.left', { time: formatDuration(running.left_s) }))
+    const left = roughTime(running.left_s)
+    parts.push(
+      t('channel.list.aboutLeft', {
+        time: t(`rough.${left.unit}`, { count: left.count }, left.count),
+      }),
+    )
   }
-  return parts.join(` ${t('app.separator')} `)
+  return parts.length === 0 ? null : parts.join(` ${t('app.separator')} `)
 })
 
 /** The short reason of a failed download (R-QU-08). */
@@ -149,7 +160,8 @@ function cancel(): void {
       <DateLabel
         :text="date.text"
         :approximate="date.approximate"
-        :note="t('channel.list.dateNote')"
+        :state="date.state"
+        :note="date.note"
       />
       <template v-if="row.views !== null">
         <span aria-hidden="true">{{ t('app.separator') }}</span>
@@ -221,7 +233,11 @@ function cancel(): void {
           icon="download"
           @press="ui.run(videos.mirror(video.id))"
         >
-          {{ t('channel.list.mirror') }}
+          {{
+            video.status === 'file_missing'
+              ? t('channel.list.mirrorAgain')
+              : t('channel.list.mirror')
+          }}
         </AppButton>
         <AppButton
           v-else-if="video.status === 'failed' && !video.gone"

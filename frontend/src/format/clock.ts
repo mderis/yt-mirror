@@ -9,6 +9,9 @@ import { reactive } from 'vue'
 
 const TICK_MS = 30_000
 
+/** How far `clock.now` can be behind the real time: one tick, in seconds. */
+export const CLOCK_LAG_S = TICK_MS / 1000
+
 export const clock = reactive<{
   /** The current time, in seconds since the Unix epoch. */
   now: number

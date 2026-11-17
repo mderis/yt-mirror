@@ -26,6 +26,8 @@ function handlers(changes: Partial<EventHandlers> = {}): EventHandlers {
     pauseChanged: nothing,
     videoUpdated: nothing,
     jobProgress: nothing,
+    apiKeyChanged: nothing,
+    checksProgress: nothing,
     reconnected: nothing,
     ...changes,
   }

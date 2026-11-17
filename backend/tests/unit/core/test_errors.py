@@ -36,6 +36,9 @@ def test_the_kinds_of_the_codes_match_the_logging_document() -> None:
         ErrorCode.VERIFY_FAILED,
         ErrorCode.DATES_NOT_APPLIED,
         ErrorCode.CHANNEL_BUSY,
+        ErrorCode.API_KEY_INVALID,
+        ErrorCode.API_QUOTA_EXCEEDED,
+        ErrorCode.API_KEY_UNREADABLE,
     }
 
 

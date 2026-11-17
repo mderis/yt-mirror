@@ -62,6 +62,7 @@ from ytmirror.ports.media_tools import MediaTools
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
+from ytmirror.services.repair import verify_dates
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.youtube_access import YouTubeAccess
 
@@ -773,14 +774,24 @@ class DownloaderService:
             self._files.remove_temp_folder(place.work)
             self._files.make_folder(place.work, inside=place.folder)
             return self._ask(
-                job, video, replace(request, manual_subtitles=False, auto_subtitles=False), place
+                job,
+                video,
+                replace(request, manual_subtitles=False, auto_subtitles=False),
+                place,
+                again=True,
             )
 
     def _ask(
-        self, job: Job, video: Video, request: DownloadRequest, place: _Place
+        self,
+        job: Job,
+        video: Video,
+        request: DownloadRequest,
+        place: _Place,
+        *,
+        again: bool = False,
     ) -> DownloadResult:
         def told(progress: DownloadProgress) -> None:
-            self._progressed(job, video, progress)
+            self._progressed(job, video, progress, again=again)
 
         try:
             return self._youtube.download(
@@ -927,20 +938,18 @@ class DownloaderService:
 
     def _verify_dates(self, target: Path, published: int, log: FilteringBoundLogger) -> None:
         """Step 8: read both dates back in the channel folder (R-DT-07)."""
-        dates = self._files.read_dates(target)
-        if (dates.created, dates.modified) != (published, published):
+        try:
+            verify_dates(self._files, target, published)
+        except AppError as error:
             log.error(
                 "dates.verify_failed",
                 msg="The file dates did not read back as they were set",
                 error_code=ErrorCode.DATES_NOT_APPLIED.value,
                 expected=published,
-                created=dates.created,
-                modified=dates.modified,
+                created=error.details.get("created"),
+                modified=error.details.get("modified"),
             )
-            raise AppError(
-                ErrorCode.DATES_NOT_APPLIED,
-                {"expected": str(published), "created": str(dates.created)},
-            )
+            raise
         log.info("dates.applied", msg="File dates set to the published time", published=published)
 
     # --- side files: the info JSON, the original thumbnail, the thumbnail next to the video
@@ -1402,7 +1411,9 @@ class DownloaderService:
             self._videos[job.id] = video
         return video
 
-    def _progressed(self, job: Job, video: Video, progress: DownloadProgress) -> None:
+    def _progressed(
+        self, job: Job, video: Video, progress: DownloadProgress, *, again: bool = False
+    ) -> None:
         if progress.stage is Stage.PROCESSING:
             video = self._processing(job)
         previous = self._state.progress_of(video.id)
@@ -1416,6 +1427,9 @@ class DownloaderService:
             left_s=progress.left_s,
             height=progress.height,
             downloaded_bytes=progress.downloaded_bytes,
+            total_bytes=progress.total_bytes,
+            parts=progress.parts,
+            again=again,
         )
         self._state.progressed(told)
         now = self._clock.monotonic()

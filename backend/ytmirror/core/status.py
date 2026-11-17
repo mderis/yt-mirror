@@ -36,6 +36,7 @@ ALLOWED_TRANSITIONS: frozenset[tuple[VideoStatus, VideoStatus]] = frozenset(
         (_S.SYNCED, _S.FILE_MISSING),  # the file was not found at a check
         (_S.SYNCED, _S.QUEUED),  # re-download: the old file stays until the new one is verified
         (_S.FILE_MISSING, _S.QUEUED),  # enqueue
+        (_S.FILE_MISSING, _S.SYNCED),  # the file is back, with this video's ID inside
     }
 )
 """Every allowed change of a video's status, as (from, to)."""
@@ -126,7 +127,8 @@ def waits_for_youtube(channel: Channel, *, youtube_paused: bool) -> bool:
     when the app would otherwise work on it by itself. From milestone M2 that
     is a first listing that is still to come. A paused channel does not wait,
     and neither does one whose first listing failed: that one is left to the
-    user (R-CH-25).
+    user (R-CH-25). Exact dates that wait for YouTube are told in their own,
+    lower place of the status line (D-086).
 
     Args:
         channel: The channel.
@@ -147,15 +149,21 @@ def channel_status(
     new_videos: int,
     waiting_for_youtube: bool = False,
     mirroring: bool = False,
+    exact_dates: bool = False,
+    exact_dates_wait: bool = False,
+    folder_missing: bool = False,
 ) -> ChannelStatus:
     """Return the one status line of a channel (R-FB-01, R-CH-34).
 
     One status is shown at a time, by the priority of R-FB-01: what is
-    running now (mirroring, checking, a first listing, matching, exact dates),
-    then waiting for YouTube, then could not check, then new videos, then
-    paused, then up to date. What is running outranks a past failure, so a
-    retry after a failed check is seen. The statuses of later milestones take
-    their place in this order when they are built.
+    running now (mirroring, checking, a first listing, matching), then waiting
+    for YouTube, then could not check, then new videos, then exact dates, then
+    paused, then up to date. Exact dates are background work (D-086): they
+    never hide a failed check or new videos, and exact dates held back by
+    YouTube show "Waiting for YouTube" in their own place. What is running
+    outranks a past failure, so a retry after a failed check is seen. The
+    statuses of later milestones take their place in this order when they
+    are built.
 
     Args:
         channel: The channel.
@@ -164,6 +172,10 @@ def channel_status(
         waiting_for_youtube: Whether the app holds work for this channel until
             YouTube answers again (``waits_for_youtube``).
         mirroring: Whether videos of the channel wait to be downloaded or are.
+        exact_dates: Whether exact dates of the channel are being looked up, not held back.
+        exact_dates_wait: Whether exact dates of the channel wait for YouTube.
+        folder_missing: Whether the channel folder is gone from a connected drive
+            (R-MI-06, D-087). It ranks with "Could not check", just before it.
     """
     if mirroring:
         return ChannelStatus.MIRRORING
@@ -171,10 +183,16 @@ def channel_status(
         return ChannelStatus.CHECKING
     if waiting_for_youtube:
         return ChannelStatus.WAITING_FOR_YOUTUBE
+    if folder_missing:
+        return ChannelStatus.FOLDER_NOT_FOUND
     if channel.last_check_error is not None:
         return ChannelStatus.COULD_NOT_CHECK
     if new_videos > 0:
         return ChannelStatus.NEW_VIDEOS
+    if exact_dates:
+        return ChannelStatus.EXACT_DATES
+    if exact_dates_wait:
+        return ChannelStatus.WAITING_FOR_YOUTUBE
     if channel.paused:
         return ChannelStatus.PAUSED
     return ChannelStatus.UP_TO_DATE

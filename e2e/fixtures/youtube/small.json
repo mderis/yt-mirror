@@ -34,7 +34,9 @@
       "title": "Hand planes, a complete guide",
       "duration_s": 3130,
       "view_count": 203000,
-      "point": "2026-10-31"
+      "point": "2026-10-31",
+      "hold_after_report": 3,
+      "hold_ms": 120000
     },
     {
       "id": "small000008",

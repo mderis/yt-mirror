@@ -26,6 +26,8 @@ ENV_TOOL_SOURCE = "YTM_TOOL_SOURCE"
 ENV_FAKE_YOUTUBE = "YTM_FAKE_YOUTUBE"
 ENV_LIBRARY_DIR = "YTM_LIBRARY_DIR"
 ENV_TRASH_DIR = "YTM_TRASH_DIR"
+ENV_FAKE_LOOKUPS_PER_HOUR = "YTM_FAKE_LOOKUPS_PER_HOUR"
+ENV_FAKE_HOLD_DOWNLOADS = "YTM_FAKE_HOLD_DOWNLOADS"
 
 DEFAULT_DEV_FRONTEND_URL = "http://127.0.0.1:5173/"
 DEFAULT_TOOL_MANIFEST = Path(__file__).resolve().parents[1] / "services" / "toolchain_manifest.json"
@@ -51,6 +53,11 @@ class AppPaths:
         only_tool_source: The one tool source to use, or None for all. For automated tests.
         fake_youtube: A folder with a recorded world of channels, or None for the real YouTube.
         trash_dir: A folder that stands for the Trash of macOS, or None for the real one.
+        fake_lookups_per_hour: The budget of lookups of the fake YouTube instead of 300
+            (D-084), 0 for none without a key, or None. For tests only.
+        fake_hold_downloads: Whether the fake YouTube holds the downloads of the videos
+            that name a hold (``hold_after_report``), for a screenshot in the middle of a
+            download. For tests only.
             For tests, so that no test fills the Trash of the person who runs it.
     """
 
@@ -68,6 +75,8 @@ class AppPaths:
     only_tool_source: str | None = None
     fake_youtube: Path | None = None
     trash_dir: Path | None = None
+    fake_lookups_per_hour: int | None = None
+    fake_hold_downloads: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +116,9 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
             defaults. ``YTM_TOOL_DIR``, ``YTM_TOOL_MANIFEST``, ``YTM_TOOL_SOURCE``,
             ``YTM_LIBRARY_DIR`` and ``YTM_TRASH_DIR`` are for tests. ``YTM_FAKE_YOUTUBE``
             names a folder with a recorded world of channels to use in place of the
-            real YouTube. ``YTM_TRASH_DIR`` counts only together with ``YTM_FAKE_YOUTUBE``.
+            real YouTube. ``YTM_TRASH_DIR``, ``YTM_FAKE_LOOKUPS_PER_HOUR`` and
+            ``YTM_FAKE_HOLD_DOWNLOADS`` count
+            only together with ``YTM_FAKE_YOUTUBE``.
 
     Returns:
         The paths. Nothing is created.
@@ -138,7 +149,23 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
         trash_dir=Path(env[ENV_TRASH_DIR])
         if env.get(ENV_TRASH_DIR) and env.get(ENV_FAKE_YOUTUBE)
         else None,
+        # Another pace of exact-date lookups is for tests only: an app on the real
+        # YouTube keeps to the budget of D-084 whatever the environment says.
+        fake_lookups_per_hour=_whole_number(env.get(ENV_FAKE_LOOKUPS_PER_HOUR))
+        if env.get(ENV_FAKE_YOUTUBE)
+        else None,
+        # Held downloads are for the screenshot of a row in the middle of a download:
+        # a hand run on the fake YouTube never waits for them.
+        fake_hold_downloads=env.get(ENV_FAKE_HOLD_DOWNLOADS) == "1"
+        and bool(env.get(ENV_FAKE_YOUTUBE)),
     )
+
+
+def _whole_number(text: str | None) -> int | None:
+    """Return a number of the environment, or None when it is missing or not a whole number."""
+    if text is None or not text.strip().isdigit():
+        return None
+    return int(text)
 
 
 def detect_install_kind(code_root: Path) -> InstallKind:

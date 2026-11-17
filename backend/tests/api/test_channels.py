@@ -613,3 +613,22 @@ def test_a_removal_says_which_files_macos_refused_to_move(client: TestClient, wo
     assert removed.status_code == 200
     assert removed.json()["left"] == [{"file": "Video 1.mkv", "reason": "trash_refused"}]
     assert client.get(f"/api/channels/{SMALL_ID}").status_code == 404
+
+
+def test_repair_dates_answers_what_it_compared_and_repaired(
+    client: TestClient, world: World
+) -> None:
+    """R-DT-09: "Repair dates" in the channel menu repairs a channel's file dates on demand."""
+    world.add_and_list()
+
+    answer = client.post(f"/api/channels/{SMALL_ID}/repair-dates")
+
+    assert answer.status_code == 200
+    assert answer.json() == {"checked": 0, "repaired": 0, "failed": 0}
+
+
+def test_repair_dates_of_an_unknown_channel_is_not_found(client: TestClient) -> None:
+    """R-DT-09: there is no such channel."""
+    answer = client.post("/api/channels/UCnothereatallnothere001/repair-dates")
+
+    assert answer.status_code == 404

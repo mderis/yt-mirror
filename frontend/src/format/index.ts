@@ -68,6 +68,25 @@ export function formatDuration(seconds: number): string {
   return hours > 0 ? `${hours}:${two(minutes)}:${two(rest)}` : `${two(minutes)}:${two(rest)}`
 }
 
+/** A time in round numbers, as "about ... left" says it: the unit and how many of it. */
+export interface RoughTime {
+  unit: 'minute' | 'hour' | 'day'
+  count: number
+}
+
+/** A time span in round numbers: minutes up to an hour, hours up to two days, then days. */
+export function roughTime(seconds: number): RoughTime {
+  const minutes = Math.max(1, Math.ceil(seconds / MINUTE))
+  if (minutes < 60) {
+    return { unit: 'minute', count: minutes }
+  }
+  const hours = Math.round(seconds / HOUR)
+  if (hours < 48) {
+    return { unit: 'hour', count: hours }
+  }
+  return { unit: 'day', count: Math.round(seconds / (24 * HOUR)) }
+}
+
 const compactNumber = new Intl.NumberFormat(NUMBER_LOCALE, {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -84,14 +103,27 @@ export function formatNumber(count: number): string {
   return fullNumber.format(count)
 }
 
-/** A size on disk: "412 MB", "41.2 GB". */
+/** A size on disk: "150 KB", "412 MB", "41.2 GB". */
 export function formatBytes(bytes: number): string {
+  if (bytes > 0 && bytes < KB * KB) {
+    return `${Math.max(1, Math.round(bytes / KB))} KB`
+  }
   const megabytes = bytes / KB / KB
   if (megabytes < KB) {
     return `${Math.round(megabytes)} MB`
   }
   const gigabytes = megabytes / KB
   return `${gigabytes >= 100 ? Math.round(gigabytes) : Math.round(gigabytes * 10) / 10} GB`
+}
+
+/** Two sizes in the unit of the larger: "340 of 550 MB", "1.2 of 4.1 GB" (R-QU-04). */
+export function formatBytesOf(done: number, total: number): { done: string; total: string } {
+  const whole = formatBytes(total)
+  const [amount, unit] = whole.split(' ')
+  const scale = unit === 'GB' ? KB * KB * KB : unit === 'KB' ? KB : KB * KB
+  const part = Math.min(done, total) / scale
+  const decimals = unit === 'GB' && (amount ?? '').includes('.') ? 1 : 0
+  return { done: part.toFixed(decimals), total: whole }
 }
 
 /** How long ago something happened, as the key of a text and what goes into it. */

@@ -19,6 +19,7 @@ import errno
 import importlib
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from collections.abc import Callable, Sequence
@@ -134,6 +135,17 @@ class MacFileSystem:
         """
         return folder.is_dir()
 
+    def drive_connected(self, path: Path) -> bool:
+        """Return whether the drive of a path is connected: for /Volumes/<name>, it is mounted.
+
+        Args:
+            path: A file or folder, which need not exist.
+        """
+        parts = path.absolute().parts
+        if len(parts) >= _VOLUME_PARTS and parts[1] == "Volumes":
+            return os.path.ismount(Path(*parts[:_VOLUME_PARTS]))
+        return True
+
     def count_video_files(self, folder: Path) -> int:
         """Return how many video files lie directly in a folder (R-CH-06).
 
@@ -189,6 +201,22 @@ class MacFileSystem:
         except OSError:
             return []
 
+    def list_folder(self, folder: Path) -> list[str]:
+        """Return every name directly in a folder, or raise when it cannot be listed.
+
+        Args:
+            folder: The folder.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` for any error of the listing.
+        """
+        try:
+            return [entry.name for entry in folder.iterdir()]
+        except OSError as error:
+            raise AppError(
+                ErrorCode.FOLDER_UNAVAILABLE, {"folder": str(folder), "error": type(error).__name__}
+            ) from error
+
     def exists(self, path: Path) -> bool:
         """Return whether a file or folder exists, without following a last symlink.
 
@@ -196,6 +224,23 @@ class MacFileSystem:
             path: The file or folder.
         """
         return os.path.lexists(path)
+
+    def is_gone(self, path: Path) -> bool:
+        """Return whether a file is clearly not there, in a folder that is.
+
+        Args:
+            path: The file.
+        """
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            try:
+                return stat.S_ISDIR(path.parent.stat().st_mode)
+            except OSError:
+                return False
+        except OSError:
+            return False
+        return False
 
     def size_of(self, path: Path) -> int:
         """Return the size of a file, or of a folder with everything in it, in bytes.
@@ -394,10 +439,10 @@ class MacFileSystem:
             path: The file.
 
         Raises:
-            AppError: ``FOLDER_UNAVAILABLE`` when the file is not there.
+            AppError: ``FILE_MISSING`` when the file is not in its folder, or
+                ``FOLDER_UNAVAILABLE`` when its folder cannot be reached.
         """
-        if not path.is_file():
-            raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path)})
+        _must_be_there(path)
         self._run([_OPEN, "-R", str(path)])
 
     def open_file(self, path: Path) -> None:
@@ -407,10 +452,10 @@ class MacFileSystem:
             path: The file.
 
         Raises:
-            AppError: ``FOLDER_UNAVAILABLE`` when the file is not there.
+            AppError: ``FILE_MISSING`` when the file is not in its folder, or
+                ``FOLDER_UNAVAILABLE`` when its folder cannot be reached.
         """
-        if not path.is_file():
-            raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path)})
+        _must_be_there(path)
         self._run([_OPEN, str(path)])
 
 
@@ -460,3 +505,16 @@ def _volume_name(path: Path) -> str:
         None, foundation.NSURLVolumeNameKey, None
     )
     return str(name) if found and name else path.anchor
+
+
+_VOLUME_PARTS = 3
+"""The parts of the mount point of a drive: "/", "Volumes", its name."""
+
+
+def _must_be_there(path: Path) -> None:
+    """Raise the code that says why a file to play or show is not there."""
+    if path.is_file():
+        return
+    if path.parent.is_dir():
+        raise AppError(ErrorCode.FILE_MISSING, {"file": str(path)})
+    raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path)})

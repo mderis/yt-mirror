@@ -2,10 +2,13 @@
  * The channels store: every channel the user added, as the sidebar and the
  * channel page show it (R-CH-34, R-CH-35), and what belongs to all of them:
  * the library and its disk (R-UI-01), the channel that was open last
- * (R-UI-02), and the pause of YouTube (R-ER-05).
+ * (R-UI-02), the pause of YouTube (R-ER-05), how far a check of all channels
+ * is (R-CH-20) and how the optional API key stands (R-DT-12).
  *
  * It is filled from `/api/state` and kept current by the `channel.updated`,
- * `task.progress` and `banner.changed` events, which the app store passes on.
+ * `task.progress`, `banner.changed`, `checks.progress` and `apikey.changed`
+ * events, which the app store passes on. The key itself never reaches the
+ * window's state: it is sent once, when it is saved or tested.
  */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -13,6 +16,10 @@ import { computed, ref } from 'vue'
 import {
   api,
   type AddedChannel,
+  type ApiKey,
+  type ApiKeyTest,
+  type Counted,
+  type RepairedDates,
   type AppState,
   type Channel,
   type ChannelLookup,
@@ -35,6 +42,10 @@ export const useChannelsStore = defineStore('channels', () => {
   /** Whether the folder dialog of macOS can be shown: only with an app window. */
   const canChooseFolder = ref(false)
   const youtubePause = ref<Pause | null>(null)
+  /** How the optional API key stands (R-DT-12). Never the key itself. */
+  const apiKey = ref<ApiKey>({ status: 'none', until: null })
+  /** How far a check of all channels is: "Checking channels: 3 of 5" (R-CH-20). */
+  const checkingAll = ref<Counted | null>(null)
   /** True once the first snapshot arrived. */
   const loaded = ref(false)
 
@@ -47,6 +58,8 @@ export const useChannelsStore = defineStore('channels', () => {
     disk.value = state.disk
     canChooseFolder.value = state.can_choose_folder
     youtubePause.value = state.youtube_pause
+    apiKey.value = state.api_key
+    checkingAll.value = state.checking_all ?? null
     loaded.value = true
   }
 
@@ -148,6 +161,38 @@ export const useChannelsStore = defineStore('channels', () => {
     await api.cancelCheck(channelId)
   }
 
+  /** Take over how the API key stands, as an event or an answer tells it. */
+  function setApiKey(key: ApiKey): void {
+    apiKey.value = key
+  }
+
+  /** Take over how far a check of all channels is. */
+  function setCheckingAll(progress: Counted | null): void {
+    checkingAll.value = progress
+  }
+
+  /** Save an API key in place of the saved one (R-DT-12). */
+  async function saveApiKey(key: string): Promise<void> {
+    apiKey.value = await api.saveApiKey(key)
+  }
+
+  /** Remove the API key: exact dates are looked up without it (R-DT-12). */
+  async function removeApiKey(): Promise<void> {
+    apiKey.value = await api.removeApiKey()
+  }
+
+  /** Ask the YouTube API once with a key, or with the saved one when none is given. */
+  async function testApiKey(key: string | null): Promise<ApiKeyTest> {
+    const tested = await api.testApiKey(key)
+    apiKey.value = tested.api_key
+    return tested
+  }
+
+  /** Compare the dates of a channel's files and repair them (R-DT-09). */
+  function repairDates(channelId: string): Promise<RepairedDates> {
+    return api.repairDates(channelId)
+  }
+
   /** Start a quick check of every channel that is not paused (R-CH-23). */
   async function checkAll(): Promise<void> {
     await api.checkAllChannels()
@@ -176,6 +221,8 @@ export const useChannelsStore = defineStore('channels', () => {
     disk,
     canChooseFolder,
     youtubePause,
+    apiKey,
+    checkingAll,
     loaded,
     byId,
     load,
@@ -195,5 +242,11 @@ export const useChannelsStore = defineStore('channels', () => {
     openFolder,
     rememberOpen,
     tryYouTubeNow,
+    setApiKey,
+    setCheckingAll,
+    saveApiKey,
+    removeApiKey,
+    testApiKey,
+    repairDates,
   }
 })

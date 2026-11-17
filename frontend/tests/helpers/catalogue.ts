@@ -35,6 +35,7 @@ export function channel(changes: Partial<Channel> = {}): Channel {
     pictures: 1,
     avatar_version: 0,
     catalogue_version: 1,
+    key_notice: false,
     ...changes,
   }
 }
@@ -66,6 +67,7 @@ export function appState(changes: Partial<AppState> = {}): AppState {
     disk: { name: 'Macintosh HD', free_bytes: 412_000_000_000 },
     can_choose_folder: true,
     youtube_pause: null,
+    api_key: { status: 'none', until: null },
     ...changes,
   }
 }

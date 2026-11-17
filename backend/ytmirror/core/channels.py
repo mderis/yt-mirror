@@ -14,6 +14,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.exact_dates import DateShown, ExactDatesProgress
 
 if TYPE_CHECKING:
     from ytmirror.core.jobs import JobProgress
@@ -69,7 +70,9 @@ class ChannelStatus(StrEnum):
 
     MIRRORING = "mirroring"
     CHECKING = "checking"
+    EXACT_DATES = "exact_dates"
     WAITING_FOR_YOUTUBE = "waiting_for_youtube"
+    FOLDER_NOT_FOUND = "folder_not_found"
     COULD_NOT_CHECK = "could_not_check"
     NEW_VIDEOS = "new_videos"
     PAUSED = "paused"
@@ -218,6 +221,8 @@ class Channel:
         position: The place in the sidebar, from 0.
         folder_created: Whether the app created the channel folder. Only such a folder
             may go to the Trash when a removal leaves it empty (R-CH-32).
+        check_retries: How many automatic retries of a failed check were made since
+            the last successful one (R-CH-25).
     """
 
     id: str
@@ -238,6 +243,7 @@ class Channel:
     last_check_error_at: int | None = None
     position: int = 0
     folder_created: bool = False
+    check_retries: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +282,9 @@ class Video:
         attempts: Automatic attempts since the last success.
         placing_file: The file a running download is moving into the channel folder, or
             None. Set before the move, cleared when the job ends (R-QA-06).
+        rename_from: The name of a file being renamed after a new title, or None.
+        rename_to: The name it is being renamed to, or None. Both are set before the
+            move and cleared when the new name is stored (R-FN-06).
     """
 
     id: str
@@ -308,6 +317,8 @@ class Video:
     last_error_at: int | None = None
     attempts: int = 0
     placing_file: str | None = None
+    rename_from: str | None = None
+    rename_to: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,6 +381,12 @@ class ChannelView:
             its catalogue may have changed.
         mirroring: While videos of the channel are downloaded: how many of them
             ended, and how many there are (R-FB-01). Otherwise None.
+        exact_dates: While dates of the channel wait to be looked up: how far they are,
+            the time left and whether the key is offered (R-DT-14, R-DT-15). Otherwise None.
+        key_notice: Whether a saved key is not working while dates of the channel wait
+            (R-DT-12).
+        waiting_until: When the exact-date fetch goes on, while it waits for YouTube.
+        retry_at: When a failed check is tried again by itself (R-CH-25), or None.
     """
 
     channel: Channel
@@ -381,6 +398,10 @@ class ChannelView:
     avatar_version: int = 0
     catalogue_version: int = 0
     mirroring: tuple[int, int] | None = None
+    exact_dates: ExactDatesProgress | None = None
+    key_notice: bool = False
+    waiting_until: int | None = None
+    retry_at: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,6 +413,18 @@ class ChannelUpdated:
     """
 
     view: ChannelView
+
+
+@dataclass(frozen=True, slots=True)
+class ChecksProgressed:
+    """Event: how far a check of all channels is: "Checking channels: 3 of 5" (R-CH-20).
+
+    Attributes:
+        progress: How many of the checks ended, and how many there are, or None when
+            no check of all channels runs.
+    """
+
+    progress: tuple[int, int] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,6 +473,8 @@ class VideoView:
             middle of the range the real date lies in (R-DT-04). Otherwise None.
         job_id: The job of a download that waits or runs, for Cancel, or None.
         progress: How far a running download is (R-QU-04), or None.
+        date: What an approximate date shows: waiting, updating or unavailable
+            (R-DT-13). None for an exact date or no date.
     """
 
     video: Video
@@ -447,3 +482,4 @@ class VideoView:
     published_around: int | None
     job_id: str | None = None
     progress: JobProgress | None = None
+    date: DateShown | None = None

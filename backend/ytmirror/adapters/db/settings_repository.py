@@ -8,7 +8,7 @@ Tests: backend/tests/integration/test_settings_repository_contract.py
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.tables import SettingRow
 from ytmirror.core.channels import Quality
-from ytmirror.core.models import LogDetail, Settings
+from ytmirror.core.models import FULL_CHECK_DAYS, RECHECK_INTERVALS_MIN, LogDetail, Settings
 from ytmirror.ports.clock import Clock
 
 
@@ -67,6 +67,11 @@ def _values_of(settings: Settings) -> dict[str, str]:
         "embed_subtitles": json.dumps(settings.embed_subtitles),
         "auto_subtitles": json.dumps(settings.auto_subtitles),
         "thumbnail_next_to_video": json.dumps(settings.thumbnail_next_to_video),
+        "check_on_open": json.dumps(settings.check_on_open),
+        "recheck_interval_min": json.dumps(settings.recheck_interval_min),
+        "full_check_days": json.dumps(settings.full_check_days),
+        "fetch_exact_dates": json.dumps(settings.fetch_exact_dates),
+        "repair_dates": json.dumps(settings.repair_dates),
     }
 
 
@@ -86,6 +91,17 @@ def _settings_from(stored: Mapping[str, object]) -> Settings:
         thumbnail_next_to_video=_flag(
             stored.get("thumbnail_next_to_video"), defaults.thumbnail_next_to_video
         ),
+        check_on_open=_flag(stored.get("check_on_open"), defaults.check_on_open),
+        recheck_interval_min=_choice(
+            stored.get("recheck_interval_min"),
+            RECHECK_INTERVALS_MIN,
+            defaults.recheck_interval_min,
+        ),
+        full_check_days=_choice(
+            stored.get("full_check_days"), FULL_CHECK_DAYS, defaults.full_check_days
+        ),
+        fetch_exact_dates=_flag(stored.get("fetch_exact_dates"), defaults.fetch_exact_dates),
+        repair_dates=_flag(stored.get("repair_dates"), defaults.repair_dates),
     )
 
 
@@ -100,3 +116,10 @@ def _quality(value: object, default: Quality) -> Quality:
 def _flag(value: object, default: bool) -> bool:
     """Return a stored switch, or the default when it is not one (R-SE-04)."""
     return value if isinstance(value, bool) else default
+
+
+def _choice(value: object, choices: Sequence[int], default: int) -> int:
+    """Return a stored number that is one of the choices, or the default (R-SE-04)."""
+    if isinstance(value, bool) or not isinstance(value, int) or value not in choices:
+        return default
+    return value

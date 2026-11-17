@@ -22,6 +22,14 @@ export interface FilesLeft {
 }
 
 /** Where a menu opens: at a place of the window, or under the button that opened it. */
+/** What "Repair dates" did, for the channel page (R-DT-09). */
+export interface Repaired {
+  channel: string
+  checked: number
+  repaired: number
+  failed: number
+}
+
 export interface MenuPlace {
   channelId: string
   at?: { x: number; y: number }
@@ -40,6 +48,10 @@ export const useUiStore = defineStore('ui', () => {
   const actionError = ref<ErrorCode | null>(null)
   /** The files a removal left in the folder, until the user closes the message. */
   const filesLeft = ref<FilesLeft | null>(null)
+  /** Whether the guide of the optional API key is open (R-DT-12). */
+  const apiKeyOpen = ref(false)
+  /** What the last "Repair dates" did, until the user dismisses it. */
+  const repaired = ref<Repaired | null>(null)
 
   /** Open the add channel dialog, with what the user already typed. */
   function openAddChannel(text = ''): void {
@@ -70,6 +82,23 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   /** Open the menu of a channel. */
+  /** Open the guide of the optional API key. Only ever by a click: never by itself (R-DT-12). */
+  function openApiKey(): void {
+    apiKeyOpen.value = true
+  }
+
+  function closeApiKey(): void {
+    apiKeyOpen.value = false
+  }
+
+  function showRepaired(result: Repaired): void {
+    repaired.value = result
+  }
+
+  function closeRepaired(): void {
+    repaired.value = null
+  }
+
   function openMenu(place: MenuPlace): void {
     menu.value = place
   }
@@ -111,6 +140,12 @@ export const useUiStore = defineStore('ui', () => {
     existingChannelId,
     actionError,
     filesLeft,
+    apiKeyOpen,
+    repaired,
+    showRepaired,
+    closeRepaired,
+    openApiKey,
+    closeApiKey,
     openAddChannel,
     closeAddChannel,
     askRemove,

@@ -1,0 +1,18 @@
+{
+  "id": "UCrenamingchannel0000013",
+  "title": "Renaming Channel",
+  "handle": "@renamingchannel",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 1,
+  "videos": [
+    {
+      "id": "rename00001",
+      "title": "The first title",
+      "duration_s": 300,
+      "view_count": 900,
+      "point": "2026-11-12",
+      "published_at": "2026-11-11T20:15:00Z"
+    }
+  ],
+  "checks": [{ "retitle": { "rename00001": "A better title: part 2" } }, {}]
+}

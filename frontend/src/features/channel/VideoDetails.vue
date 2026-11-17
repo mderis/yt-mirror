@@ -36,6 +36,30 @@ const video = computed(() => {
 })
 const file = computed(() => details.value?.file ?? null)
 
+/** Each part of a running download: "Video · 410 MB · 82%" (R-QU-04). */
+const parts = computed(() => {
+  const running = video.value ? videos.downloadOf(video.value.id) : null
+  if (!running) {
+    return []
+  }
+  return running.parts.map((part) => {
+    const size = formatBytes(part.size)
+    const state = part.finished
+      ? t('details.parts.done')
+      : part.done === 0
+        ? t('details.parts.waiting')
+        : `${Math.round((part.done / part.size) * 100)}%`
+    return {
+      kind: part.kind,
+      text: [
+        t(`details.parts.${part.kind}`),
+        part.estimated ? t('details.parts.about', { size }) : size,
+        state,
+      ].join(` ${t('app.separator')} `),
+    }
+  })
+})
+
 function moment(seconds: number): string {
   return `${formatDate(seconds, clock.timeZone)}, ${formatTime(seconds, clock.timeZone)}`
 }
@@ -160,6 +184,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <StatusChip v-else-if="video.status === 'not_downloaded'">
           {{ t('channel.list.notDownloaded') }}
         </StatusChip>
+        <StatusChip v-else-if="video.status === 'file_missing'" tone="failed" icon="warning">
+          {{ t('channel.list.fileMissing') }}
+        </StatusChip>
         <StatusChip v-else tone="progress" icon="download">
           {{ t('channel.list.downloadingStarting') }}
         </StatusChip>
@@ -170,6 +197,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           {{ t('details.chapters', { count: details.chapters.length }, details.chapters.length) }}
         </StatusChip>
       </div>
+      <section v-if="parts.length > 0" class="flex flex-col gap-1" data-details-parts>
+        <h3 class="text-label font-medium text-text-muted uppercase">
+          {{ t('details.parts.title') }}
+        </h3>
+        <ul class="flex flex-col gap-1 text-meta">
+          <li v-for="part in parts" :key="part.kind" :data-part="part.kind">
+            {{ part.text }}
+          </li>
+        </ul>
+      </section>
       <div class="flex flex-wrap gap-2" data-details-actions>
         <template v-if="video.status === 'synced'">
           <AppButton variant="primary" icon="play" @press="ui.run(videos.play(video.id))">
@@ -187,7 +224,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           icon="download"
           @press="ui.run(videos.mirror(video.id))"
         >
-          {{ t('details.mirror') }}
+          {{
+            video.status === 'file_missing' ? t('channel.list.mirrorAgain') : t('details.mirror')
+          }}
         </AppButton>
         <a
           :href="details.url"
@@ -202,7 +241,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <DateLabel
           :text="dateOf(video).text"
           :approximate="dateOf(video).approximate"
-          :note="t('channel.list.dateNote')"
+          :state="dateOf(video).state"
+          :note="dateOf(video).note"
         />
       </p>
       <section v-if="facts.length > 0" class="flex flex-col gap-2" data-details-file>

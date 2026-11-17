@@ -79,6 +79,20 @@ async function checkAll(): Promise<void> {
           @press="checkAll"
         />
       </div>
+      <p
+        v-if="channels.checkingAll"
+        class="flex items-center gap-2 px-2 text-meta text-text-muted"
+        role="status"
+        data-checking-all
+      >
+        <AppIcon name="loading" size="sm" class="animate-turn" />
+        {{
+          t('shell.checkingAll', {
+            done: formatNumber(Math.min(channels.checkingAll.done + 1, channels.checkingAll.total)),
+            total: formatNumber(channels.checkingAll.total),
+          })
+        }}
+      </p>
       <ul class="flex min-h-0 flex-col gap-1 overflow-y-auto">
         <li v-for="entry in entries" :key="entry.channel.id">
           <SidebarItem

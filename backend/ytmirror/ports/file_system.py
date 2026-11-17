@@ -85,6 +85,31 @@ class FileSystem(Protocol):
         """
         ...
 
+    def list_folder(self, folder: Path) -> list[str]:
+        """Return every name directly in a folder, hidden ones too, or fail.
+
+        Unlike ``file_names`` a listing that fails is an error, never an empty
+        folder: only a name missing from a listing that worked is missing (R-MI-06).
+
+        Args:
+            folder: The folder.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` when the folder cannot be listed.
+        """
+        ...
+
+    def drive_connected(self, path: Path) -> bool:
+        """Return whether the drive a path is on is connected (R-QU-11, R-MI-06).
+
+        A folder that is not there on a connected drive was deleted; one on a
+        drive that is not connected is only unavailable.
+
+        Args:
+            path: A file or folder, which need not exist.
+        """
+        ...
+
     def count_video_files(self, folder: Path) -> int:
         """Return how many video files lie directly in a folder (R-CH-06).
 
@@ -131,6 +156,17 @@ class FileSystem(Protocol):
 
         Args:
             path: The file or folder.
+        """
+        ...
+
+    def is_gone(self, path: Path) -> bool:
+        """Return whether a file is clearly not there, in a folder that is (R-MI-06).
+
+        Only a clear "not found" in a folder that can be reached counts. A file
+        that cannot be checked (no permission, a drive that went away) is not gone.
+
+        Args:
+            path: The file.
         """
         ...
 

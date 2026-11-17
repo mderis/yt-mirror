@@ -5,7 +5,7 @@ import itertools
 import pytest
 
 from tests.fixtures.catalogue import NOW, make_channel, make_video
-from ytmirror.core.channels import ChannelStatus, VideoStatus
+from ytmirror.core.channels import Channel, ChannelStatus, VideoStatus
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.status import (
     ALLOWED_TRANSITIONS,
@@ -40,6 +40,7 @@ def test_the_allowed_transitions_are_exactly_those_of_the_architecture() -> None
         (S.SYNCED, S.FILE_MISSING),
         (S.SYNCED, S.QUEUED),
         (S.FILE_MISSING, S.QUEUED),
+        (S.FILE_MISSING, S.SYNCED),
     } == ALLOWED_TRANSITIONS
 
 
@@ -188,3 +189,37 @@ def test_only_work_the_app_would_do_by_itself_waits_for_youtube() -> None:
         False,
         False,
     ]
+
+
+def test_exact_dates_are_background_work_below_a_failed_check_and_new_videos() -> None:
+    """R-FB-01, D-086: running work and failures first, then new videos, then exact dates."""
+    listed = make_channel()
+    failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
+
+    def status(
+        channel: Channel, *, new: int = 0, checking: bool = False, mirroring: bool = False
+    ) -> ChannelStatus:
+        return channel_status(
+            channel, checking=checking, new_videos=new, exact_dates=True, mirroring=mirroring
+        )
+
+    assert status(listed) is ChannelStatus.EXACT_DATES
+    assert status(failed) is ChannelStatus.COULD_NOT_CHECK
+    assert status(listed, new=3) is ChannelStatus.NEW_VIDEOS
+    assert status(listed, checking=True) is ChannelStatus.CHECKING
+    assert status(listed, mirroring=True) is ChannelStatus.MIRRORING
+    assert status(make_channel(paused=True)) is ChannelStatus.EXACT_DATES
+
+
+def test_exact_dates_that_wait_for_youtube_say_so_in_their_own_place() -> None:
+    """R-FB-01, D-086: held exact dates wait for YouTube, below new videos and a failure."""
+    listed = make_channel()
+
+    def status(channel: Channel, new: int = 0) -> ChannelStatus:
+        return channel_status(channel, checking=False, new_videos=new, exact_dates_wait=True)
+
+    assert status(listed) is ChannelStatus.WAITING_FOR_YOUTUBE
+    assert status(listed, new=2) is ChannelStatus.NEW_VIDEOS
+    failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
+    assert status(failed) is ChannelStatus.COULD_NOT_CHECK
+    assert not waits_for_youtube(listed, youtube_paused=True)

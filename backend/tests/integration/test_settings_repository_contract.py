@@ -193,3 +193,57 @@ def test_an_unreadable_setting_of_downloads_has_its_default(
         )
 
     assert SqlSettingsRepository(engine, clock).load() == Settings()
+
+
+def test_the_settings_of_checks_and_dates_have_their_defaults(
+    repository: SettingsRepository,
+) -> None:
+    """R-SE-04, R-CH-20, R-CH-22, R-CH-26, R-DT-05, R-DT-09: the defaults of section 10."""
+    settings = repository.load()
+
+    assert settings.check_on_open is True
+    assert settings.recheck_interval_min == 30
+    assert settings.full_check_days == 7
+    assert settings.fetch_exact_dates is True
+    assert settings.repair_dates is True
+
+
+def test_the_settings_of_checks_and_dates_are_stored(repository: SettingsRepository) -> None:
+    """R-SE-03: every M4 setting comes back as it was saved."""
+    chosen = Settings(
+        check_on_open=False,
+        recheck_interval_min=0,
+        full_check_days=30,
+        fetch_exact_dates=False,
+        repair_dates=False,
+    )
+
+    repository.save(chosen)
+
+    assert repository.load() == chosen
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("recheck_interval_min", "45"),
+        ("recheck_interval_min", "true"),
+        ("full_check_days", "0"),
+        ("full_check_days", '"7"'),
+        ("check_on_open", "1"),
+    ],
+)
+def test_a_value_that_is_not_one_of_the_choices_has_the_default(
+    engine: Engine, clock: FakeClock, key: str, value: str
+) -> None:
+    """R-SE-04: a stored value that is not allowed cannot break loading."""
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO settings (key, value, created_at, updated_at)"
+                " VALUES (:key, :value, 0, 0)"
+            ),
+            {"key": key, "value": value},
+        )
+
+    assert SqlSettingsRepository(engine, clock).load() == Settings()

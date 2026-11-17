@@ -9,10 +9,12 @@ milestones add the queue, the banners and the settings.
 Tests: backend/tests/unit/services/test_state.py
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ytmirror.core.channels import ChannelView, YouTubePause
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.exact_dates import NO_KEY, KeyState
 from ytmirror.ports.app_meta_repository import AppMetaRepository
 from ytmirror.ports.file_system import Disk, FileSystem
 from ytmirror.ports.folder_picker import FolderPicker
@@ -35,6 +37,9 @@ class AppState:
         disk: The disk the library is on (R-UI-01).
         can_choose_folder: Whether the folder dialog of macOS can be shown.
         youtube_pause: The pause of what the app asks of YouTube by itself, or None.
+        api_key: How the optional API key stands (R-DT-12).
+        checking_all: How many checks of a check of all channels ended, and how many there
+            are, or None (R-CH-20: "Checking channels: 3 of 5").
     """
 
     channels: tuple[ChannelView, ...]
@@ -43,6 +48,8 @@ class AppState:
     disk: Disk
     can_choose_folder: bool
     youtube_pause: YouTubePause | None
+    api_key: KeyState = NO_KEY
+    checking_all: tuple[int, int] | None = None
 
 
 class StateService:
@@ -56,6 +63,8 @@ class StateService:
         picker: FolderPicker,
         meta: AppMetaRepository,
         youtube: YouTubeAccess,
+        api_key: Callable[[], KeyState] = lambda: NO_KEY,
+        channel_opened: Callable[[str], None] = lambda channel_id: None,
     ) -> None:
         """Create the service.
 
@@ -66,6 +75,9 @@ class StateService:
             picker: The folder dialog of macOS.
             meta: Where the open channel is remembered.
             youtube: The access to YouTube, for its pause.
+            api_key: Says how the API key stands.
+            channel_opened: Told when the user opens a channel, to check it when its
+                last check is older than 5 minutes (R-CH-21).
         """
         self._views = views
         self._settings = settings
@@ -73,6 +85,8 @@ class StateService:
         self._picker = picker
         self._meta = meta
         self._youtube = youtube
+        self._api_key = api_key
+        self._channel_opened = channel_opened
 
     def snapshot(self) -> AppState:
         """Return the app as it is right now."""
@@ -87,6 +101,8 @@ class StateService:
             disk=self._files.disk_of(library),
             can_choose_folder=self._picker.available(),
             youtube_pause=self._youtube.pause(),
+            api_key=self._api_key(),
+            checking_all=self._views.checking_all(),
         )
 
     def open_channel(self, channel_id: str | None) -> None:
@@ -101,3 +117,5 @@ class StateService:
         if channel_id is not None and self._views.of(channel_id) is None:
             raise AppError(ErrorCode.NOT_FOUND, {"channel": channel_id})
         self._meta.put(OPEN_CHANNEL_KEY, channel_id or "")
+        if channel_id is not None:
+            self._channel_opened(channel_id)

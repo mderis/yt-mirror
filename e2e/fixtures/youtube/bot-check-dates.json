@@ -1,0 +1,35 @@
+{
+  "id": "UCbotcheckdates000000012",
+  "title": "Bot Check Dates",
+  "handle": "@botcheckdates",
+  "listed_at": "2026-11-14T06:42:00Z",
+  "video_count": 3,
+  "exact_dates_fail": "BOT_CHECK",
+  "videos": [
+    {
+      "id": "botdate0003",
+      "title": "Third video of the bot check channel",
+      "duration_s": 600,
+      "view_count": 1200,
+      "point": "2026-11-10",
+      "published_at": "2026-11-09T15:30:00Z"
+    },
+    {
+      "id": "botdate0002",
+      "title": "Second video of the bot check channel",
+      "duration_s": 600,
+      "view_count": 1300,
+      "point": "2026-10-01",
+      "published_at": "2026-09-28T08:00:00Z"
+    },
+    {
+      "id": "botdate0001",
+      "title": "First video of the bot check channel",
+      "duration_s": 600,
+      "view_count": 1400,
+      "point": "2024-01-01",
+      "published_at": "2023-06-14T12:00:00Z"
+    }
+  ],
+  "checks": []
+}

@@ -366,6 +366,18 @@ function ref(name: string): string {
                     :text="t('themePreview.sampleAroundDate')"
                     :note="t('themePreview.sampleDateNote')"
                   />
+                  <DateLabel
+                    approximate
+                    state="updating"
+                    :text="t('themePreview.sampleAroundDate')"
+                    :note="t('themePreview.sampleDateUpdating')"
+                  />
+                  <DateLabel
+                    approximate
+                    state="unavailable"
+                    :text="t('themePreview.sampleAroundDate')"
+                    :note="t('themePreview.sampleDateUnavailable')"
+                  />
                 </template>
                 <template #status>
                   <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>

@@ -13,6 +13,7 @@ from typing import Protocol
 
 from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import Channel, ChannelTotals, Video
+from ytmirror.core.status import StatusChange
 
 
 class CatalogueRepository(Protocol):
@@ -105,6 +106,54 @@ class CatalogueRepository(Protocol):
 
         Returns:
             False when the channel is not stored (any more): then nothing was stored.
+        """
+        ...
+
+    def count_check_retry(self, channel_id: str) -> int | None:
+        """Count one more automatic retry of a failed check, and nothing else (R-CH-25).
+
+        Only a channel whose last check failed and that is not paused is counted:
+        a pause or a successful check that came meanwhile is never undone.
+
+        Returns:
+            The new count, or None when the channel is not to be retried any more.
+        """
+        ...
+
+    def mark_rename(self, video_id: str, old: str, new: str) -> bool:
+        """Store the marker of a rename before the file is moved (R-FN-06).
+
+        Args:
+            video_id: The video.
+            old: The name its file has.
+            new: The name it is going to have.
+
+        Returns:
+            Whether it was stored: False when the file has another name by now, or a
+            rename of it is marked already.
+        """
+        ...
+
+    def finish_rename(self, video_id: str, old: str, new: str) -> bool:
+        """Store the new name of a file that was moved, and clear the marker.
+
+        Returns:
+            Whether it was stored: False when the name or the marker changed meanwhile.
+        """
+        ...
+
+    def clear_rename(self, video_id: str) -> None:
+        """Forget the marker of a rename that did not happen or was undone."""
+        ...
+
+    def change_status(self, change: StatusChange) -> bool:
+        """Change the status of a video whose file went or came back, with its event (R-LG-03).
+
+        Args:
+            change: The change, from the status the video must still have.
+
+        Returns:
+            Whether it was stored: False when the video has another status by now.
         """
         ...
 

@@ -185,3 +185,42 @@ def test_a_trash_of_its_own_is_only_for_an_app_on_the_fake_youtube(tmp_path: Pat
 
     assert real.trash_dir is None
     assert tested.trash_dir == tmp_path / "trash"
+
+
+def test_another_pace_of_lookups_is_only_for_an_app_on_the_fake_youtube(tmp_path: Path) -> None:
+    """R-DT-06: an app on the real YouTube keeps to 300 lookups an hour whatever the environment."""
+    world = str(tmp_path / "world")
+
+    assert resolve_paths({"YTM_FAKE_LOOKUPS_PER_HOUR": "0"}).fake_lookups_per_hour is None
+    assert (
+        resolve_paths(
+            {"YTM_FAKE_LOOKUPS_PER_HOUR": "0", "YTM_FAKE_YOUTUBE": world}
+        ).fake_lookups_per_hour
+        == 0
+    )
+    assert (
+        resolve_paths(
+            {"YTM_FAKE_LOOKUPS_PER_HOUR": "36000", "YTM_FAKE_YOUTUBE": world}
+        ).fake_lookups_per_hour
+        == 36_000
+    )
+    assert (
+        resolve_paths(
+            {"YTM_FAKE_LOOKUPS_PER_HOUR": "fast", "YTM_FAKE_YOUTUBE": world}
+        ).fake_lookups_per_hour
+        is None
+    )
+
+
+def test_held_downloads_are_only_for_an_app_on_the_fake_youtube(tmp_path: Path) -> None:
+    """infra: ``YTM_FAKE_HOLD_DOWNLOADS`` counts only with ``YTM_FAKE_YOUTUBE``, and only as 1."""
+    world = str(tmp_path / "world")
+
+    assert resolve_paths({"YTM_FAKE_HOLD_DOWNLOADS": "1"}).fake_hold_downloads is False
+    assert resolve_paths({"YTM_FAKE_YOUTUBE": world}).fake_hold_downloads is False
+    assert (
+        resolve_paths(
+            {"YTM_FAKE_HOLD_DOWNLOADS": "1", "YTM_FAKE_YOUTUBE": world}
+        ).fake_hold_downloads
+        is True
+    )

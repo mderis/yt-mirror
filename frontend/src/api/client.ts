@@ -50,6 +50,12 @@ export type NewChannel = components['schemas']['AddChannelRequest']
 export type AddedChannel = components['schemas']['AddChannelResponse']
 /** Every error code the app knows, from backend/ytmirror/core/errors.py through the API schema. */
 export type ErrorCode = components['schemas']['ErrorCode']
+export type ApiKey = components['schemas']['ApiKey']
+export type ApiKeyTest = components['schemas']['TestApiKeyResponse']
+export type DateInfo = components['schemas']['DateInfo']
+export type ExactDates = components['schemas']['ExactDates']
+export type RepairedDates = components['schemas']['RepairDatesResponse']
+export type Counted = components['schemas']['Mirroring']
 type ErrorResponse = components['schemas']['ErrorResponse']
 
 const API_PREFIX = '/api'
@@ -126,6 +132,8 @@ export interface EventHandlers {
   videoUpdated: (channelId: string, video: Video) => void
   /** A running download got further (R-QU-04). */
   jobProgress: (download: Download) => void
+  apiKeyChanged: (key: ApiKey) => void
+  checksProgress: (checkingAll: Counted | null) => void
   /** The stream is connected again after a break: events may have been missed. */
   reconnected: () => void
 }
@@ -158,6 +166,12 @@ function openEvents(handlers: EventHandlers): () => void {
   )
   on<components['schemas']['JobProgressEvent']>('job.progress', (event) =>
     handlers.jobProgress(event.download),
+  )
+  on<components['schemas']['ApiKeyChangedEvent']>('apikey.changed', (event) =>
+    handlers.apiKeyChanged(event.api_key),
+  )
+  on<components['schemas']['ChecksProgressEvent']>('checks.progress', (event) =>
+    handlers.checksProgress(event.checking_all),
   )
   source.addEventListener('error', () => {
     broken = true
@@ -220,6 +234,13 @@ export const api = {
   checkAllChannels: (): Promise<{ channels: number }> =>
     send<{ channels: number }>('POST', '/channels/check-all'),
   /** Show the folder of a channel in Finder (R-CH-30). */
+  repairDates: (channelId: string): Promise<RepairedDates> =>
+    send<RepairedDates>('POST', `/channels/${channelId}/repair-dates`),
+  getApiKey: (): Promise<ApiKey> => request<ApiKey>('/settings/api-key'),
+  saveApiKey: (key: string): Promise<ApiKey> => send<ApiKey>('PUT', '/settings/api-key', { key }),
+  removeApiKey: (): Promise<ApiKey> => send<ApiKey>('DELETE', '/settings/api-key'),
+  testApiKey: (key: string | null): Promise<ApiKeyTest> =>
+    send<ApiKeyTest>('POST', '/settings/api-key/test', { key }),
   openChannelFolder: async (channelId: string): Promise<void> => {
     await send('POST', `/channels/${channelId}/open-folder`)
   },

@@ -521,6 +521,38 @@ describe('the date of a video', () => {
     expect(label?.querySelector('.sr-only')?.textContent).toBe('Exact date pending')
   })
 
+  it('R-DT-13: a date being fetched shows a turning loading icon and says so', () => {
+    const { container } = render(DateLabel, {
+      props: {
+        text: 'around 2005',
+        approximate: true,
+        state: 'updating',
+        note: 'Getting the exact date...',
+      },
+    })
+
+    const label = container.querySelector('[data-date="updating"]')
+
+    expect(label?.getAttribute('title')).toBe('Getting the exact date...')
+    expect(label?.className).toContain('text-text-muted')
+    const icon = label?.querySelector('svg')
+    expect(icon?.getAttribute('data-icon')).toBe('loading')
+    expect(icon?.getAttribute('class')).toContain('animate-turn')
+  })
+
+  it('R-DT-13: an unavailable date shows a warning and why, never by colour alone', () => {
+    const note = 'The video is private. It is tried again at 07:42.'
+    const { container } = render(DateLabel, {
+      props: { text: 'around 2005', approximate: true, state: 'unavailable', note },
+    })
+
+    const label = container.querySelector('[data-date="unavailable"]')
+
+    expect(label?.querySelector('svg')?.getAttribute('data-icon')).toBe('warning')
+    expect(label?.querySelector('.sr-only')?.textContent).toBe(note)
+    expect(label?.querySelector('svg')?.getAttribute('class') ?? '').not.toContain('animate-turn')
+  })
+
   it('R-DT-04: a video without any date shows its words and nothing made up', () => {
     const { container } = render(DateLabel, { props: { text: 'date pending', approximate: true } })
 

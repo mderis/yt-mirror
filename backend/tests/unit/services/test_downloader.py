@@ -255,6 +255,18 @@ def test_subtitles_that_fail_never_fail_the_video(world: World) -> None:
     assert log_lines(logs, "download.retry")[0]["job_id"] == JOB1
 
 
+def test_the_download_again_without_subtitles_says_so(world: World) -> None:
+    """R-QU-04, R-MD-04: a real second download of the video is told as one."""
+    world.download.subtitles_fail_once = True
+    world.downloader.mirror([FIRST])
+
+    world.download_all()
+
+    told = [event.progress for event in world.events if isinstance(event, JobProgressed)]
+    assert told[0].again is False
+    assert told[-1].again is True
+
+
 def test_the_subtitle_settings_are_passed_on(world: World) -> None:
     """R-MD-03: both subtitle settings reach the download."""
     world.settings_repository.save(Settings(embed_subtitles=True, auto_subtitles=False))

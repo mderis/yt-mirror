@@ -4,6 +4,7 @@ import {
   ago,
   formatApproximateDate,
   formatBytes,
+  formatBytesOf,
   formatCount,
   formatDate,
   formatDuration,
@@ -132,5 +133,16 @@ describe('how values are written for the user', () => {
   it('R-MI-03: what is no day gives no date', () => {
     expect(startOfDay('')).toBeNull()
     expect(startOfDay('1 Nov 2026')).toBeNull()
+  })
+})
+
+describe('sizes of a download', () => {
+  it('R-QU-04: small parts in KB, and two sizes in the unit of the larger', () => {
+    expect(formatBytes(150_000)).toBe('150 KB')
+    expect(formatBytes(412_000_000)).toBe('412 MB')
+    expect(formatBytesOf(340_000_000, 550_000_000)).toEqual({ done: '340', total: '550 MB' })
+    expect(formatBytesOf(1_200_000_000, 4_100_000_000)).toEqual({ done: '1.2', total: '4.1 GB' })
+    expect(formatBytesOf(40_000, 150_000)).toEqual({ done: '40', total: '150 KB' })
+    expect(formatBytesOf(600, 500)).toEqual({ done: '1', total: '1 KB' })
   })
 })

@@ -23,6 +23,7 @@ from ytmirror.api.catalogue_schemas import (
     LookupRequest,
     LookupResponse,
     RemovedChannelResponse,
+    RepairDatesResponse,
     VideoCountResponse,
 )
 from ytmirror.api.pictures import picture_response
@@ -30,6 +31,7 @@ from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
+from ytmirror.services.repair import RepairService
 from ytmirror.services.thumbnails import ThumbnailService
 
 _CREATED = 201
@@ -42,6 +44,7 @@ def build_router(
     catalogue: CatalogueService,
     views: ChannelViews,
     thumbnails: ThumbnailService,
+    repair: RepairService | None = None,
 ) -> APIRouter:
     """Return the router for ``/channels`` and ``/folders``.
 
@@ -50,6 +53,7 @@ def build_router(
         catalogue: Runs the checks.
         views: The channels as the interface shows them.
         thumbnails: The cached pictures.
+        repair: Repairs the dates of a channel's files on demand (R-DT-09).
 
     Returns:
         The router, to be mounted under ``/api``.
@@ -123,6 +127,15 @@ def build_router(
         asked = body or CheckRequest()
         catalogue.request_check(channel_id, asked.kind, trigger=asked.trigger)
         return view_of(channel_id)
+
+    def repair_dates(channel_id: str) -> RepairDatesResponse:
+        """Compare the dates of a channel's synced files and repair them (R-DT-09)."""
+        if repair is None:
+            raise AppError(ErrorCode.NOT_FOUND, {"channel": channel_id})
+        result = repair.repair_dates(channel_id)
+        return RepairDatesResponse(
+            checked=result.checked, repaired=result.repaired, failed=result.failed
+        )
 
     def cancel_check(channel_id: str) -> CancelCheckResponse:
         """Cancel the full check of a channel that waits or runs (R-CH-27)."""
@@ -223,6 +236,13 @@ def build_router(
         response_model=Channel,
         status_code=_ACCEPTED,
         operation_id="checkChannel",
+    )
+    add(
+        "/channels/{channel_id}/repair-dates",
+        repair_dates,
+        methods=["POST"],
+        response_model=RepairDatesResponse,
+        operation_id="repairDates",
     )
     add(
         "/channels/{channel_id}/check/cancel",

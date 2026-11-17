@@ -19,6 +19,7 @@ from sqlalchemy import text
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.native_app import FakeNativeApp
 from tests.migrations.helpers import add_a_failing_migration
+from ytmirror.adapters.api_key_file import FILE_NAME
 from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.app import main as main_module
@@ -120,7 +121,7 @@ def test_a_run_serves_the_interface_and_the_api_behind_the_session_token(paths: 
     assert visit.redirect_status == 303
     assert visit.page_status == 200
     assert visit.health["status"] == "ok"
-    assert visit.health["schema_version"] == "0008"
+    assert visit.health["schema_version"] == "0010"
 
 
 def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPaths) -> None:
@@ -130,7 +131,7 @@ def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPat
     engine = create_db_engine(paths.database_file)
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0008"
+    assert version == "0010"
 
 
 def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
@@ -563,3 +564,17 @@ def test_started_as_a_program_it_serves_logs_under_its_module_name_and_stops_on_
         "app.main",
     }
     assert TOKEN not in console
+
+
+def test_a_copy_of_a_key_left_by_an_interrupted_save_is_deleted_at_start(paths: AppPaths) -> None:
+    """R-DT-12, D-085: the start deletes the hidden copies a save left; the key stays."""
+    paths.data_dir.mkdir(parents=True)
+    saved = paths.data_dir / FILE_NAME
+    saved.write_text("fixture-key-saved", encoding="utf-8")
+    leftover = paths.data_dir / f".{FILE_NAME}.0123456789abcdef.tmp"
+    leftover.write_text("fixture-key-left", encoding="utf-8")
+
+    run_app(options(), paths, build_container(paths), wait=Visit(), console=None)
+
+    assert not leftover.exists()
+    assert saved.read_text(encoding="utf-8") == "fixture-key-saved"

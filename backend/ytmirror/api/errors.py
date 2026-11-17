@@ -51,6 +51,10 @@ _STATUS: dict[ErrorCode, int] = {
     ErrorCode.DB_UPGRADE_FAILED: 500,
     ErrorCode.CHANNEL_BUSY: 409,
     ErrorCode.DB_UNREADABLE: 500,
+    ErrorCode.API_KEY_INVALID: 502,
+    ErrorCode.API_QUOTA_EXCEEDED: 502,
+    ErrorCode.API_KEY_UNREADABLE: 500,
+    ErrorCode.FILE_MISSING: 404,
     ErrorCode.INTERNAL: 500,
 }
 
@@ -84,6 +88,10 @@ _MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.DB_UPGRADE_FAILED: "The database could not be updated to this version of yt-mirror.",
     ErrorCode.CHANNEL_BUSY: "A download or a check of the channel did not stop in time.",
     ErrorCode.DB_UNREADABLE: "The database file cannot be read.",
+    ErrorCode.API_KEY_INVALID: "The YouTube API did not accept the key.",
+    ErrorCode.API_QUOTA_EXCEEDED: "The daily quota of the API key is used up.",
+    ErrorCode.API_KEY_UNREADABLE: "The saved API key cannot be read or written.",
+    ErrorCode.FILE_MISSING: "The file of the video is not in its folder.",
     ErrorCode.INTERNAL: "yt-mirror hit an unexpected problem.",
 }
 

@@ -11,7 +11,12 @@ step, so a test can let a new video appear, a title change, a video vanish
 and come back, or a check fail. A channel can answer slowly on request
 (``page_delay_ms``, and ``delay_ms`` in a step), so that what the interface
 shows while a listing runs can be seen and tested. Pictures are plain
-coloured rectangles.
+coloured rectangles. The exact date of a video comes from its ``published_at``
+and ``release_at``; a video can fail its lookup (``exact_date_fails``), be slow
+(``exact_date_delay_ms``) or not be released yet (``upcoming``), and a whole
+channel can refuse every lookup (``exact_dates_fail``). The fake of the YouTube
+API (``fixture_youtube_api.py``) reads the same videos, and leaves out a video
+marked ``api_missing``.
 
 This module must not talk to the network and must not decide anything
 about the catalogue.
@@ -22,6 +27,7 @@ backend/tests/integration/test_youtube_gateway_contract.py
 
 import calendar
 import datetime
+import functools
 import json
 import struct
 import subprocess
@@ -51,6 +57,7 @@ from ytmirror.core.jobs import (
     SubtitleKind,
     SubtitlesFailedError,
 )
+from ytmirror.core.progress import PartKind, PlannedPart, ProgressTracker
 
 THUMBNAIL_ADDRESS = "fixture://thumbnail/"
 AVATAR_ADDRESS = "fixture://avatar/"
@@ -69,6 +76,9 @@ class FixtureYouTube:
         folder: Path,
         sleep: Callable[[float], None] = time.sleep,
         ffmpeg: Path | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        *,
+        hold_downloads: bool = False,
     ) -> None:
         """Read every channel file of a folder.
 
@@ -76,15 +86,21 @@ class FixtureYouTube:
             folder: The folder with one ``*.json`` file per channel.
             sleep: Waits a number of seconds, for the channels that answer slowly.
             ffmpeg: The ffmpeg program that writes the video files of downloads.
+            monotonic: A clock that never goes back, for the speed of a download.
+            hold_downloads: Whether the videos that name a hold (``hold_after_report``)
+                wait there. Off unless a test asks (``YTM_FAKE_HOLD_DOWNLOADS``), so a
+                hand run never waits for them.
 
         Raises:
             ValueError: When a file does not describe a channel.
         """
+        self._hold_downloads = hold_downloads
         self._channels: dict[str, _FixtureChannel] = {}
         for file in sorted(folder.glob("*.json")):
             channel = _FixtureChannel(file.stem, json.loads(file.read_text(encoding="utf-8")))
             self._channels[channel.facts.channel_id] = channel
         self._sleep = sleep
+        self._monotonic = monotonic
         self._ffmpeg = ffmpeg
         self._lock = threading.Lock()
         self.listings_started: dict[str, int] = {}
@@ -166,6 +182,58 @@ class FixtureYouTube:
                 return _png(*size, _colour_of(name))
         raise AppError(ErrorCode.NETWORK_UNREACHABLE, {"url": url})
 
+    def exact_date(self, video_id: str) -> int | None:
+        """Return the exact published time of a fixture video: its release, else its upload.
+
+        Args:
+            video_id: The video ID.
+
+        Returns:
+            Seconds since the Unix epoch, or None for a video marked ``upcoming``.
+
+        Raises:
+            AppError: ``VIDEO_REMOVED`` for an unknown video, or the code the fixture
+                asks for, for the video or its whole channel.
+        """
+        found = [
+            (channel, plan)
+            for channel in self._channels.values()
+            for plan in (channel.download_plan(video_id),)
+            if plan is not None
+        ]
+        if not found:
+            raise AppError(ErrorCode.VIDEO_REMOVED, {"video": video_id})
+        channel, plan = found[0]
+        if plan.exact_date_delay_s:
+            self._sleep(plan.exact_date_delay_s)
+        failure = channel.exact_dates_fail or plan.exact_date_fails
+        if failure is not None:
+            raise AppError(failure, {"message": f"the fixture fails the date of {video_id}"})
+        if plan.upcoming:
+            return None
+        return plan.release_time if plan.release_time is not None else plan.upload_time
+
+    def api_date(self, video_id: str) -> tuple[bool, int | None]:
+        """Return what the YouTube API says of a fixture video: whether it returns it, and when.
+
+        The API leaves out an unknown video and one marked ``api_missing``, and
+        gives no time for one marked ``upcoming``. It is never slow and never
+        refuses a video: the fake of the API fails by its key.
+
+        Args:
+            video_id: The video ID.
+        """
+        for channel in self._channels.values():
+            plan = channel.download_plan(video_id)
+            if plan is None:
+                continue
+            if plan.api_missing:
+                return False, None
+            if plan.upcoming:
+                return True, None
+            return True, plan.release_time if plan.release_time is not None else plan.upload_time
+        return False, None
+
     def download(
         self,
         request: DownloadRequest,
@@ -173,13 +241,15 @@ class FixtureYouTube:
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Write a few seconds of real MKV for a fixture video, as yt-dlp would.
 
         The file has the tags, chapters, subtitles, cover and info JSON of a
         real download (ARCHITECTURE section 7.3), written by the real ffmpeg.
-        A fixture video can fail with a code, fail its subtitles, be slow, or
-        be a premiere.
+        A fixture video can fail with a code, fail its subtitles, be slow, be a
+        premiere, or wait after one of its progress reports (``hold_after_report``,
+        ``hold_ms``) so that a row can be seen in the middle of a download.
 
         Args:
             request: What to download, and where to.
@@ -187,6 +257,7 @@ class FixtureYouTube:
             is_cancelled: Asked before every step.
             start_writing: Called after the metadata lookup (which a fixture video
                 can make slow with ``metadata_delay_ms``), before anything is written.
+            on_lookup_again: Not called: the fake never reads its metadata twice.
 
         Raises:
             AppError: ``VIDEO_REMOVED`` for an unknown video, the code the
@@ -213,28 +284,49 @@ class FixtureYouTube:
         if plan.fails is not None:
             raise AppError(plan.fails, {"message": f"the fixture fails {request.video_id}"})
         subtitles = _chosen_subtitles(plan.subtitles, request)
-        # As the real gateway reports it: one share of the whole video, the video
-        # stream first (three quarters of the bytes), then the audio stream.
-        sizes = {Stage.VIDEO: _VIDEO_BYTES, Stage.AUDIO: _AUDIO_BYTES}
-        total = _VIDEO_BYTES + _AUDIO_BYTES
-        arrived = 0
-        for stage in (Stage.VIDEO, Stage.AUDIO):
-            for _ in range(4):
+        # As yt-dlp does it: each part is a download of its own, reported from 0 to
+        # 100%: the thumbnail (not reported), the subtitles, the video stream, then
+        # the audio stream. The same tracker as the real gateway adds them up (D-088).
+        known = not plan.size_unknown
+        planned = [PlannedPart(PartKind.THUMBNAIL.value, PartKind.THUMBNAIL, None)]
+        if subtitles is not None:
+            planned.append(PlannedPart(PartKind.SUBTITLES.value, PartKind.SUBTITLES, None))
+        streams = (("video", PartKind.VIDEO, _VIDEO_BYTES), ("audio", PartKind.AUDIO, _AUDIO_BYTES))
+        planned += [PlannedPart(key, kind, size if known else None) for key, kind, size in streams]
+        tracker = ProgressTracker(planned)
+        reports = 0
+        tracker.finish_kind(PartKind.THUMBNAIL, self._monotonic())
+        if subtitles is not None:
+            tracker.finished(PartKind.SUBTITLES.value, PartKind.SUBTITLES, _SUBTITLE_BYTES, 0)
+        for key, kind, size in streams:
+            stage = Stage.VIDEO if kind is PartKind.VIDEO else Stage.AUDIO
+            for step in range(1, 5):
                 if is_cancelled():
                     raise DownloadCancelledError(f"cancelled during {stage.value}")
                 if plan.step_delay_s:
                     self._sleep(plan.step_delay_s)
-                arrived += sizes[stage] // 4
-                on_progress(
-                    DownloadProgress(
-                        stage=stage,
-                        fraction=None if plan.size_unknown else arrived / total,
-                        speed_bps=1_500_000.0,
-                        left_s=None if plan.size_unknown else round((total - arrived) / 1_500_000),
-                        height=_HEIGHT if stage is Stage.VIDEO else None,
-                        downloaded_bytes=arrived,
+                if step < 4:
+                    totals = tracker.arrived(
+                        key, kind, size * step // 4, size if known else None, self._monotonic()
                     )
+                else:
+                    totals = tracker.finished(key, kind, size, self._monotonic())
+                report = DownloadProgress(
+                    stage=stage,
+                    fraction=totals.fraction,
+                    speed_bps=totals.speed_bps,
+                    left_s=totals.left_s,
+                    height=_HEIGHT if stage is Stage.VIDEO else None,
+                    downloaded_bytes=totals.done_bytes,
+                    total_bytes=totals.total_bytes,
+                    parts=totals.parts,
                 )
+                on_progress(report)
+                reports += 1
+                if self._hold_downloads and reports == plan.hold_after_report:
+                    self._hold(
+                        plan.hold_ms / 1000, is_cancelled, functools.partial(on_progress, report)
+                    )
         on_progress(DownloadProgress(stage=Stage.PROCESSING))
         if is_cancelled():
             raise DownloadCancelledError("cancelled before the merge")
@@ -244,6 +336,24 @@ class FixtureYouTube:
         if is_cancelled():
             raise DownloadCancelledError("cancelled after the merge")
         return result
+
+    def _hold(
+        self, seconds: float, is_cancelled: Callable[[], bool], report_again: Callable[[], object]
+    ) -> None:
+        """Wait in the middle of a download, as a slow network does, until it is cancelled.
+
+        The last report is told again after half a second, as yt-dlp keeps reporting
+        while a download stalls: the downloader tells the window at most every quarter
+        second, and may have kept the report before the hold to itself.
+        """
+        waited = 0.0
+        while waited < seconds:
+            if is_cancelled():
+                raise DownloadCancelledError("cancelled while the download was held")
+            self._sleep(0.1)
+            waited += 0.1
+            if abs(waited - 0.5) < 0.05:
+                report_again()
 
     def _write_video(
         self,
@@ -412,6 +522,9 @@ class _FixtureChannel:
                 ErrorCode(count["fail"]) if isinstance(count, dict) else int(count)
             )
             self.lookup_fails = ErrorCode(data["lookup_fails"]) if "lookup_fails" in data else None
+            self.exact_dates_fail = (
+                ErrorCode(data["exact_dates_fail"]) if "exact_dates_fail" in data else None
+            )
             self._videos = [self._video(entry) for entry in data.get("videos", [])]
             self._videos += self._generated(data.get("generate"))
             self._download_defaults: Mapping[str, Any] = dict(data.get("download", {}))
@@ -507,6 +620,7 @@ class _FixtureChannel:
         upload = entry.get("published_at")
         release = entry.get("release_at")
         fails = entry.get("download_fails")
+        exact_fails = entry.get("exact_date_fails")
         return _DownloadPlan(
             title=video.title,
             description=str(entry.get("description", f"The description of {video.title}.")),
@@ -521,6 +635,12 @@ class _FixtureChannel:
             step_delay_s=float(entry.get("step_delay_ms", 0)) / 1000,
             metadata_delay_s=float(entry.get("metadata_delay_ms", 0)) / 1000,
             size_unknown=bool(entry.get("size_unknown", False)),
+            exact_date_fails=ErrorCode(exact_fails) if exact_fails else None,
+            exact_date_delay_s=float(entry.get("exact_date_delay_ms", 0)) / 1000,
+            upcoming=bool(entry.get("upcoming", False)),
+            hold_after_report=entry.get("hold_after_report"),
+            hold_ms=float(entry.get("hold_ms", 0)),
+            api_missing=bool(entry.get("api_missing", False)),
             chapters=tuple(
                 Chapter(start_s=float(start), title=str(title))
                 for start, title in entry.get("chapters", [[0, "Start"], [1, "The middle"]])
@@ -569,6 +689,9 @@ _VIDEO_BYTES = 6_000_000
 _AUDIO_BYTES = 2_000_000
 """The sizes the fake reports for the two streams of a video."""
 
+_SUBTITLE_BYTES = 40_000
+"""The size of the subtitle file the fake reports."""
+
 
 @dataclass(frozen=True, slots=True)
 class _DownloadPlan:
@@ -585,6 +708,12 @@ class _DownloadPlan:
     step_delay_s: float
     metadata_delay_s: float
     size_unknown: bool
+    exact_date_fails: ErrorCode | None
+    exact_date_delay_s: float
+    upcoming: bool
+    hold_after_report: int | None
+    hold_ms: float
+    api_missing: bool
     chapters: tuple[Chapter, ...]
 
 

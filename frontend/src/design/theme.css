@@ -143,3 +143,19 @@
     animation: none;
   }
 }
+
+/* The loading icon of a date being fetched (R-DT-13): it turns, once per pass of the
+   working bar. Under "reduce motion" it stands still; its shape alone tells it from
+   the other states. */
+@keyframes ytm-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@utility animate-turn {
+  animation: ytm-turn var(--ytm-duration-working) linear infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}

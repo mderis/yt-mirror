@@ -21,11 +21,15 @@ from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from ytmirror.api.catalogue_schemas import (
+    ApiKey,
+    ApiKeyChangedEvent,
     BannerChangedEvent,
     Channel,
     ChannelUpdatedEvent,
+    ChecksProgressEvent,
     Download,
     JobProgressEvent,
+    Mirroring,
     Pause,
     Progress,
     TaskProgressEvent,
@@ -33,7 +37,8 @@ from ytmirror.api.catalogue_schemas import (
     VideoUpdatedEvent,
 )
 from ytmirror.api.schemas import Tool, ToolUpdatedEvent
-from ytmirror.core.channels import ChannelUpdated, TaskProgressed
+from ytmirror.core.channels import ChannelUpdated, ChecksProgressed, TaskProgressed
+from ytmirror.core.exact_dates import KeyStateChanged
 from ytmirror.core.jobs import JobProgressed, VideoUpdated
 from ytmirror.core.models import AppEvent, ToolUpdated
 from ytmirror.services.events import EventBus
@@ -47,6 +52,8 @@ TASK_PROGRESS = "task.progress"
 VIDEO_UPDATED = "video.updated"
 JOB_PROGRESS = "job.progress"
 BANNER_CHANGED = "banner.changed"
+API_KEY_CHANGED = "apikey.changed"
+CHECKS_PROGRESS = "checks.progress"
 
 type EventData = (
     ToolUpdatedEvent
@@ -55,6 +62,8 @@ type EventData = (
     | BannerChangedEvent
     | VideoUpdatedEvent
     | JobProgressEvent
+    | ApiKeyChangedEvent
+    | ChecksProgressEvent
 )
 """The data of every event of the stream. It is named as the answer of the endpoint,
 so that the generated frontend types know all of them."""
@@ -97,6 +106,16 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
             return encode(VIDEO_UPDATED, data)
         if isinstance(event, JobProgressed):
             return encode(JOB_PROGRESS, JobProgressEvent(download=Download.of(event.progress)))
+        if isinstance(event, ChecksProgressed):
+            progress = event.progress
+            data = ChecksProgressEvent(
+                checking_all=None
+                if progress is None
+                else Mirroring(done=progress[0], total=progress[1])
+            )
+            return encode(CHECKS_PROGRESS, data)
+        if isinstance(event, KeyStateChanged):
+            return encode(API_KEY_CHANGED, ApiKeyChangedEvent(api_key=ApiKey.of(event.key)))
         return encode(BANNER_CHANGED, BannerChangedEvent(youtube_pause=Pause.of(event.pause)))
 
     async def stream() -> AsyncIterator[str]:
@@ -138,7 +157,9 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
                 "model": EventData,
                 "description": (
                     "A stream of Server-Sent Events. The events ``tool.updated``, "
-                    "``channel.updated``, ``task.progress`` and ``banner.changed`` carry "
+                    "``channel.updated``, ``task.progress``, ``banner.changed``, "
+                    "``video.updated``, ``job.progress``, ``apikey.changed`` and "
+                    "``checks.progress`` carry "
                     "these data, in this order."
                 ),
             }

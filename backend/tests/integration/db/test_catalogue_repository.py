@@ -29,7 +29,7 @@ from ytmirror.core.channels import (
     VideoStatus,
 )
 from ytmirror.core.errors import ErrorCode
-from ytmirror.core.status import NEW_FOR_S, is_new
+from ytmirror.core.status import NEW_FOR_S, change_status, is_new
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 
 
@@ -400,3 +400,95 @@ def test_a_channel_read_back_is_a_plain_value(repository: CatalogueRepository) -
     channel = repository.channel(CHANNEL_ID)
 
     assert type(channel) is Channel
+
+
+# --- what the repair of a check stores (R-FN-06, R-MI-06)
+
+
+def synced_video(repository: CatalogueRepository) -> Video:
+    """Store a channel with one synced video named "A video.mkv"."""
+    video = dataclasses.replace(
+        make_video(1), status=VideoStatus.SYNCED, file_name="A video.mkv", published_exact=True
+    )
+    repository.add_channel(make_channel())
+    repository.apply_check(make_channel(), changes(inserted=[video]))
+    return video
+
+
+def test_a_rename_is_marked_only_while_the_file_has_its_old_name(
+    repository: CatalogueRepository,
+) -> None:
+    """R-FN-06: compare and set: a file renamed meanwhile, or marked already, is not marked."""
+    video = synced_video(repository)
+
+    assert not repository.mark_rename(video.id, "Another.mkv", "New.mkv")
+    assert repository.mark_rename(video.id, "A video.mkv", "New.mkv")
+    assert not repository.mark_rename(video.id, "A video.mkv", "Other.mkv")
+
+    stored = repository.video(video.id)
+    assert stored is not None
+    assert (stored.rename_from, stored.rename_to) == ("A video.mkv", "New.mkv")
+
+
+def test_the_new_name_is_stored_only_as_marked(repository: CatalogueRepository) -> None:
+    """R-FN-06: compare and set: the name and the marker must still be those of the move."""
+    video = synced_video(repository)
+    repository.mark_rename(video.id, "A video.mkv", "New.mkv")
+
+    assert not repository.finish_rename(video.id, "A video.mkv", "Other.mkv")
+    assert not repository.finish_rename(video.id, "Wrong.mkv", "New.mkv")
+    assert repository.finish_rename(video.id, "A video.mkv", "New.mkv")
+
+    stored = repository.video(video.id)
+    assert stored is not None
+    assert (stored.file_name, stored.rename_from, stored.rename_to) == ("New.mkv", None, None)
+
+
+def test_a_check_never_writes_back_a_rename_marker(repository: CatalogueRepository) -> None:
+    """R-FN-06: the marker belongs to the rename; a check that read before keeps off it."""
+    video = synced_video(repository)
+    repository.mark_rename(video.id, "A video.mkv", "New.mkv")
+
+    repository.apply_check(make_channel(), changes(updated=[video]))
+
+    stored = repository.video(video.id)
+    assert stored is not None
+    assert stored.rename_to == "New.mkv"
+
+
+def test_a_status_changes_only_from_the_status_it_was_read_with(
+    repository: CatalogueRepository,
+) -> None:
+    """R-MI-06, R-QA-08: compare and set: a video whose status moved on is left alone."""
+    video = synced_video(repository)
+
+    assert not repository.change_status(
+        change_status(video.id, VideoStatus.FILE_MISSING, VideoStatus.SYNCED, "file_back")
+    )
+    assert repository.change_status(
+        change_status(video.id, VideoStatus.SYNCED, VideoStatus.FILE_MISSING, "file_not_found")
+    )
+
+    stored = repository.video(video.id)
+    assert stored is not None
+    assert stored.status is VideoStatus.FILE_MISSING
+
+
+def test_a_retry_is_counted_only_for_a_failed_check_of_a_channel_not_paused(
+    repository: CatalogueRepository,
+) -> None:
+    """R-CH-25, R-CH-31: the count changes only while the last check failed and no pause holds."""
+    repository.add_channel(make_channel())
+    assert repository.count_check_retry(CHANNEL_ID) is None
+
+    repository.save_channel(
+        make_channel(last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW)
+    )
+    assert repository.count_check_retry(CHANNEL_ID) == 1
+    assert repository.count_check_retry(CHANNEL_ID) == 2
+
+    repository.save_channel(
+        make_channel(paused=True, last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW)
+    )
+    assert repository.count_check_retry(CHANNEL_ID) is None
+    assert repository.count_check_retry("UCnonenonenonenonenone00") is None

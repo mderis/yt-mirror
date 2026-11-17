@@ -255,6 +255,8 @@ def run_app(
         redactor=redactor,
         console=console,
     )
+    # The API key, read or saved at any time, is a secret of the logs (R-LG-07).
+    container.secrets.connect(redactor.register)
     try:
         remove_old_logs(paths.logs_dir, container.clock.now().date())
         try:
@@ -267,10 +269,15 @@ def run_app(
             container.native.show_alert(title, text)
             return EXIT_DB_UPGRADE_FAILED
         container.toolchain.verify()
+        # A copy of the key that an interrupted save left is never kept (D-085).
+        container.dates.tidy_key_store()
         # The checks and the pictures are background work: it starts with the app.
         container.catalogue.start()
         container.thumbnails.start()
         container.downloader.start()
+        # The checks by themselves and the exact dates: after the downloader, as the dates
+        # yield to downloads (R-CH-20, R-DT-06).
+        container.scheduler.start()
         # After the start of the downloader: the jobs it cleaned up count by when they ended.
         container.job_logs.clean()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
@@ -337,6 +344,9 @@ def database_message(error: AppError, logs: Path) -> tuple[str, str]:
 def _stop(server: BackgroundServer, container: Container) -> None:
     """The shutdown work of the app. Later milestones add their workers here."""
     _log.info("app.stopping", msg="yt-mirror is stopping")
+    # Nothing more starts by itself. A lookup that runs only reads (R-PL-13).
+    container.scheduler.stop()
+    container.youtube.log_open_hour()
     # A check that is running ends at the next video and stores nothing (R-PL-13).
     container.catalogue.stop()
     # A download that is running is cancelled and its temp files deleted (R-PL-13, R-QA-06).
@@ -403,6 +413,8 @@ def api_services(container: Container) -> ApiServices:
         views=container.views,
         thumbnails=container.thumbnails,
         downloader=container.downloader,
+        dates=container.dates,
+        repair=container.repair,
     )
 
 

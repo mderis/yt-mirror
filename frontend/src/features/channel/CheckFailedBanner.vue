@@ -45,6 +45,14 @@ const failedAt = computed(() => {
   return at === null ? null : t('channel.failed.failedAt', { when: moment(at) })
 })
 
+/** When the check is tried again by itself (R-CH-25), as a sentence, or nothing. */
+const autoRetry = computed(() => {
+  const at = props.channel.retry_at ?? null
+  return at === null || at <= clock.now
+    ? ''
+    : t('channel.failed.autoRetry', { time: formatTime(at, clock.timeZone) })
+})
+
 const kept = computed(() => {
   const last = props.channel.last_check_at
   if (last === null) {
@@ -59,7 +67,7 @@ const kept = computed(() => {
     <p class="font-medium">{{ title }}</p>
     <p class="text-meta">
       <template v-if="retrying">{{ t('channel.failed.retrying') }} {{ kept }}</template>
-      <template v-else>{{ failedAt }} {{ kept }} {{ texts.action }}</template>
+      <template v-else>{{ failedAt }} {{ kept }} {{ autoRetry }} {{ texts.action }}</template>
     </p>
     <template #action>
       <AppButton

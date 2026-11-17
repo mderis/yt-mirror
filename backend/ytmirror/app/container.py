@@ -16,15 +16,18 @@ from pathlib import Path
 from ulid import ULID
 
 from ytmirror import __version__
+from ytmirror.adapters.api_key_file import ApiKeyFile
 from ytmirror.adapters.child_processes_mac import MacChildProcesses
 from ytmirror.adapters.db.app_meta_repository import SqlAppMetaRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
+from ytmirror.adapters.db.date_repository import SqlDateRepository
 from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.job_repository import SqlJobRepository
 from ytmirror.adapters.db.schema import AlembicSchema
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.adapters.filesystem_mac import MacFileSystem
 from ytmirror.adapters.fixture_youtube import FixtureYouTube
+from ytmirror.adapters.fixture_youtube_api import FixtureYouTubeApi
 from ytmirror.adapters.folder_picker_webview import WebviewFolderPicker
 from ytmirror.adapters.image_cache import FileImageCache
 from ytmirror.adapters.image_renderer_mac import MacImageRenderer
@@ -33,13 +36,16 @@ from ytmirror.adapters.native_app_mac import MacNativeApp
 from ytmirror.adapters.system_clock import SystemClock
 from ytmirror.adapters.system_probe import MacSystemProbe
 from ytmirror.adapters.tool_box import LocalToolBox
+from ytmirror.adapters.youtube_api import YouTubeApi
 from ytmirror.adapters.ytdlp_gateway import GatewayTools, YtDlpGateway
 from ytmirror.app.config import AppPaths, detect_install_kind
 from ytmirror.core.channels import CheckKind
 from ytmirror.core.models import AppInfo, ToolName
+from ytmirror.core.pacing import LookupBudget
 from ytmirror.core.toolchain import parse_manifest
 from ytmirror.ports.child_processes import ChildProcesses
 from ytmirror.ports.clock import Clock
+from ytmirror.ports.exact_date_source import ExactDateSource
 from ytmirror.ports.file_system import JOB_LOG_FOLDER, FileSystem
 from ytmirror.ports.folder_picker import FolderPicker
 from ytmirror.ports.image_renderer import ImageRenderer
@@ -50,11 +56,15 @@ from ytmirror.ports.youtube_gateway import YouTubeGateway
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
+from ytmirror.services.date_fetch_state import DateFetchState
+from ytmirror.services.dates import DatesService
 from ytmirror.services.diagnostics import DiagnosticsService
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.job_logs import JobLogsService
+from ytmirror.services.repair import RepairService
+from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.schema import SchemaService
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
@@ -87,6 +97,10 @@ class Container:
         videos: Reads the catalogue of a channel.
         downloader: Downloads videos, one job after another (milestone M3).
         job_logs: Deletes the logs of jobs that are no longer kept.
+        dates: Looks up exact dates in the background, and keeps the API key.
+        scheduler: Starts checks by themselves and runs the exact-date fetch.
+        repair: Repairs file dates and renames files after new titles.
+        secrets: Passes values that must never be logged to the logger, once it exists.
     """
 
     info: AppInfo
@@ -108,6 +122,41 @@ class Container:
     videos: SqlCatalogueRepository
     downloader: DownloaderService
     job_logs: JobLogsService
+    dates: DatesService
+    scheduler: Scheduler
+    repair: RepairService
+    secrets: Secrets
+
+
+class Secrets:
+    """Collects values that must never be logged, until the logger takes them (R-LG-07).
+
+    The container is built before logging is set up; the API key may be read
+    before or after. Values that came before ``connect`` are passed on then.
+    """
+
+    def __init__(self) -> None:
+        """Know of no secret and no logger yet."""
+        self._lock = threading.Lock()
+        self._values: list[str] = []
+        self._register: Callable[[str], None] | None = None
+
+    def register(self, value: str) -> None:
+        """Make a value a secret of the logs."""
+        with self._lock:
+            register = self._register
+            if register is None:
+                self._values.append(value)
+        if register is not None:
+            register(value)
+
+    def connect(self, register: Callable[[str], None]) -> None:
+        """Pass every secret, those of before and those to come, to the logger."""
+        with self._lock:
+            self._register = register
+            values, self._values = self._values, []
+        for value in values:
+            register(value)
 
 
 def _in_a_thread(work: Callable[[], None]) -> None:
@@ -184,10 +233,19 @@ def build_container(
     used_files = files if files is not None else _file_system(paths)
     used_children = MacChildProcesses()
     used_picker = picker if picker is not None else WebviewFolderPicker()
+    used_gateway = _gateway(paths, used_clock, gateway, used_tool_box)
+    pace = paths.fake_lookups_per_hour
     youtube = YouTubeAccess(
-        _gateway(paths, used_clock, gateway, used_tool_box), used_clock, events, _later
+        used_gateway,
+        used_clock,
+        events,
+        _later,
+        budget=LookupBudget(pace) if pace else None,
+        memory=SqlAppMetaRepository(engine, used_clock),
     )
     downloads = DownloadState()
+    date_repository = SqlDateRepository(engine, used_clock)
+    date_state = DateFetchState()
     views = ChannelViews(
         repository,
         settings,
@@ -195,6 +253,8 @@ def build_container(
         events,
         youtube_paused=lambda: youtube.pause() is not None,
         downloads=downloads,
+        dates=date_state,
+        fetch_states=date_repository.fetch_states,
     )
     thumbnails = ThumbnailService(
         repository, youtube, FileImageCache(paths.cache_dir), views, _in_a_thread
@@ -213,6 +273,10 @@ def build_container(
         thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
         # A check takes over the title and the handle of the channel (R-CH-12, R-FI-05).
         channels.write_channel_file(channel_id)
+        # Renames and date repair need no listing (R-CH-28, R-FN-06, R-DT-09).
+        repair.after_check(channel_id)
+        # New videos wait for their exact dates (ARCHITECTURE 7.1 step 9).
+        dates.wake()
 
     jobs = SqlJobRepository(engine, used_clock)
     media = FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe"))
@@ -233,6 +297,9 @@ def build_container(
         stop_tools=lambda: _stop_tools(used_children, used_tool_box),
         stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
     )
+    repair = RepairService(
+        repository=repository, files=used_files, media=media, views=views, settings=settings
+    )
     channels = ChannelsService(
         repository,
         youtube,
@@ -247,8 +314,48 @@ def build_container(
         close_downloads=downloader.channel_closed,
         media=media,
     )
+    secrets = Secrets()
+    dates = DatesService(
+        dates=date_repository,
+        youtube=youtube,
+        api=_exact_date_source(used_gateway),
+        keys=ApiKeyFile(paths.data_dir),
+        settings=settings,
+        downloads=downloads,
+        state=date_state,
+        clock=used_clock,
+        events=events,
+        register_secret=secrets.register,
+        tell_video=views.tell_video,
+        tell_channel=views.publish,
+        found_exact=lambda video_id: repair.repair_video(video_id),
+        look_up=pace != 0,
+    )
     state = StateService(
-        views, settings, used_files, used_picker, SqlAppMetaRepository(engine, used_clock), youtube
+        views,
+        settings,
+        used_files,
+        used_picker,
+        SqlAppMetaRepository(engine, used_clock),
+        youtube,
+        api_key=dates.key_state,
+        channel_opened=lambda channel_id: _channel_opened(channel_id),
+    )
+
+    def _channel_opened(channel_id: str) -> None:
+        # A check when the last is old (R-CH-21), and the files looked for (R-MI-06).
+        scheduler.channel_selected(channel_id)
+        _in_a_thread(lambda: repair.channel_opened(channel_id))
+
+    scheduler = Scheduler(
+        catalogue=catalogue,
+        repository=repository,
+        views=views,
+        settings=settings,
+        youtube=youtube,
+        downloads=downloads,
+        dates=dates,
+        clock=used_clock,
     )
     return Container(
         info=info,
@@ -272,6 +379,10 @@ def build_container(
         job_logs=JobLogsService(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),
+        dates=dates,
+        scheduler=scheduler,
+        repair=repair,
+        secrets=secrets,
     )
 
 
@@ -319,6 +430,13 @@ def _file_system(paths: AppPaths) -> FileSystem:
     return MacFileSystem(trash=to_folder)
 
 
+def _exact_date_source(gateway: YouTubeGateway) -> ExactDateSource:
+    """Return the YouTube API: its fake when YouTube is the fake one, else the real one (D-062)."""
+    if isinstance(gateway, FixtureYouTube):
+        return FixtureYouTubeApi(gateway.api_date)
+    return YouTubeApi()
+
+
 def _gateway(
     paths: AppPaths, clock: Clock, given: YouTubeGateway | None, tools: ToolBox
 ) -> YouTubeGateway:
@@ -331,7 +449,9 @@ def _gateway(
         return given
     ffmpeg = tools.program_path(ToolName.FFMPEG, "ffmpeg")
     if paths.fake_youtube is not None:
-        return FixtureYouTube(paths.fake_youtube, ffmpeg=ffmpeg)
+        return FixtureYouTube(
+            paths.fake_youtube, ffmpeg=ffmpeg, hold_downloads=paths.fake_hold_downloads
+        )
     os.environ["DENO_DIR"] = str(paths.cache_dir / "deno")
     return YtDlpGateway(
         clock,

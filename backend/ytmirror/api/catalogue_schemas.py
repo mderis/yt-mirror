@@ -24,7 +24,15 @@ from ytmirror.core.channels import (
     YouTubePause,
 )
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.exact_dates import (
+    DateShown,
+    DateState,
+    ExactDatesProgress,
+    KeyState,
+    KeyStatus,
+)
 from ytmirror.core.jobs import JobProgress, Stage
+from ytmirror.core.progress import PartKind, PartProgress
 from ytmirror.services.channels import ChannelLookup, ChosenFolder, KeptFile, KeptReason
 from ytmirror.services.downloader import VideoDetails
 from ytmirror.services.state import AppState
@@ -87,6 +95,12 @@ class Channel(BaseModel):
         catalogue_version: A number that grows with every successful check of the channel.
         mirroring: While videos of the channel are downloaded, how many ended and how
             many there are (R-FB-01: "Mirroring X of Y"). Otherwise None.
+        exact_dates: While dates of the channel wait to be looked up, how far they are
+            ("Exact dates X of Y"), the time left and the key offer. Otherwise None.
+        key_notice: Whether a saved API key is not working while dates of the channel
+            wait (R-DT-12): "the API key is not working, using the slow way".
+        waiting_until: When the exact dates go on, while they wait for YouTube.
+        retry_at: When a failed check is tried again by itself (R-CH-25), or None.
     """
 
     id: str
@@ -115,6 +129,10 @@ class Channel(BaseModel):
     avatar_version: int
     catalogue_version: int
     mirroring: Mirroring | None = None
+    exact_dates: ExactDates | None = None
+    key_notice: bool = False
+    waiting_until: int | None = None
+    retry_at: int | None = None
 
     @classmethod
     def of(cls, view: ChannelView) -> Channel:
@@ -149,7 +167,77 @@ class Channel(BaseModel):
             mirroring=None
             if view.mirroring is None
             else Mirroring(done=view.mirroring[0], total=view.mirroring[1]),
+            exact_dates=ExactDates.of(view.exact_dates),
+            key_notice=view.key_notice,
+            waiting_until=view.waiting_until,
+            retry_at=view.retry_at,
         )
+
+
+class ExactDates(BaseModel):
+    """How far the exact dates of a channel are (R-FB-01, R-DT-14, R-DT-15).
+
+    Attributes:
+        done: How many dates were found since the channel last had none waiting.
+        total: How many there are in all since then.
+        left_s: The measured time left, or None while it is not known.
+        offer_key: Whether the channel offers the key.
+    """
+
+    done: int
+    total: int
+    left_s: int | None
+    offer_key: bool
+
+    @classmethod
+    def of(cls, progress: ExactDatesProgress | None) -> ExactDates | None:
+        """Return the wire form of the progress, or None."""
+        if progress is None:
+            return None
+        return cls(
+            done=progress.done,
+            total=progress.total,
+            left_s=progress.left_s,
+            offer_key=progress.offer_key,
+        )
+
+
+class DateInfo(BaseModel):
+    """What an approximate date shows (R-DT-13).
+
+    Attributes:
+        state: Waiting, updating or unavailable.
+        reason: Why it is unavailable, or None.
+        retry_at: When it is tried again, or None.
+    """
+
+    state: DateState
+    reason: ErrorCode | None
+    retry_at: int | None
+
+    @classmethod
+    def of(cls, shown: DateShown | None) -> DateInfo | None:
+        """Return the wire form, or None for an exact date."""
+        if shown is None:
+            return None
+        return cls(state=shown.state, reason=shown.reason, retry_at=shown.retry_at)
+
+
+class ApiKey(BaseModel):
+    """How the optional YouTube API key stands (R-DT-12). Never the key itself.
+
+    Attributes:
+        status: None saved, saved, or saved but unreadable, invalid or out of quota.
+        until: Until when the app does without a failing key, or None.
+    """
+
+    status: KeyStatus
+    until: int | None
+
+    @classmethod
+    def of(cls, key: KeyState) -> ApiKey:
+        """Return the wire form of the key state."""
+        return cls(status=key.status, until=key.until)
 
 
 class Mirroring(BaseModel):
@@ -177,8 +265,10 @@ class Download(BaseModel):
         speed_bps: Bytes per second, or None.
         left_s: Seconds left of the download, or None.
         height: The height being downloaded, or None.
-        downloaded_bytes: How many bytes arrived, or None. Shown when the
-            fraction is not known.
+        downloaded_bytes: How many bytes arrived, all parts together, or None.
+        total_bytes: How many bytes all parts have, real or estimated, or None.
+        parts: Each part: video, audio, subtitles, thumbnail (R-QU-04).
+        again: Whether this is a second download without subtitles (R-MD-04).
     """
 
     job_id: str
@@ -190,6 +280,9 @@ class Download(BaseModel):
     left_s: int | None
     height: int | None
     downloaded_bytes: int | None
+    total_bytes: int | None = None
+    parts: list[DownloadPart] = []
+    again: bool = False
 
     @classmethod
     def of(cls, progress: JobProgress) -> Download:
@@ -204,6 +297,38 @@ class Download(BaseModel):
             left_s=progress.left_s,
             height=progress.height,
             downloaded_bytes=progress.downloaded_bytes,
+            total_bytes=progress.total_bytes,
+            parts=[DownloadPart.of(part) for part in progress.parts],
+            again=progress.again,
+        )
+
+
+class DownloadPart(BaseModel):
+    """One part of a running download, for the details panel (R-QU-04).
+
+    Attributes:
+        kind: Video, audio, subtitles or thumbnail.
+        size: Its size in bytes, real or estimated.
+        done: How many of its bytes arrived.
+        estimated: Whether the size is an estimate.
+        finished: Whether it is complete.
+    """
+
+    kind: PartKind
+    size: int
+    done: int
+    estimated: bool
+    finished: bool
+
+    @classmethod
+    def of(cls, part: PartProgress) -> DownloadPart:
+        """Return the wire form of a part."""
+        return cls(
+            kind=part.kind,
+            size=part.size,
+            done=part.done,
+            estimated=part.estimated,
+            finished=part.finished,
         )
 
 
@@ -227,6 +352,7 @@ class Video(BaseModel):
         height: The height of the file of a synced video (R-FB-02), or None.
         file_size: The size of its file in bytes, or None.
         error_code: Why the last download failed (R-QU-08), or None.
+        date: What an approximate date shows (R-DT-13), or None for an exact date.
     """
 
     id: str
@@ -245,6 +371,7 @@ class Video(BaseModel):
     height: int | None = None
     file_size: int | None = None
     error_code: ErrorCode | None = None
+    date: DateInfo | None = None
 
     @classmethod
     def of(cls, view: VideoView) -> Video:
@@ -267,6 +394,7 @@ class Video(BaseModel):
             height=video.height,
             file_size=video.file_size,
             error_code=video.last_error_code,
+            date=DateInfo.of(view.date),
         )
 
 
@@ -465,6 +593,9 @@ class StateResponse(BaseModel):
         disk: The disk the library is on.
         can_choose_folder: Whether the folder dialog of macOS can be shown.
         youtube_pause: The pause of the whole app, or None (R-ER-05).
+        api_key: How the optional API key stands (R-DT-12).
+        checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
+            or None (R-CH-20).
     """
 
     channels: list[Channel]
@@ -473,6 +604,8 @@ class StateResponse(BaseModel):
     disk: DiskSpace
     can_choose_folder: bool
     youtube_pause: Pause | None
+    api_key: ApiKey
+    checking_all: Mirroring | None = None
 
     @classmethod
     def of(cls, state: AppState) -> StateResponse:
@@ -484,6 +617,10 @@ class StateResponse(BaseModel):
             disk=DiskSpace(name=state.disk.name, free_bytes=state.disk.free_bytes),
             can_choose_folder=state.can_choose_folder,
             youtube_pause=Pause.of(state.youtube_pause),
+            api_key=ApiKey.of(state.api_key),
+            checking_all=None
+            if state.checking_all is None
+            else Mirroring(done=state.checking_all[0], total=state.checking_all[1]),
         )
 
 
@@ -743,3 +880,72 @@ class BannerChangedEvent(BaseModel):
     """
 
     youtube_pause: Pause | None
+
+
+class ApiKeyChangedEvent(BaseModel):
+    """The data of the ``apikey.changed`` event of ``GET /api/events``.
+
+    Attributes:
+        api_key: How the key stands now (R-DT-12).
+    """
+
+    api_key: ApiKey
+
+
+class SaveApiKeyRequest(BaseModel):
+    """The body of ``PUT /api/settings/api-key``.
+
+    Attributes:
+        key: The key as the user pasted it. Never logged or stored outside its file.
+    """
+
+    key: str
+
+
+class TestApiKeyRequest(BaseModel):
+    """The body of ``POST /api/settings/api-key/test``.
+
+    Attributes:
+        key: The key to test, or None for the saved key.
+    """
+
+    key: str | None = None
+
+
+class TestApiKeyResponse(BaseModel):
+    """The answer of "Test key" (R-DT-12).
+
+    Attributes:
+        works: Whether the YouTube API answered with the key.
+        error_code: Why not, or None.
+        api_key: How the saved key stands now.
+    """
+
+    works: bool
+    error_code: ErrorCode | None
+    api_key: ApiKey
+
+
+class ChecksProgressEvent(BaseModel):
+    """The data of the ``checks.progress`` event of ``GET /api/events``.
+
+    Attributes:
+        checking_all: How many checks of a check of all channels ended, and how many
+            there are, or None when it ended (R-CH-20: "Checking channels: 3 of 5").
+    """
+
+    checking_all: Mirroring | None
+
+
+class RepairDatesResponse(BaseModel):
+    """The answer of ``POST /api/channels/{channel_id}/repair-dates`` (R-DT-09).
+
+    Attributes:
+        checked: How many synced files were compared.
+        repaired: How many had other dates and were set again.
+        failed: How many could not be set or did not read back.
+    """
+
+    checked: int
+    repaired: int
+    failed: int

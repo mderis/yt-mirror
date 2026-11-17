@@ -175,7 +175,7 @@ Approved by the maintainer in milestone M0. The mockups do not define these as r
 | `duration-fast` | 150 ms | Hover, press, toggles |
 | `duration-base` | 200 ms | Menus, dialogs, panels, toasts |
 | `duration-arrive` | 1200 ms | The highlight that fades when an exact date replaces an approximate one (R-DT-13) |
-| `duration-working` | 1400 ms | One pass of the part of a progress bar that moves while the share of a step is unknown: processing, or a download whose size YouTube did not give (R-QU-04) |
+| `duration-working` | 1400 ms | One pass of the part of a progress bar that moves while the share of a step is unknown: processing (R-QU-04), and one turn of the loading icon of a date that is being fetched (R-DT-13) |
 
 All durations become 0 ms when the system "reduce motion" setting is on. A bar of unknown progress is then full, dimmed and still.
 
@@ -374,5 +374,5 @@ An element whose target a later milestone builds is not shown before that milest
 | The details panel (`Details.html`) | The chapters are a list under the description; the mockup shows only "6 chapters". Copy link, Re-download, Repair metadata and Exclude forever are not shown before their milestones (D-066). A video that is not downloaded shows Mirror in the place of Play |
 | The remove dialog (`RemoveChannel.html`) | The group of choices has the visible legend "The files of the channel". The hint of "Delete the files" says how many files and how much room go to the Trash, and that the other files of the folder stay |
 | The highlight of an exact date (R-DT-13) | A background of `ok-bg` that fades over `duration-arrive` (1200 ms). With "reduce motion" its duration is 0 |
-| The progress of a download (R-QU-04) | One percent for the whole video, its video and audio streams together: the bar fills and the chip says "Downloading 45%". When YouTube gives no size, the chip says how much arrived ("Downloading · 120 MB") and the bar shows that the step runs. While the video is processed (merge and embed) the chip says "Processing" and the bar shows that the step runs, with no percent |
+| The progress of a download (R-QU-04, D-088) | One bar and one percent for the whole Mirror, from 0 to 100% once, weighted by the bytes of all its parts (video, audio, subtitles, thumbnail). The row says "Downloading 62% · 340 of 550 MB · about 2 min left"; the time left appears once the measured speed is stable. A size YouTube did not give is estimated and corrected, and the percent never goes down. The details panel lists each part ("Video · 410 MB · 82%", "Audio · 120 MB · waiting", "Subtitles · done", "Thumbnail · done"). A retry within the same job says "Downloading again without subtitles". After 100%, while the video is processed (merge and embed), the chip says "Processing" and the bar shows that the step runs, with no percent |
 

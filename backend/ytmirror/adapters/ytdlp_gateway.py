@@ -17,10 +17,12 @@ against a server on this Mac, backend/tests/integration/test_ytdlp_real_download
 The calls that reach YouTube are tested by backend/tests/live/.
 """
 
+import copy
 import datetime
 import importlib
 import json
 import logging
+import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +50,7 @@ from ytmirror.core.jobs import (
     SubtitleKind,
     SubtitlesFailedError,
 )
+from ytmirror.core.progress import PartKind, PlannedPart, ProgressTracker, stream_size
 from ytmirror.core.quality import format_selector
 from ytmirror.ports.clock import Clock
 
@@ -59,9 +62,12 @@ off, the entries of a listing are fetched page by page while they are read."""
 type HttpGet = Callable[[str], bytes]
 """Fetches the bytes behind an address, or raises ``AppError``."""
 
-type Download = Callable[[str, Mapping[str, Any], Mapping[str, str]], Mapping[str, Any]]
-"""Downloads a video with yt-dlp: the address, the options, and tags to add to the
-file. Returns the processed answer of yt-dlp, ready to be written as JSON."""
+type Download = Callable[
+    [Mapping[str, Any], Mapping[str, Any], Mapping[str, str]], Mapping[str, Any]
+]
+"""Downloads a video with yt-dlp from the metadata the lookup before it gave, with the
+options and tags to add to the file: YouTube is not asked a second time (D-088).
+Returns the processed answer of yt-dlp, ready to be written as JSON."""
 
 VIDEOS_TAB = "/videos"
 UPLOADS_OF_LONG_VIDEOS = "https://www.youtube.com/playlist?list=UULF"
@@ -107,6 +113,26 @@ METADATA_OPTIONS: Mapping[str, Any] = {
     "extractor_retries": 2,
 }
 """The full metadata of one video, read before its download (ARCHITECTURE section 7.3)."""
+
+EXACT_DATE_OPTIONS: Mapping[str, Any] = {
+    "quiet": True,
+    "no_warnings": True,
+    "noprogress": True,
+    "skip_download": True,
+    "cachedir": False,
+    "socket_timeout": 20,
+    "extractor_retries": 0,
+    "check_formats": False,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["web"],
+            "player_skip": ["configs", "js"],
+            "skip": ["hls", "dash", "translated_subs"],
+        }
+    },
+}
+"""The lightest lookup that still gives the exact time of a video, read without
+processing (ARCHITECTURE section 7.4, measured in M2 and M4)."""
 
 DOWNLOAD_OPTIONS: Mapping[str, Any] = {
     "quiet": True,
@@ -217,6 +243,21 @@ _VIDEO_CODES: tuple[tuple[ErrorCode, tuple[str, ...]], ...] = (
 )
 
 
+FRESH_INFO_S = 5 * 60
+"""Metadata older than this when its download starts is read again: its links may expire.
+
+A safety net (D-089): the lookup comes right before the download, so only a very slow
+lookup makes it older today."""
+
+_LINK_REFUSED = ("http error 403", "403: forbidden", "403 forbidden")
+
+
+def _link_refused(text: str) -> bool:
+    """Whether a download failed because YouTube refused a stream link (HTTP 403)."""
+    lowered = text.lower()
+    return any(sign in lowered for sign in _LINK_REFUSED)
+
+
 def code_of(error_text: str, *, video: bool = False) -> ErrorCode:
     """Return the error code for an error text of yt-dlp.
 
@@ -269,10 +310,15 @@ class YtDlpGateway:
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download one video into the temp folder of its job (ARCHITECTURE section 7.3).
 
-        The full metadata is read first, to choose the subtitles (R-MD-03).
+        The full metadata is read first, to choose the subtitles (R-MD-03), and
+        the download is made from it (D-088). Metadata older than
+        ``FRESH_INFO_S`` when the download starts is read again, and so is
+        metadata whose stream links YouTube refuses (HTTP 403), once; each such
+        lookup is told to ``on_lookup_again``, which counts it (R-DT-06).
         Then yt-dlp downloads the streams, merges them into MKV and embeds the
         subtitles, the metadata with chapters, the info JSON and the cover.
 
@@ -283,6 +329,7 @@ class YtDlpGateway:
                 download ends with ``DownloadCancelledError`` at the next step.
             start_writing: Called after the metadata lookup, which only reads,
                 and before yt-dlp writes anything (R-QU-02).
+            on_lookup_again: Told of each lookup made again, for the budget.
 
         Raises:
             AppError: With the code of what went wrong.
@@ -290,14 +337,26 @@ class YtDlpGateway:
             SubtitlesFailedError: When only the subtitles failed (R-MD-04).
         """
         address = f"https://www.youtube.com/watch?v={request.video_id}"
-        info = self._ask_about_video(address, {**METADATA_OPTIONS, **self._runtime()})
+        # The same format choice as the download: yt-dlp then names the streams it
+        # will fetch, with their sizes, for one progress of the whole Mirror (D-088).
+        metadata_options = {
+            **METADATA_OPTIONS,
+            **self._runtime(),
+            "format": format_selector(request.quality),
+        }
+        looked_up_at = self._clock.monotonic()
+        info = self._ask_about_video(address, metadata_options)
         if info.get("live_status") == "is_upcoming":
             raise AppError(
                 ErrorCode.NOT_YET_AVAILABLE,
                 {"message": "The video is not public yet", "video": request.video_id},
             )
         subtitles, languages = _subtitles_for(info, request)
-        steps = _Steps(on_progress, is_cancelled)
+        steps = _Steps(
+            on_progress,
+            is_cancelled,
+            ProgressTracker(planned_parts(info, subtitles is not None)),
+        )
         options: dict[str, Any] = {
             **DOWNLOAD_OPTIONS,
             **self._runtime(),
@@ -322,21 +381,34 @@ class YtDlpGateway:
             tags["published_at"] = _iso(published)
         # Until here only YouTube was asked; from here yt-dlp writes into the temp folder.
         start_writing()
-        try:
-            answer = self._download(address, options, tags)
-        except DownloadCancelledError:
-            raise
-        except Exception as error:
-            # Asked first: when the job was cancelled or the app quits, its ffmpeg was
-            # stopped, and what yt-dlp raises then is the cancel (R-QU-02, R-PL-13).
-            if is_cancelled():
-                raise DownloadCancelledError("cancelled: the tools were stopped") from error
-            if isinstance(error, AppError):
+        if self._clock.monotonic() - looked_up_at > FRESH_INFO_S:
+            # Its stream links may have expired: read it again, as one more lookup.
+            on_lookup_again()
+            info = self._ask_about_video(address, metadata_options)
+        fetched_again = False
+        while True:
+            try:
+                answer = self._download(info, options, tags)
+                break
+            except DownloadCancelledError:
                 raise
-            text = f"{type(error).__name__}: {error}"
-            if steps.current == _SUBTITLE_STEP or _SUBTITLE_FAILURE in text.lower():
-                raise SubtitlesFailedError(text) from error
-            raise AppError(code_of(text, video=True), {"message": str(error)}) from error
+            except Exception as error:
+                # Asked first: when the job was cancelled or the app quits, its ffmpeg was
+                # stopped, and what yt-dlp raises then is the cancel (R-QU-02, R-PL-13).
+                if is_cancelled():
+                    raise DownloadCancelledError("cancelled: the tools were stopped") from error
+                if isinstance(error, AppError):
+                    raise
+                text = f"{type(error).__name__}: {error}"
+                if steps.current == _SUBTITLE_STEP or _SUBTITLE_FAILURE in text.lower():
+                    raise SubtitlesFailedError(text) from error
+                if not fetched_again and _link_refused(text):
+                    # The links of the metadata expired or are refused: read it once more.
+                    fetched_again = True
+                    on_lookup_again()
+                    info = self._ask_about_video(address, metadata_options)
+                    continue
+                raise AppError(code_of(text, video=True), {"message": str(error)}) from error
         file = request.work_folder / f"{request.video_id}.mkv"
         if not file.is_file():
             raise AppError(
@@ -363,6 +435,26 @@ class YtDlpGateway:
             ),
         )
 
+    def exact_date(self, video_id: str) -> int | None:
+        """Return the exact published time of one video, with the lightest lookup (R-DT-05).
+
+        Args:
+            video_id: The video ID.
+
+        Returns:
+            The release time, else the upload time (R-DT-03), or None for a
+            video that has not been released yet.
+
+        Raises:
+            AppError: With the code of what went wrong.
+        """
+        address = f"https://www.youtube.com/watch?v={video_id}"
+        info = self._ask_about_video(address, EXACT_DATE_OPTIONS, process=False)
+        if info.get("live_status") == "is_upcoming":
+            # Its release time is only the time it is scheduled for.
+            return None
+        return published_time(_int(info.get("release_timestamp")), _int(info.get("timestamp")))
+
     def _runtime(self) -> dict[str, Any]:
         """Return the options that point yt-dlp at the tools of the app folder."""
         if self._tools is None:
@@ -372,9 +464,11 @@ class YtDlpGateway:
             "js_runtimes": {"deno": {"path": str(self._tools.deno)}},
         }
 
-    def _ask_about_video(self, address: str, options: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _ask_about_video(
+        self, address: str, options: Mapping[str, Any], *, process: bool = True
+    ) -> Mapping[str, Any]:
         try:
-            return self._extract(address, options, True)
+            return self._extract(address, options, process)
         except AppError as error:
             raise AppError(
                 code_of(error.details.get("message", ""), video=True), error.details
@@ -555,68 +649,72 @@ class GatewayTools:
 
 
 class _Steps:
-    """Turns the hooks of yt-dlp into progress, and ends the download when it is cancelled.
+    """Turns the hooks of yt-dlp into one progress, and ends the download when it is cancelled.
 
     What the real yt-dlp reports, in order (seen with a real download in M3):
     the step that adds the tags and the conversion of the thumbnail, both
     before the download; the subtitle file; the video stream; the audio
-    stream; then the processing steps. Only the two media streams count for
-    the percentage, which is one for the whole video. Only a step after the
-    first byte of a stream is processing.
+    stream; then the processing steps. yt-dlp reports each file it downloads
+    from 0 to 100% on its own, and the information of each holds no list of
+    the others (it removes ``requested_formats``). The parts are therefore
+    known from the metadata lookup before the download, and ``ProgressTracker``
+    adds them up into one percent for the whole Mirror (R-QU-04, D-088). The
+    thumbnail is not reported: it is complete when the first file arrives.
+    Only a step after the first byte of a stream is processing.
     """
 
     def __init__(
-        self, on_progress: Callable[[DownloadProgress], None], is_cancelled: Callable[[], bool]
+        self,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        tracker: ProgressTracker,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._on_progress = on_progress
         self._is_cancelled = is_cancelled
+        self._tracker = tracker
+        self._monotonic = monotonic
         self.current: str | None = None
         self._streams_started = False
-        self._finished: dict[str, int] = {}
+        self._thumbnail_done = False
 
     def downloading(self, report: Mapping[str, Any]) -> None:
         """The progress hook: called while the bytes of a file arrive."""
         if self._is_cancelled():
             raise DownloadCancelledError("cancelled while downloading")
+        status = report.get("status")
+        if status not in ("downloading", "finished"):
+            return
+        now = self._monotonic()
+        if not self._thumbnail_done:
+            self._thumbnail_done = True
+            self._tracker.finish_kind(PartKind.THUMBNAIL, now)
         stream = _mapping(report.get("info_dict"))
-        if not _is_media(stream):
-            return  # the subtitle file
-        self._streams_started = True
-        done = _int(report.get("downloaded_bytes"))
-        own_total = _int(report.get("total_bytes") or report.get("total_bytes_estimate"))
-        format_id = str(stream.get("format_id"))
-        if report.get("status") == "finished":
-            self._finished[format_id] = own_total or done or 0
-            return
-        if report.get("status") != "downloading":
-            return
-        listed = stream.get("requested_formats")
-        streams = [
-            _mapping(item)
-            for item in (cast(list[object], listed) if isinstance(listed, list) else [])
-        ] or [stream]
-        ids = [str(item.get("format_id")) for item in streams]
-        index = ids.index(format_id) if format_id in ids else 0
-        sizes = [_int(item.get("filesize") or item.get("filesize_approx")) for item in streams]
-        sizes[index] = own_total or sizes[index]
-        for number, other in enumerate(ids):
-            if other in self._finished:
-                sizes[number] = self._finished[other]
-        before = sum(self._finished.get(other, 0) for other in ids[:index])
-        arrived = before + (done or 0)
-        total = None if None in sizes else sum(size for size in sizes if size is not None)
-        speed = report.get("speed")
         has_video = stream.get("vcodec") not in (None, "none")
+        if _is_media(stream):
+            self._streams_started = True
+            key, kind = (
+                str(stream.get("format_id")),
+                PartKind.VIDEO if has_video else PartKind.AUDIO,
+            )
+        else:
+            key, kind = PartKind.SUBTITLES.value, PartKind.SUBTITLES
+        done = _int(report.get("downloaded_bytes")) or 0
+        size = _int(report.get("total_bytes") or report.get("total_bytes_estimate"))
+        if status == "finished":
+            totals = self._tracker.finished(key, kind, size or done or None, now)
+        else:
+            totals = self._tracker.arrived(key, kind, done, size, now)
         self._on_progress(
             DownloadProgress(
-                stage=Stage.VIDEO if has_video else Stage.AUDIO,
-                fraction=min(1.0, arrived / total) if total else None,
-                speed_bps=speed,
-                left_s=round((total - arrived) / speed)
-                if total and isinstance(speed, int | float) and speed > 0
-                else _int(report.get("eta")),
+                stage=Stage.AUDIO if kind is PartKind.AUDIO else Stage.VIDEO,
+                fraction=totals.fraction,
+                speed_bps=totals.speed_bps,
+                left_s=totals.left_s,
                 height=_int(stream.get("height")) if has_video else None,
-                downloaded_bytes=arrived,
+                downloaded_bytes=totals.done_bytes,
+                total_bytes=totals.total_bytes,
+                parts=totals.parts,
             )
         )
 
@@ -633,6 +731,40 @@ class _Steps:
             raise DownloadCancelledError(f"cancelled at {step}")
         if self._streams_started and report.get("status") == "started" and step != TAGS_STEP:
             self._on_progress(DownloadProgress(stage=Stage.PROCESSING))
+
+
+def planned_parts(info: Mapping[str, Any], subtitles: bool) -> list[PlannedPart]:
+    """Return the parts a download fetches, with the sizes yt-dlp knows before it starts.
+
+    The metadata lookup is made with the format choice of the download, so
+    ``requested_formats`` names the streams that will be fetched (D-088).
+
+    Args:
+        info: The processed metadata of the video.
+        subtitles: Whether a subtitle file is fetched.
+    """
+    duration = info.get("duration")
+    listed = info.get("requested_formats")
+    streams = [
+        _mapping(item) for item in (cast(list[object], listed) if isinstance(listed, list) else [])
+    ]
+    if not streams and _is_media(info) and "+" not in str(info.get("format_id", "")):
+        # One file with video and audio together: the info is that stream.
+        streams = [dict(info)]
+    parts = [PlannedPart(PartKind.THUMBNAIL.value, PartKind.THUMBNAIL, None)]
+    if subtitles:
+        parts.append(PlannedPart(PartKind.SUBTITLES.value, PartKind.SUBTITLES, None))
+    for stream in streams:
+        kind = PartKind.VIDEO if stream.get("vcodec") not in (None, "none") else PartKind.AUDIO
+        tbr = stream.get("tbr")
+        size = stream_size(
+            _int(stream.get("filesize")),
+            _int(stream.get("filesize_approx")),
+            float(tbr) if isinstance(tbr, int | float) else None,
+            float(duration) if isinstance(duration, int | float) else None,
+        )
+        parts.append(PlannedPart(str(stream.get("format_id")), kind, size))
+    return parts
 
 
 def _is_media(stream: Mapping[str, Any]) -> bool:
@@ -778,9 +910,15 @@ def checked_image(url: str, status: int, content: bytes) -> bytes:
 
 
 def download_with_ytdlp(
-    address: str, options: Mapping[str, Any], tags: Mapping[str, str]
+    info: Mapping[str, Any], options: Mapping[str, Any], tags: Mapping[str, str]
 ) -> Mapping[str, Any]:
-    """Download with the real yt-dlp, adding tags of our own to the file.
+    """Download with the real yt-dlp from metadata already looked up, adding tags of our own.
+
+    The metadata of the lookup before the download is processed again with the
+    options of the download, as yt-dlp does for ``--load-info-json``: the page
+    of the video is not asked for a second time, so a download counts as one
+    lookup in the budget (R-DT-06), and the streams fetched are the ones the
+    progress was planned with (D-088).
 
     A post-processor that runs before the download sets ``meta_<name>``
     fields, which the metadata step of yt-dlp writes as tags (R-MD-01, R-DT-08).
@@ -797,7 +935,7 @@ def download_with_ytdlp(
 
     with yt_dlp.YoutubeDL(dict(options)) as ydl:
         ydl.add_post_processor(_AddTagsPP(), when="pre_process")
-        answer = ydl.extract_info(address, download=True)
+        answer = ydl.process_ie_result(copy.deepcopy(dict(info)), download=True)
         clean = ydl.sanitize_info(answer)
     if not isinstance(clean, dict):
         raise AppError(ErrorCode.YOUTUBE_CHANGED, {"message": "yt-dlp gave no answer"})

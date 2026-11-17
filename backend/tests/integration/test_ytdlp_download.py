@@ -13,7 +13,7 @@ import pytest
 
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.ytdlp_replay import VIDEO_ID, Replay
-from ytmirror.adapters.ytdlp_gateway import TAGS_STEP, GatewayTools, YtDlpGateway
+from ytmirror.adapters.ytdlp_gateway import FRESH_INFO_S, TAGS_STEP, GatewayTools, YtDlpGateway
 from ytmirror.core.channels import Quality
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import (
@@ -52,13 +52,22 @@ class FakeYtDlp:
         self.video_size: int | None = 3000
         self.audio_size: int | None = 1000
         self.extra: dict[str, Any] = {}
+        self.calls = 0
+        self.refuse_links = 0
+        """How many downloads YouTube answers with HTTP 403, as for links that expired."""
 
     def __call__(
-        self, address: str, options: Mapping[str, Any], tags: Mapping[str, str]
+        self, info: Mapping[str, Any], options: Mapping[str, Any], tags: Mapping[str, str]
     ) -> Mapping[str, Any]:
         """Do what yt-dlp does, in the order the real download showed."""
         self.options = options
         self.tags = tags
+        self.info = info
+        self.calls += 1
+        if self.refuse_links > 0:
+            self.refuse_links -= 1
+            raise RuntimeError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+        address = f"https://www.youtube.com/watch?v={info.get('id')}"
         folder = Path(options["outtmpl"]["default"]).parent
         progress: Callable[[Mapping[str, Any]], None] = options["progress_hooks"][0]
         processing: Callable[[Mapping[str, Any]], None] = options["postprocessor_hooks"][0]
@@ -77,10 +86,6 @@ class FakeYtDlp:
         video = {"vcodec": "av01", "acodec": "none", "height": 480, "format_id": "397"}
         audio = {"vcodec": "none", "acodec": "opus", "format_id": "251"}
         sizes = {"397": self.video_size, "251": self.audio_size}
-        requested = [
-            {**video, "filesize": sizes["397"]},
-            {**audio, "filesize_approx": sizes["251"]},
-        ]
         for stream in (video, audio):
             format_id = str(stream["format_id"])
             total = sizes[format_id] or 1000
@@ -88,7 +93,7 @@ class FakeYtDlp:
                 progress(
                     {
                         "status": "downloading",
-                        "info_dict": {**stream, "requested_formats": requested},
+                        "info_dict": stream,
                         "downloaded_bytes": done,
                         "total_bytes": sizes[format_id],
                         "speed": 2048.0,
@@ -98,7 +103,7 @@ class FakeYtDlp:
             progress(
                 {
                     "status": "finished",
-                    "info_dict": {**stream, "requested_formats": requested},
+                    "info_dict": stream,
                     "downloaded_bytes": total,
                     "total_bytes": total,
                 }
@@ -126,9 +131,18 @@ def ytdlp() -> FakeYtDlp:
 
 
 @pytest.fixture
-def replay() -> Replay:
-    """The recorded metadata of a video, and of channels."""
-    return Replay()
+def replay(ytdlp: FakeYtDlp) -> Replay:
+    """The recorded metadata of a video, and of channels.
+
+    The lookup before a download is made with the format choice of the download,
+    so it names the streams yt-dlp will fetch, with the sizes YouTube gives (D-088).
+    """
+    replay = Replay()
+    replay.video["requested_formats"] = [
+        {"format_id": "397", "vcodec": "av01", "acodec": "none", "filesize": ytdlp.video_size},
+        {"format_id": "251", "vcodec": "none", "acodec": "opus", "filesize": ytdlp.audio_size},
+    ]
+    return replay
 
 
 def gateway(replay: Replay, ytdlp: FakeYtDlp) -> YtDlpGateway:
@@ -280,51 +294,53 @@ def test_with_subtitles_switched_off_none_are_embedded(
     assert ytdlp.options["writeautomaticsub"] is False
 
 
-def test_progress_tells_the_stage_percent_speed_and_time_left(
+def test_progress_goes_from_0_to_100_percent_once_for_the_whole_mirror(
     tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
 ) -> None:
-    """R-QU-04: one percent for the whole video, its video and audio streams together.
+    """R-QU-04, D-088: video and audio, each reported from 0 to 100% by yt-dlp, count as one.
 
-    The steps before the download and the subtitle file are no progress of the video.
+    The reports have the shape of the real yt-dlp: the information of each stream
+    names no other stream. The M3 test gave them ``requested_formats``, which hid
+    that the second stream started again at 0%.
     """
     told: list[DownloadProgress] = []
 
     gateway(replay, ytdlp).download(request(tmp_path), told.append, never)
 
-    streams = [report for report in told if report.stage is not Stage.PROCESSING]
-    assert [(report.stage, report.fraction) for report in streams] == [
-        (Stage.VIDEO, 0.375),
-        (Stage.VIDEO, 0.75),
-        (Stage.AUDIO, 0.875),
-        (Stage.AUDIO, 1.0),
-    ]
-    assert told[0] == DownloadProgress(
-        stage=Stage.VIDEO,
-        fraction=0.375,
-        speed_bps=2048.0,
-        left_s=1,
-        height=480,
-        downloaded_bytes=1500,
-    )
-    assert [report.downloaded_bytes for report in streams] == [1500, 3000, 3500, 4000]
-    assert told[1].height == 480
-    assert told[2].height is None
-    assert told.index(DownloadProgress(stage=Stage.PROCESSING)) == 4
+    downloading = [report for report in told if report.stage is not Stage.PROCESSING]
+    fractions = [report.fraction or 0.0 for report in downloading]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    assert fractions.count(1.0) == 1
+    assert told[-1].stage is Stage.PROCESSING or told.index(
+        DownloadProgress(stage=Stage.PROCESSING)
+    ) == len(downloading)
+    last = downloading[-1]
+    assert last.total_bytes == last.downloaded_bytes
+    assert {part.kind.value for part in last.parts} == {"thumbnail", "subtitles", "video", "audio"}
+    assert all(part.finished for part in last.parts)
+    audio_starts = next(report for report in downloading if report.stage is Stage.AUDIO)
+    video_ends = downloading[downloading.index(audio_starts) - 1]
+    assert (audio_starts.fraction or 0) >= (video_ends.fraction or 0)
 
 
-def test_without_a_size_the_progress_says_how_much_arrived(
+def test_a_stream_without_a_size_is_estimated_and_the_percent_never_goes_down(
     tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
 ) -> None:
-    """R-QU-04: when YouTube gives no size, no percent is made up; the bytes are counted."""
+    """R-QU-04, D-088: an unknown size is estimated, corrected, and the percent only grows."""
     ytdlp.audio_size = None
+    replay.video["requested_formats"][1]["filesize"] = None
     told: list[DownloadProgress] = []
 
     gateway(replay, ytdlp).download(request(tmp_path), told.append, never)
 
-    streams = [report for report in told if report.stage is not Stage.PROCESSING]
-    assert [report.fraction for report in streams] == [None, None, None, None]
-    assert [report.downloaded_bytes for report in streams] == [1500, 3000, 3500, 4000]
-    assert streams[0].left_s == 3
+    downloading = [report for report in told if report.stage is not Stage.PROCESSING]
+    fractions = [report.fraction or 0.0 for report in downloading]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    first = downloading[0]
+    audio = next(part for part in first.parts if part.kind.value == "audio")
+    assert audio.estimated
 
 
 def test_a_finished_download_gives_its_file_thumbnail_metadata_and_chapters(
@@ -503,3 +519,91 @@ def test_an_error_after_a_cancel_is_the_cancel(
         gateway(replay, ytdlp).download(
             request(tmp_path), cancel_when_processing, lambda: cancelled["now"]
         )
+
+
+def test_a_download_asks_youtube_once_and_downloads_what_the_lookup_gave(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06, D-088: one lookup per download, counted once in the budget.
+
+    The download is made from the metadata the lookup gave, with the format choice
+    of the download, so the streams fetched are those the progress was planned with.
+    """
+    asked: list[str] = []
+
+    def counting(address: str, options: Mapping[str, Any], process: bool) -> Mapping[str, Any]:
+        asked.append(address)
+        return replay(address, options, process)
+
+    YtDlpGateway(FakeClock(), tools=TOOLS, extract=counting, download=ytdlp).download(
+        request(tmp_path), lambda _progress: None, never
+    )
+
+    assert asked == [f"https://www.youtube.com/watch?v={VIDEO_ID}"]
+    assert ytdlp.info["id"] == VIDEO_ID
+    assert [stream["format_id"] for stream in ytdlp.info["requested_formats"]] == ["397", "251"]
+
+
+def counting(replay: Replay, asked: list[str]) -> Any:
+    """The replay of yt-dlp, noting every address it is asked."""
+
+    def extract(address: str, options: Mapping[str, Any], process: bool) -> Mapping[str, Any]:
+        asked.append(address)
+        return replay(address, options, process)
+
+    return extract
+
+
+def test_links_youtube_refuses_are_read_again_once_and_counted(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06, D-088: an HTTP 403 on reused metadata: one more lookup, counted, then a retry."""
+    asked: list[str] = []
+    again: list[int] = []
+    ytdlp.refuse_links = 1
+    gateway = YtDlpGateway(
+        FakeClock(), tools=TOOLS, extract=counting(replay, asked), download=ytdlp
+    )
+
+    result = gateway.download(
+        request(tmp_path), lambda _p: None, never, on_lookup_again=lambda: again.append(1)
+    )
+
+    assert result.file.name == f"{VIDEO_ID}.mkv"
+    assert (len(asked), len(again), ytdlp.calls) == (2, 1, 2)
+
+
+def test_links_refused_twice_are_not_read_a_third_time(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06: one retry only; the second refusal fails the download with its code."""
+    asked: list[str] = []
+    ytdlp.refuse_links = 2
+    gateway = YtDlpGateway(
+        FakeClock(), tools=TOOLS, extract=counting(replay, asked), download=ytdlp
+    )
+
+    with pytest.raises(AppError):
+        gateway.download(request(tmp_path), lambda _p: None, never)
+
+    assert (len(asked), ytdlp.calls) == (2, 2)
+
+
+def test_metadata_older_than_five_minutes_is_read_again_before_the_download(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06: old metadata may hold expired links: one more lookup, counted."""
+    asked: list[str] = []
+    again: list[int] = []
+    clock = FakeClock()
+    gateway = YtDlpGateway(clock, tools=TOOLS, extract=counting(replay, asked), download=ytdlp)
+
+    gateway.download(
+        request(tmp_path),
+        lambda _p: None,
+        never,
+        start_writing=lambda: clock.advance(FRESH_INFO_S + 1),
+        on_lookup_again=lambda: again.append(1),
+    )
+
+    assert (len(asked), len(again), ytdlp.calls) == (2, 1, 1)

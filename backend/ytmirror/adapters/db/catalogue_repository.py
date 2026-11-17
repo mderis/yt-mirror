@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.job_repository import DOWNLOAD_FIELDS
-from ytmirror.adapters.db.tables import ChannelRow, VideoRow
+from ytmirror.adapters.db.tables import ChannelRow, VideoEventRow, VideoRow
 from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import (
     Channel,
@@ -26,6 +26,7 @@ from ytmirror.core.channels import (
     VideoStatus,
 )
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.status import StatusChange
 from ytmirror.ports.clock import Clock
 
 _CHUNK = 500
@@ -200,6 +201,67 @@ class SqlCatalogueRepository:
                     )
         return True
 
+    def count_check_retry(self, channel_id: str) -> int | None:
+        """Count one more retry, only for a channel that failed and is not paused."""
+        with Session(self._engine) as session, session.begin():
+            row = session.get(ChannelRow, channel_id)
+            if row is None or row.paused or row.last_check_error is None:
+                return None
+            row.check_retries += 1
+            row.updated_at = self._now()
+            return row.check_retries
+
+    def mark_rename(self, video_id: str, old: str, new: str) -> bool:
+        """Store that a file is about to be renamed, if it still has its old name and no marker."""
+        with Session(self._engine) as session, session.begin():
+            row = session.get(VideoRow, video_id)
+            if row is None or row.file_name != old or row.rename_to is not None:
+                return False
+            row.rename_from, row.rename_to = old, new
+            row.updated_at = self._now()
+            return True
+
+    def finish_rename(self, video_id: str, old: str, new: str) -> bool:
+        """Store the new name of a renamed file and clear its marker, if both are as marked."""
+        with Session(self._engine) as session, session.begin():
+            row = session.get(VideoRow, video_id)
+            if row is None or row.file_name != old or row.rename_to != new:
+                return False
+            row.file_name, row.rename_from, row.rename_to = new, None, None
+            row.updated_at = self._now()
+            return True
+
+    def clear_rename(self, video_id: str) -> None:
+        """Forget the marker of a rename that did not happen or was undone."""
+        with Session(self._engine) as session, session.begin():
+            row = session.get(VideoRow, video_id)
+            if row is not None and (row.rename_from is not None or row.rename_to is not None):
+                row.rename_from, row.rename_to = None, None
+                row.updated_at = self._now()
+
+    def change_status(self, change: StatusChange) -> bool:
+        """Change the status of a video, if it still has the status the change starts from."""
+        now = self._now()
+        with Session(self._engine) as session, session.begin():
+            row = session.get(VideoRow, change.video_id)
+            if row is None or row.status != change.from_status.value:
+                return False
+            row.status = change.to_status.value
+            row.updated_at = now
+            session.add(
+                VideoEventRow(
+                    video_id=change.video_id,
+                    at=now,
+                    from_status=change.from_status.value,
+                    to_status=change.to_status.value,
+                    reason=change.reason,
+                    job_id=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            return True
+
     def totals(self, new_since: int) -> Mapping[str, ChannelTotals]:
         """Return the numbers of every channel that has videos, by channel ID.
 
@@ -282,7 +344,15 @@ def _check_values_of(video: Video) -> dict[str, Any]:
     A download that ends while a check runs stores those itself (DOWNLOAD_FIELDS),
     so the check must not write back what it read before.
     """
-    return {name: value for name, value in _values_of(video).items() if name not in DOWNLOAD_FIELDS}
+    return {
+        name: value
+        for name, value in _values_of(video).items()
+        if name not in DOWNLOAD_FIELDS and name not in _RENAME_FIELDS
+    }
+
+
+_RENAME_FIELDS = ("rename_from", "rename_to")
+"""The marker of a rename, written only by the rename itself, never by a check (R-FN-06)."""
 
 
 def _channel_of(row: ChannelRow) -> Channel:
@@ -305,6 +375,7 @@ def _channel_of(row: ChannelRow) -> Channel:
         last_check_error_at=row.last_check_error_at,
         position=row.position,
         folder_created=row.folder_created,
+        check_retries=row.check_retries,
     )
 
 
@@ -342,4 +413,6 @@ def _video_of(row: VideoRow) -> Video:
         last_error_at=row.last_error_at,
         attempts=row.attempts,
         placing_file=row.placing_file,
+        rename_from=row.rename_from,
+        rename_to=row.rename_to,
     )

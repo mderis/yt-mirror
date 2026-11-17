@@ -41,3 +41,20 @@ def test_ending_a_video_it_never_knew_changes_nothing() -> None:
     state.ended("v9")
 
     assert state.mirroring("UCa") is None
+
+
+def test_the_exact_date_fetch_hears_when_the_last_download_ended() -> None:
+    """R-DT-06: the fetch yields to downloads and goes on when none waits or runs."""
+    state = DownloadState()
+    told: list[str] = []
+    state.when_idle(lambda: told.append("idle"))
+    state.queued("v1", "UCa", "job1")
+    state.queued("v2", "UCb", "job2")
+
+    state.ended("v1")
+    busy_after_one = state.busy()
+    state.ended("v2")
+
+    assert busy_after_one is True
+    assert state.busy() is False
+    assert told == ["idle"]

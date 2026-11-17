@@ -43,6 +43,10 @@ EXPECTED_STATUS = {
     ErrorCode.DB_UPGRADE_FAILED: 500,
     ErrorCode.CHANNEL_BUSY: 409,
     ErrorCode.DB_UNREADABLE: 500,
+    ErrorCode.API_KEY_INVALID: 502,
+    ErrorCode.API_QUOTA_EXCEEDED: 502,
+    ErrorCode.API_KEY_UNREADABLE: 500,
+    ErrorCode.FILE_MISSING: 404,
     ErrorCode.INTERNAL: 500,
 }
 

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from tests.fixtures.database import migrated_engine
+from tests.fixtures.fakes.api_key_store import InMemoryApiKeyStore
 from tests.fixtures.fakes.app_meta_repository import InMemoryAppMetaRepository
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.file_system import FakeFileSystem
@@ -21,8 +22,10 @@ from tests.fixtures.fakes.image_cache import InMemoryImageCache
 from tests.fixtures.fakes.media_tools import FakeMediaTools
 from tests.fixtures.fakes.settings_repository import InMemorySettingsRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
+from ytmirror.adapters.db.date_repository import SqlDateRepository
 from ytmirror.adapters.db.job_repository import SqlJobRepository
 from ytmirror.adapters.fixture_youtube import FixtureYouTube
+from ytmirror.adapters.fixture_youtube_api import FixtureYouTubeApi
 from ytmirror.core.channels import (
     ChannelFacts,
     ChannelListing,
@@ -45,12 +48,18 @@ from ytmirror.core.jobs import (
     VideoUpdated,
 )
 from ytmirror.core.models import AppEvent
+from ytmirror.core.pacing import LookupBudget
+from ytmirror.ports.api_key_store import ApiKeyStore
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
+from ytmirror.services.date_fetch_state import DateFetchState
+from ytmirror.services.dates import DatesService
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.repair import RepairService
+from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
@@ -128,7 +137,8 @@ class RefusingGateway:
     """Passes everything on to the fake YouTube, and can refuse like the real one.
 
     Attributes:
-        refuse: Kinds of request ("lookup", "listing", "count", "image", "download") with the
+        refuse: Kinds of request ("lookup", "listing", "count", "image", "download",
+            "exact_date") with the
             error code to answer them with.
         asked: Every request that reached the gateway, by kind.
     """
@@ -179,6 +189,11 @@ class RefusingGateway:
         self._maybe_refuse("image")
         return self._youtube.fetch_image(url)
 
+    def exact_date(self, video_id: str) -> int | None:
+        """Return the exact date of a video, unless lookups of dates are refused."""
+        self._maybe_refuse("exact_date")
+        return self._youtube.exact_date(video_id)
+
     def download(
         self,
         request: DownloadRequest,
@@ -186,6 +201,7 @@ class RefusingGateway:
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download, unless downloads are refused, with the stand-in when there is one."""
         self._maybe_refuse("download")
@@ -289,7 +305,12 @@ class World:
     """
 
     def __init__(
-        self, folder: Path, *channels: dict[str, Any], bus: EventBus | None = None
+        self,
+        folder: Path,
+        *channels: dict[str, Any],
+        bus: EventBus | None = None,
+        budget: LookupBudget | None = None,
+        keys: ApiKeyStore | None = None,
     ) -> None:
         """Build the services on a new database and a fake YouTube with the given channels.
 
@@ -297,6 +318,8 @@ class World:
             folder: A temp folder of the test.
             channels: The channels of the fake YouTube. Default: one small channel.
             bus: The event bus to publish on. Default: a new one.
+            budget: The budget of lookups. Default: 300 an hour.
+            keys: Where the API key is saved. Default: in memory, as ``keys``.
         """
         world_dir = folder / "youtube"
         world_dir.mkdir()
@@ -327,9 +350,16 @@ class World:
         self.jobs = SqlJobRepository(engine, self.clock)
         self.settings = SettingsService(self.settings_repository, self.library)
         self.youtube = YouTubeAccess(
-            self.gateway, self.clock, self.bus, lambda delay, work: self.later.append((delay, work))
+            self.gateway,
+            self.clock,
+            self.bus,
+            lambda delay, work: self.later.append((delay, work)),
+            budget=budget,
+            memory=self.meta,
         )
         self.downloads = DownloadState()
+        self.date_repository = SqlDateRepository(engine, self.clock)
+        self.date_state = DateFetchState()
         self.views = ChannelViews(
             self.repository,
             self.settings,
@@ -337,6 +367,8 @@ class World:
             self.bus,
             youtube_paused=lambda: self.youtube.pause() is not None,
             downloads=self.downloads,
+            dates=self.date_state,
+            fetch_states=self.date_repository.fetch_states,
         )
         self.waited: list[float] = []
         self.during_wait: Callable[[], None] | None = None
@@ -375,8 +407,36 @@ class World:
             ),
             media=self.media,
         )
+        self.api = FixtureYouTubeApi(self.fixture.api_date)
+        self.keys = InMemoryApiKeyStore()
+        self.secrets: list[str] = []
+        """Every value made a secret of the logs."""
+        self.found_exact: list[str] = []
+        """The videos that got an exact time from the fetch."""
+        self.dates = DatesService(
+            dates=self.date_repository,
+            youtube=self.youtube,
+            api=self.api,
+            keys=keys if keys is not None else self.keys,
+            settings=self.settings,
+            downloads=self.downloads,
+            state=self.date_state,
+            clock=self.clock,
+            events=self.bus,
+            register_secret=self.secrets.append,
+            tell_video=self.views.tell_video,
+            tell_channel=self.views.publish,
+            found_exact=self._found_exact,
+        )
         self.state = StateService(
-            self.views, self.settings, self.files, self.picker, self.meta, self.youtube
+            self.views,
+            self.settings,
+            self.files,
+            self.picker,
+            self.meta,
+            self.youtube,
+            api_key=self.dates.key_state,
+            channel_opened=self._channel_opened,
         )
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
@@ -400,11 +460,39 @@ class World:
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
         )
+        self.repair = RepairService(
+            repository=self.repository,
+            files=self.files,
+            media=self.media,
+            views=self.views,
+            settings=self.settings,
+        )
+        self.scheduler = Scheduler(
+            catalogue=self.catalogue,
+            repository=self.repository,
+            views=self.views,
+            settings=self.settings,
+            youtube=self.youtube,
+            downloads=self.downloads,
+            dates=self.dates,
+            clock=self.clock,
+        )
 
     def _after_check(self, channel_id: str, kind: CheckKind) -> None:
-        """What the container does after a check: the pictures and the channel file."""
+        """What the container does after a check: pictures, channel file, renames, dates."""
         self.thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
         self.channels.write_channel_file(channel_id)
+        self.repair.after_check(channel_id)
+
+    def _channel_opened(self, channel_id: str) -> None:
+        """What the container does when a channel is opened: a check if old, files looked for."""
+        self.scheduler.channel_selected(channel_id)
+        self.background.append(lambda: self.repair.channel_opened(channel_id))
+
+    def _found_exact(self, video_id: str) -> None:
+        """What the container does when the fetch found an exact time: repair the file."""
+        self.found_exact.append(video_id)
+        self.repair.repair_video(video_id)
 
     def download_all(self) -> None:
         """Let every waiting download run, one after another."""
