@@ -26,6 +26,7 @@ Status values: `Not started`, `In progress` (branch and draft pull request), `In
 
 Short facts the next session needs and cannot get from the code or the other docs: an open question that was answered, something that was deliberately postponed, a known problem. Newest first. Remove a note when it no longer matters.
 
+- **M9's uninstall must handle the API key file (D-085).** The key is kept in `data/youtube-api-key`. When the uninstall moves `data/` to the Trash, the key goes with it; M9 decides whether to delete that file instead.
 - **M4 is measured, not built yet (2026-11-17).** The experiments of the M4 plan are done and written into OPEN-QUESTIONS (facts of M4), the spec (R-DT-03, R-DT-05, R-DT-06, R-DT-12, R-DT-14, R-DT-15, R-FB-01, R-SE-03), ARCHITECTURE 7.4 and D-082 to D-085. The maintainer decided the pace without a key (D-084) and the key file (D-085) on 2026-11-17. Building waits for the approval of the build plan.
 - **M4 owes the rename of a file named by its video ID (R-FN-01, R-FN-06).** A title with nothing storable gives `<video id>.mkv`. When the title later changes to one that leaves something, the rename of R-FN-06 gives the file its title. The maintainer asked for a test of exactly that case.
 - **The real Trash of macOS has not run in a test (M3).** Every test and every end-to-end app uses a folder of its own as the Trash (`YTM_TRASH_DIR`), so no test fills the Trash of the person who runs it. On the manual checklist: remove a channel with "Delete the files", see the files in the Trash, and "Put Back" one.
