@@ -62,6 +62,7 @@ from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.job_logs import JobLogsService
+from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.schema import SchemaService
 from ytmirror.services.settings import SettingsService
@@ -97,6 +98,7 @@ class Container:
         job_logs: Deletes the logs of jobs that are no longer kept.
         dates: Looks up exact dates in the background, and keeps the API key.
         scheduler: Starts checks by themselves and runs the exact-date fetch.
+        repair: Repairs file dates and renames files after new titles.
         secrets: Passes values that must never be logged to the logger, once it exists.
     """
 
@@ -121,6 +123,7 @@ class Container:
     job_logs: JobLogsService
     dates: DatesService
     scheduler: Scheduler
+    repair: RepairService
     secrets: Secrets
 
 
@@ -261,6 +264,8 @@ def build_container(
         thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
         # A check takes over the title and the handle of the channel (R-CH-12, R-FI-05).
         channels.write_channel_file(channel_id)
+        # Renames and date repair need no listing (R-CH-28, R-FN-06, R-DT-09).
+        repair.after_check(channel_id)
         # New videos wait for their exact dates (ARCHITECTURE 7.1 step 9).
         dates.wake()
 
@@ -282,6 +287,9 @@ def build_container(
         run_in_background=_in_a_thread,
         stop_tools=lambda: _stop_tools(used_children, used_tool_box),
         stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
+    )
+    repair = RepairService(
+        repository=repository, files=used_files, media=media, views=views, settings=settings
     )
     channels = ChannelsService(
         repository,
@@ -311,6 +319,7 @@ def build_container(
         register_secret=secrets.register,
         tell_video=views.tell_video,
         tell_channel=views.publish,
+        found_exact=lambda video_id: repair.repair_video(video_id),
     )
     state = StateService(
         views,
@@ -356,6 +365,7 @@ def build_container(
         ),
         dates=dates,
         scheduler=scheduler,
+        repair=repair,
         secrets=secrets,
     )
 

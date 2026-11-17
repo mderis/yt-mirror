@@ -108,6 +108,19 @@ class CatalogueRepository(Protocol):
         """
         ...
 
+    def set_file_name(self, video_id: str, old: str, new: str) -> bool:
+        """Store the new name of a synced video's file, if the stored one is still ``old``.
+
+        Args:
+            video_id: The video.
+            old: The name the file had.
+            new: The name it has now.
+
+        Returns:
+            Whether it was stored: False when the video has another name by now, or is gone.
+        """
+        ...
+
     def totals(self, new_since: int) -> Mapping[str, ChannelTotals]:
         """Return the numbers of every channel that has videos, by channel ID.
 

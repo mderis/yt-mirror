@@ -30,6 +30,7 @@ from ytmirror.services.dates import DatesService
 from ytmirror.services.diagnostics import DiagnosticsService
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.repair import RepairService
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.toolchain import ToolchainService
@@ -75,6 +76,7 @@ class ApiServices:
         thumbnails: The cached pictures.
         downloader: Puts videos in line and downloads them.
         dates: The exact-date fetch and the API key.
+        repair: Repairs the dates of files on demand.
     """
 
     diagnostics: DiagnosticsService
@@ -88,6 +90,7 @@ class ApiServices:
     thumbnails: ThumbnailService
     downloader: DownloaderService
     dates: DatesService
+    repair: RepairService
 
 
 def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAPI:
@@ -121,7 +124,11 @@ def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAP
     app.include_router(state.build_router(services.state, services.youtube), prefix=API_PREFIX)
     app.include_router(
         channels.build_router(
-            services.channels, services.catalogue, services.views, services.thumbnails
+            services.channels,
+            services.catalogue,
+            services.views,
+            services.thumbnails,
+            services.repair,
         ),
         prefix=API_PREFIX,
     )

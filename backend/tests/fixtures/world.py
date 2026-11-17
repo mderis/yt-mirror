@@ -57,6 +57,7 @@ from ytmirror.services.dates import DatesService
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
@@ -420,7 +421,7 @@ class World:
             register_secret=self.secrets.append,
             tell_video=self.views.tell_video,
             tell_channel=self.views.publish,
-            found_exact=self.found_exact.append,
+            found_exact=self._found_exact,
         )
         self.state = StateService(
             self.views,
@@ -454,6 +455,13 @@ class World:
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
         )
+        self.repair = RepairService(
+            repository=self.repository,
+            files=self.files,
+            media=self.media,
+            views=self.views,
+            settings=self.settings,
+        )
         self.scheduler = Scheduler(
             catalogue=self.catalogue,
             repository=self.repository,
@@ -466,9 +474,15 @@ class World:
         )
 
     def _after_check(self, channel_id: str, kind: CheckKind) -> None:
-        """What the container does after a check: the pictures and the channel file."""
+        """What the container does after a check: pictures, channel file, renames, dates."""
         self.thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
         self.channels.write_channel_file(channel_id)
+        self.repair.after_check(channel_id)
+
+    def _found_exact(self, video_id: str) -> None:
+        """What the container does when the fetch found an exact time: repair the file."""
+        self.found_exact.append(video_id)
+        self.repair.repair_video(video_id)
 
     def download_all(self) -> None:
         """Let every waiting download run, one after another."""

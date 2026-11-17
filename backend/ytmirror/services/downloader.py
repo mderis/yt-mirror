@@ -62,6 +62,7 @@ from ytmirror.ports.media_tools import MediaTools
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
+from ytmirror.services.repair import verify_dates
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.youtube_access import YouTubeAccess
 
@@ -927,20 +928,18 @@ class DownloaderService:
 
     def _verify_dates(self, target: Path, published: int, log: FilteringBoundLogger) -> None:
         """Step 8: read both dates back in the channel folder (R-DT-07)."""
-        dates = self._files.read_dates(target)
-        if (dates.created, dates.modified) != (published, published):
+        try:
+            verify_dates(self._files, target, published)
+        except AppError as error:
             log.error(
                 "dates.verify_failed",
                 msg="The file dates did not read back as they were set",
                 error_code=ErrorCode.DATES_NOT_APPLIED.value,
                 expected=published,
-                created=dates.created,
-                modified=dates.modified,
+                created=error.details.get("created"),
+                modified=error.details.get("modified"),
             )
-            raise AppError(
-                ErrorCode.DATES_NOT_APPLIED,
-                {"expected": str(published), "created": str(dates.created)},
-            )
+            raise
         log.info("dates.applied", msg="File dates set to the published time", published=published)
 
     # --- side files: the info JSON, the original thumbnail, the thumbnail next to the video

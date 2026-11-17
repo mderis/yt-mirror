@@ -200,6 +200,16 @@ class SqlCatalogueRepository:
                     )
         return True
 
+    def set_file_name(self, video_id: str, old: str, new: str) -> bool:
+        """Store the new name of a synced video's file, if the stored one is still ``old``."""
+        with Session(self._engine) as session, session.begin():
+            row = session.get(VideoRow, video_id)
+            if row is None or row.file_name != old:
+                return False
+            row.file_name = new
+            row.updated_at = self._now()
+            return True
+
     def totals(self, new_since: int) -> Mapping[str, ChannelTotals]:
         """Return the numbers of every channel that has videos, by channel ID.
 

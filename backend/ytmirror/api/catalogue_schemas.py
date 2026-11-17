@@ -897,3 +897,17 @@ class ChecksProgressEvent(BaseModel):
     """
 
     checking_all: Mirroring | None
+
+
+class RepairDatesResponse(BaseModel):
+    """The answer of ``POST /api/channels/{channel_id}/repair-dates`` (R-DT-09).
+
+    Attributes:
+        checked: How many synced files were compared.
+        repaired: How many had other dates and were set again.
+        failed: How many could not be set or did not read back.
+    """
+
+    checked: int
+    repaired: int
+    failed: int

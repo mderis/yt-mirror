@@ -412,6 +412,7 @@ def api_services(container: Container) -> ApiServices:
         thumbnails=container.thumbnails,
         downloader=container.downloader,
         dates=container.dates,
+        repair=container.repair,
     )
 
 
