@@ -9,12 +9,21 @@ and the pause ends as soon as YouTube answers the kind of request it had
 refused. An answer to another kind of request proves nothing: YouTube can
 refuse lookups from an address and still answer listings.
 
+It also keeps the budget of lookups of R-DT-06 (D-084): the metadata
+lookup of every download and every lookup of the exact-date fetch are
+counted, at most 300 an hour together. Downloads are never held back by it;
+the exact-date fetch asks how long to wait before its next lookup. After a
+"not a bot" check the budget is halved until midnight in the Mac's time
+zone. The lookups of each hour are logged, so that real use shows whether
+the number is right.
+
 This module must not know what a request is for, only whether the user
-started it.
+started it and whether it is counted.
 
 Tests: backend/tests/unit/services/test_youtube_access.py
 """
 
+import datetime
 import threading
 from collections.abc import Callable, Iterator
 
@@ -31,6 +40,7 @@ from ytmirror.core.channels import (
 )
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import DownloadProgress, DownloadRequest, DownloadResult
+from ytmirror.core.pacing import HourCounts, LookupBudget, LookupKind
 from ytmirror.core.pauses import next_pause_s
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.youtube_gateway import YouTubeGateway
@@ -42,11 +52,29 @@ type CallLater = Callable[[float, Callable[[], None]], None]
 """Runs something after a number of seconds, without blocking the caller."""
 
 
+def next_local_midnight(now: datetime.datetime) -> float:
+    """Return the next midnight in the Mac's time zone after ``now``, in seconds since the epoch.
+
+    Args:
+        now: A timezone-aware time.
+    """
+    tomorrow = now.astimezone().date() + datetime.timedelta(days=1)
+    # A naive time is read in the Mac's time zone, with its summer time on that day.
+    return datetime.datetime.combine(tomorrow, datetime.time()).astimezone().timestamp()
+
+
 class YouTubeAccess:
     """Asks YouTube, and pauses the whole app when YouTube refuses it."""
 
     def __init__(
-        self, gateway: YouTubeGateway, clock: Clock, events: EventBus, call_later: CallLater
+        self,
+        gateway: YouTubeGateway,
+        clock: Clock,
+        events: EventBus,
+        call_later: CallLater,
+        *,
+        budget: LookupBudget | None = None,
+        midnight_after: Callable[[datetime.datetime], float] = next_local_midnight,
     ) -> None:
         """Create the access.
 
@@ -55,6 +83,8 @@ class YouTubeAccess:
             clock: The source of time.
             events: Where a change of the pause is published.
             call_later: Runs the end of a pause when its time has come.
+            budget: The budget of lookups. Default: 300 an hour (D-084).
+            midnight_after: Says when the day of a time ends, for the halved budget.
         """
         self._gateway = gateway
         self._clock = clock
@@ -65,6 +95,8 @@ class YouTubeAccess:
         self._last_pause_s: int | None = None
         self._refused: str | None = None
         self._on_resume: list[Callable[[], None]] = []
+        self._budget = budget if budget is not None else LookupBudget()
+        self._midnight_after = midnight_after
 
     def pause(self) -> YouTubePause | None:
         """Return the pause that is in force, or None."""
@@ -85,6 +117,51 @@ class YouTubeAccess:
     def try_now(self) -> None:
         """End the pause because the user asked for it, and take up the work that waited."""
         self._end_pause("the user asked to try now")
+
+    def exact_date_wait_s(self) -> float:
+        """Return how long the exact-date fetch waits before its next lookup (R-DT-06)."""
+        with self._lock:
+            return self._budget.wait_s(self._now())
+
+    def lookups_per_hour(self) -> int:
+        """Return the budget of an hour as it is now: halved after a check (R-DT-06)."""
+        with self._lock:
+            return self._budget.limit(self._now())
+
+    def exact_date(self, video_id: str) -> int | None:
+        """Look up the exact published time of a video for the exact-date fetch (R-DT-05).
+
+        The app asks this by itself: a pause holds it up, and it is counted in
+        the budget. The caller waits ``exact_date_wait_s`` first.
+
+        Args:
+            video_id: The video ID.
+
+        Returns:
+            Seconds since the Unix epoch, or None for a video not released yet.
+
+        Raises:
+            AppError: ``BOT_CHECK`` without asking while the app pauses, or as the
+                gateway raises it.
+        """
+        return self._ask(
+            "exact_date",
+            lambda: self._gateway.exact_date(video_id),
+            by_user=False,
+            counted=LookupKind.EXACT_DATE,
+        )
+
+    def log_finished_hour(self) -> None:
+        """Log the lookups of the hour that ended, if it was not logged yet (R-DT-06)."""
+        with self._lock:
+            finished = self._budget.finish_hour(self._now())
+        _log_hour(finished)
+
+    def log_open_hour(self) -> None:
+        """Log the lookups of the hour that is open. For the end of the app (R-DT-06)."""
+        with self._lock:
+            finished = self._budget.close(self._now())
+        _log_hour(finished)
 
     def lookup_channel(self, reference: ChannelReference) -> ChannelFacts:
         """Look a channel up for the user. A pause does not hold this up.
@@ -169,12 +246,27 @@ class YouTubeAccess:
                 request, on_progress, is_cancelled, start_writing=start_writing
             ),
             by_user=by_user,
+            counted=LookupKind.DOWNLOAD,
         )
 
-    def _ask[T](self, request: str, ask: Callable[[], T], *, by_user: bool) -> T:
+    def _now(self) -> float:
+        return self._clock.now().timestamp()
+
+    def _ask[T](
+        self,
+        request: str,
+        ask: Callable[[], T],
+        *,
+        by_user: bool,
+        counted: LookupKind | None = None,
+    ) -> T:
         pause = self.pause()
         if pause is not None and not by_user:
             raise AppError(ErrorCode.BOT_CHECK, {"paused_until": str(pause.until)})
+        if counted is not None:
+            with self._lock:
+                finished = self._budget.count(counted, self._now())
+            _log_hour(finished)
         try:
             answer = ask()
         except AppError as error:
@@ -194,7 +286,9 @@ class YouTubeAccess:
     def _note_failure(self, request: str, error: AppError) -> None:
         if error.code is not ErrorCode.BOT_CHECK:
             return
+        now = self._clock.now()
         with self._lock:
+            finished = self._budget.halve(now.timestamp(), self._midnight_after(now))
             length = next_pause_s(self._last_pause_s)
             self._last_pause_s = length
             self._refused = request
@@ -210,6 +304,7 @@ class YouTubeAccess:
             pause_s=length,
             until=pause.until,
         )
+        _log_hour(finished)
         self._events.publish(YouTubePauseChanged(pause))
         self._call_later(length, lambda: self._pause_is_over(pause))
 
@@ -236,3 +331,18 @@ class YouTubeAccess:
         self._events.publish(YouTubePauseChanged(None))
         for work in list(self._on_resume):
             work()
+
+
+def _log_hour(counts: HourCounts | None) -> None:
+    """Log the lookups of one hour, so that real use shows whether the budget is right."""
+    if counts is None:
+        return
+    _log.info(
+        "youtube.lookups.hour",
+        msg="The lookups the app asked of YouTube in one hour",
+        hour_start=counts.hour_start,
+        exact_date=counts.exact_date,
+        download=counts.download,
+        bot_checks=counts.bot_checks,
+        limit=counts.limit,
+    )

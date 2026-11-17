@@ -22,6 +22,7 @@ from tests.fixtures.ytdlp_replay import (
 )
 from ytmirror.adapters.ytdlp_gateway import (
     COUNT_OPTIONS,
+    EXACT_DATE_OPTIONS,
     LISTING_OPTIONS,
     LOOKUP_OPTIONS,
     YtDlpGateway,
@@ -232,6 +233,26 @@ def test_live_streams_are_left_out_of_a_listing() -> None:
 
     assert [video.id for video in videos[:2]] == ["rec00000003", "rec00000004"]
     assert len(videos) == RECORDED_VIDEOS - 2
+
+
+def test_a_members_only_video_is_listed_as_m4_recorded_it() -> None:
+    """R-CH-07: a members-only entry (Q-27, recorded in M4) is a regular video of the listing.
+
+    In M4 such an entry had ``availability`` "subscriber_only", no live status, an
+    approximate date and a duration, and no view count. Its download fails with
+    ``MEMBERS_ONLY``.
+    """
+
+    def members_only(answer: dict[str, Any]) -> None:
+        entry = answer["entries"][0]
+        entry.update({"availability": "subscriber_only", "live_status": None})
+        entry.pop("view_count", None)
+
+    video = next(gateway_with(listing_with(members_only)).list_channel(CHANNEL_ID).videos)
+
+    assert (video.id, video.view_count) == ("rec00000001", None)
+    assert video.duration_s == 1177
+    assert video.published_at is not None
 
 
 def test_a_channel_without_a_videos_tab_has_an_empty_listing() -> None:
@@ -498,3 +519,85 @@ def test_the_challenge_solver_is_the_version_this_yt_dlp_pins() -> None:
 
     assert pinned == {f"yt-dlp-ejs=={metadata.version('yt-dlp-ejs')}"}
     assert importlib.util.find_spec("yt_dlp_ejs") is not None
+
+
+# --- the exact date of one video (R-DT-03, R-DT-05)
+
+
+class _Answers:
+    """Answers an exact-date lookup as yt-dlp would, and remembers what was asked."""
+
+    def __init__(self, answer: dict[str, Any] | Exception) -> None:
+        self.answer = answer
+        self.asked: list[tuple[str, dict[str, Any], bool]] = []
+
+    def __call__(self, address: str, options: Any, process: bool) -> dict[str, Any]:
+        self.asked.append((address, dict(options), process))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+def test_the_exact_date_lookup_is_the_lightest_one_measured() -> None:
+    """R-DT-05: the web client, no player configs or JavaScript, no streams, not processed."""
+    answers = _Answers({"id": "vid00000001", "timestamp": 1_700_000_000})
+
+    YtDlpGateway(FakeClock(), extract=answers).exact_date("vid00000001")
+
+    [(address, options, process)] = answers.asked
+    assert address == "https://www.youtube.com/watch?v=vid00000001"
+    assert options == dict(EXACT_DATE_OPTIONS)
+    assert process is False
+    assert options["extractor_args"]["youtube"] == {
+        "player_client": ["web"],
+        "player_skip": ["configs", "js"],
+        "skip": ["hls", "dash", "translated_subs"],
+    }
+    assert options["cachedir"] is False
+
+
+def test_the_exact_date_is_the_upload_time_of_a_regular_video() -> None:
+    """R-DT-03: a regular video became public when it was uploaded."""
+    answers = _Answers({"timestamp": 1_700_000_000, "release_timestamp": None})
+
+    assert YtDlpGateway(FakeClock(), extract=answers).exact_date("v") == 1_700_000_000
+
+
+def test_the_exact_date_of_a_premiere_is_its_release_time() -> None:
+    """R-DT-03: the release time wins; measured in M4 to equal the API's actual start."""
+    answers = _Answers({"timestamp": 1_540_660_402, "release_timestamp": 1_540_660_510})
+
+    assert YtDlpGateway(FakeClock(), extract=answers).exact_date("v") == 1_540_660_510
+
+
+def test_a_video_not_released_yet_has_no_exact_date() -> None:
+    """R-DT-03: the scheduled time of an upcoming premiere is not its published time."""
+    answers = _Answers(
+        {
+            "timestamp": 1_800_000_000,
+            "release_timestamp": 1_800_003_600,
+            "live_status": "is_upcoming",
+        }
+    )
+
+    assert YtDlpGateway(FakeClock(), extract=answers).exact_date("v") is None
+
+
+@pytest.mark.parametrize(
+    ("text", "code"),
+    [
+        ("Sign in to confirm you\u2019re not a bot", ErrorCode.BOT_CHECK),
+        ("HTTP Error 429: Too Many Requests", ErrorCode.RATE_LIMITED),
+        ("Private video. Sign in if you've been granted access", ErrorCode.VIDEO_PRIVATE),
+        ("Video unavailable. This video has been removed", ErrorCode.VIDEO_REMOVED),
+        ("Join this channel to get access to members-only content", ErrorCode.MEMBERS_ONLY),
+    ],
+)
+def test_a_failed_exact_date_lookup_has_the_code_of_a_video(text: str, code: ErrorCode) -> None:
+    """R-DT-13: a lookup that fails says why, with the codes of a video."""
+    gateway = YtDlpGateway(FakeClock(), extract=_Answers(RuntimeError(text)))
+
+    with pytest.raises(AppError) as failure:
+        gateway.exact_date("v")
+
+    assert failure.value.code is code

@@ -1,14 +1,17 @@
 """Tests of ``ytmirror.services.youtube_access``: the pause of the whole app."""
 
+import datetime
 from pathlib import Path
 
 import pytest
 from structlog.testing import capture_logs
 
-from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file
+from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines
 from ytmirror.adapters.fixture_youtube import THUMBNAIL_ADDRESS
 from ytmirror.core.channels import ChannelReference, CheckKind, ReferenceKind
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.pacing import HOUR_S, LookupBudget
+from ytmirror.services.youtube_access import next_local_midnight
 
 SMALL = ChannelReference(ReferenceKind.HANDLE, "@small")
 PICTURE = f"{THUMBNAIL_ADDRESS}sm000000001"
@@ -277,3 +280,79 @@ def test_a_check_that_the_app_starts_by_itself_waits_during_the_pause(tmp_path: 
 
     assert world.gateway.asked.count("listing") == asked
     assert world.repository.channel(channel_id).last_check_error is None  # pyright: ignore[reportOptionalMemberAccess]
+
+
+# --- the budget of lookups (R-DT-06, D-084)
+
+
+def test_a_download_is_counted_in_the_budget_and_never_held_by_it(tmp_path: Path) -> None:
+    """R-DT-06: a download's metadata lookup uses the budget, and a full one never stops it."""
+    world = World(tmp_path, budget=LookupBudget(per_hour=1))
+    world.add_and_list()
+
+    world.downloader.mirror(["sm000000005", "sm000000004"])
+    world.download_all()
+
+    assert world.gateway.asked.count("download") == 2
+    assert world.youtube.exact_date_wait_s() > 0
+
+
+def test_the_exact_date_lookup_is_counted_and_spreads_over_the_hour(tmp_path: Path) -> None:
+    """R-DT-06: after one lookup of the fetch the next waits 12 seconds at 300 an hour."""
+    world = World(tmp_path)
+
+    world.youtube.exact_date("sm000000005")
+
+    assert world.gateway.asked == ["exact_date"]
+    assert world.youtube.exact_date_wait_s() == 12
+
+
+def test_the_exact_date_lookup_is_held_by_the_pause(tmp_path: Path) -> None:
+    """R-ER-05: the exact-date fetch is work the app does by itself."""
+    world = refused(World(tmp_path))
+    bot_check(lambda: world.youtube.lookup_channel(SMALL))
+
+    bot_check(lambda: world.youtube.exact_date("sm000000005"))
+
+    assert "exact_date" not in world.gateway.asked
+
+
+def test_a_check_halves_the_budget_until_midnight_in_the_macs_time_zone(tmp_path: Path) -> None:
+    """R-DT-06: after the "not a bot" check the budget is 150 until local midnight."""
+    world = refused(World(tmp_path))
+    midnight = next_local_midnight(world.clock.now())
+
+    bot_check(lambda: world.youtube.lookup_channel(SMALL))
+
+    assert world.youtube.lookups_per_hour() == 150
+    world.clock.advance(midnight - world.clock.now().timestamp() - 1)
+    assert world.youtube.lookups_per_hour() == 150
+    world.clock.advance(1)
+    assert world.youtube.lookups_per_hour() == 300
+
+
+def test_the_next_midnight_is_the_start_of_the_next_local_day() -> None:
+    """R-DT-06: the halved budget ends at midnight in the Mac's time zone."""
+    now = datetime.datetime(2026, 11, 13, 21, 0, tzinfo=datetime.UTC)
+
+    midnight = datetime.datetime.fromtimestamp(next_local_midnight(now)).astimezone()
+
+    assert (midnight.hour, midnight.minute, midnight.second) == (0, 0, 0)
+    assert midnight.date() == now.astimezone().date() + datetime.timedelta(days=1)
+
+
+def test_the_lookups_of_each_hour_are_logged(tmp_path: Path) -> None:
+    """R-DT-06: the counts of an hour are logged, so real use shows whether 300 is right."""
+    world = World(tmp_path)
+    with capture_logs() as logs:
+        world.youtube.exact_date("sm000000005")
+        world.clock.advance(HOUR_S)
+        world.youtube.log_finished_hour()
+        world.youtube.exact_date("sm000000004")
+        world.youtube.log_open_hour()
+
+    hours = log_lines(logs, "youtube.lookups.hour")
+    assert [(line["exact_date"], line["download"], line["limit"]) for line in hours] == [
+        (1, 0, 300),
+        (1, 0, 300),
+    ]

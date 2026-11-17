@@ -11,7 +11,10 @@ step, so a test can let a new video appear, a title change, a video vanish
 and come back, or a check fail. A channel can answer slowly on request
 (``page_delay_ms``, and ``delay_ms`` in a step), so that what the interface
 shows while a listing runs can be seen and tested. Pictures are plain
-coloured rectangles.
+coloured rectangles. The exact date of a video comes from its ``published_at``
+and ``release_at``; a video can fail its lookup (``exact_date_fails``), be slow
+(``exact_date_delay_ms``) or not be released yet (``upcoming``), and a whole
+channel can refuse every lookup (``exact_dates_fail``).
 
 This module must not talk to the network and must not decide anything
 about the catalogue.
@@ -165,6 +168,37 @@ class FixtureYouTube:
                     break
                 return _png(*size, _colour_of(name))
         raise AppError(ErrorCode.NETWORK_UNREACHABLE, {"url": url})
+
+    def exact_date(self, video_id: str) -> int | None:
+        """Return the exact published time of a fixture video: its release, else its upload.
+
+        Args:
+            video_id: The video ID.
+
+        Returns:
+            Seconds since the Unix epoch, or None for a video marked ``upcoming``.
+
+        Raises:
+            AppError: ``VIDEO_REMOVED`` for an unknown video, or the code the fixture
+                asks for, for the video or its whole channel.
+        """
+        found = [
+            (channel, plan)
+            for channel in self._channels.values()
+            for plan in (channel.download_plan(video_id),)
+            if plan is not None
+        ]
+        if not found:
+            raise AppError(ErrorCode.VIDEO_REMOVED, {"video": video_id})
+        channel, plan = found[0]
+        if plan.exact_date_delay_s:
+            self._sleep(plan.exact_date_delay_s)
+        failure = channel.exact_dates_fail or plan.exact_date_fails
+        if failure is not None:
+            raise AppError(failure, {"message": f"the fixture fails the date of {video_id}"})
+        if plan.upcoming:
+            return None
+        return plan.release_time if plan.release_time is not None else plan.upload_time
 
     def download(
         self,
@@ -412,6 +446,9 @@ class _FixtureChannel:
                 ErrorCode(count["fail"]) if isinstance(count, dict) else int(count)
             )
             self.lookup_fails = ErrorCode(data["lookup_fails"]) if "lookup_fails" in data else None
+            self.exact_dates_fail = (
+                ErrorCode(data["exact_dates_fail"]) if "exact_dates_fail" in data else None
+            )
             self._videos = [self._video(entry) for entry in data.get("videos", [])]
             self._videos += self._generated(data.get("generate"))
             self._download_defaults: Mapping[str, Any] = dict(data.get("download", {}))
@@ -507,6 +544,7 @@ class _FixtureChannel:
         upload = entry.get("published_at")
         release = entry.get("release_at")
         fails = entry.get("download_fails")
+        exact_fails = entry.get("exact_date_fails")
         return _DownloadPlan(
             title=video.title,
             description=str(entry.get("description", f"The description of {video.title}.")),
@@ -521,6 +559,9 @@ class _FixtureChannel:
             step_delay_s=float(entry.get("step_delay_ms", 0)) / 1000,
             metadata_delay_s=float(entry.get("metadata_delay_ms", 0)) / 1000,
             size_unknown=bool(entry.get("size_unknown", False)),
+            exact_date_fails=ErrorCode(exact_fails) if exact_fails else None,
+            exact_date_delay_s=float(entry.get("exact_date_delay_ms", 0)) / 1000,
+            upcoming=bool(entry.get("upcoming", False)),
             chapters=tuple(
                 Chapter(start_s=float(start), title=str(title))
                 for start, title in entry.get("chapters", [[0, "Start"], [1, "The middle"]])
@@ -585,6 +626,9 @@ class _DownloadPlan:
     step_delay_s: float
     metadata_delay_s: float
     size_unknown: bool
+    exact_date_fails: ErrorCode | None
+    exact_date_delay_s: float
+    upcoming: bool
     chapters: tuple[Chapter, ...]
 
 

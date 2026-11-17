@@ -45,6 +45,7 @@ from ytmirror.core.jobs import (
     VideoUpdated,
 )
 from ytmirror.core.models import AppEvent
+from ytmirror.core.pacing import LookupBudget
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
@@ -128,7 +129,8 @@ class RefusingGateway:
     """Passes everything on to the fake YouTube, and can refuse like the real one.
 
     Attributes:
-        refuse: Kinds of request ("lookup", "listing", "count", "image", "download") with the
+        refuse: Kinds of request ("lookup", "listing", "count", "image", "download",
+            "exact_date") with the
             error code to answer them with.
         asked: Every request that reached the gateway, by kind.
     """
@@ -178,6 +180,11 @@ class RefusingGateway:
         """Fetch a picture, unless pictures are refused."""
         self._maybe_refuse("image")
         return self._youtube.fetch_image(url)
+
+    def exact_date(self, video_id: str) -> int | None:
+        """Return the exact date of a video, unless lookups of dates are refused."""
+        self._maybe_refuse("exact_date")
+        return self._youtube.exact_date(video_id)
 
     def download(
         self,
@@ -289,7 +296,11 @@ class World:
     """
 
     def __init__(
-        self, folder: Path, *channels: dict[str, Any], bus: EventBus | None = None
+        self,
+        folder: Path,
+        *channels: dict[str, Any],
+        bus: EventBus | None = None,
+        budget: LookupBudget | None = None,
     ) -> None:
         """Build the services on a new database and a fake YouTube with the given channels.
 
@@ -297,6 +308,7 @@ class World:
             folder: A temp folder of the test.
             channels: The channels of the fake YouTube. Default: one small channel.
             bus: The event bus to publish on. Default: a new one.
+            budget: The budget of lookups. Default: 300 an hour.
         """
         world_dir = folder / "youtube"
         world_dir.mkdir()
@@ -327,7 +339,11 @@ class World:
         self.jobs = SqlJobRepository(engine, self.clock)
         self.settings = SettingsService(self.settings_repository, self.library)
         self.youtube = YouTubeAccess(
-            self.gateway, self.clock, self.bus, lambda delay, work: self.later.append((delay, work))
+            self.gateway,
+            self.clock,
+            self.bus,
+            lambda delay, work: self.later.append((delay, work)),
+            budget=budget,
         )
         self.downloads = DownloadState()
         self.views = ChannelViews(

@@ -108,6 +108,26 @@ METADATA_OPTIONS: Mapping[str, Any] = {
 }
 """The full metadata of one video, read before its download (ARCHITECTURE section 7.3)."""
 
+EXACT_DATE_OPTIONS: Mapping[str, Any] = {
+    "quiet": True,
+    "no_warnings": True,
+    "noprogress": True,
+    "skip_download": True,
+    "cachedir": False,
+    "socket_timeout": 20,
+    "extractor_retries": 0,
+    "check_formats": False,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["web"],
+            "player_skip": ["configs", "js"],
+            "skip": ["hls", "dash", "translated_subs"],
+        }
+    },
+}
+"""The lightest lookup that still gives the exact time of a video, read without
+processing (ARCHITECTURE section 7.4, measured in M2 and M4)."""
+
 DOWNLOAD_OPTIONS: Mapping[str, Any] = {
     "quiet": True,
     "noprogress": True,
@@ -363,6 +383,26 @@ class YtDlpGateway:
             ),
         )
 
+    def exact_date(self, video_id: str) -> int | None:
+        """Return the exact published time of one video, with the lightest lookup (R-DT-05).
+
+        Args:
+            video_id: The video ID.
+
+        Returns:
+            The release time, else the upload time (R-DT-03), or None for a
+            video that has not been released yet.
+
+        Raises:
+            AppError: With the code of what went wrong.
+        """
+        address = f"https://www.youtube.com/watch?v={video_id}"
+        info = self._ask_about_video(address, EXACT_DATE_OPTIONS, process=False)
+        if info.get("live_status") == "is_upcoming":
+            # Its release time is only the time it is scheduled for.
+            return None
+        return published_time(_int(info.get("release_timestamp")), _int(info.get("timestamp")))
+
     def _runtime(self) -> dict[str, Any]:
         """Return the options that point yt-dlp at the tools of the app folder."""
         if self._tools is None:
@@ -372,9 +412,11 @@ class YtDlpGateway:
             "js_runtimes": {"deno": {"path": str(self._tools.deno)}},
         }
 
-    def _ask_about_video(self, address: str, options: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _ask_about_video(
+        self, address: str, options: Mapping[str, Any], *, process: bool = True
+    ) -> Mapping[str, Any]:
         try:
-            return self._extract(address, options, True)
+            return self._extract(address, options, process)
         except AppError as error:
             raise AppError(
                 code_of(error.details.get("message", ""), video=True), error.details
