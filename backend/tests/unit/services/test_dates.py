@@ -505,3 +505,15 @@ def test_a_fault_while_storing_never_leaves_a_video_updating(
         world.dates.step()
 
     assert not world.date_state.updating(NEWEST)
+
+
+def test_no_progress_is_told_while_the_fetch_does_not_run(tmp_path: Path) -> None:
+    """R-FB-01, R-DT-05: lookups switched off and no key: no "Exact dates" anywhere."""
+    world = listed(tmp_path)
+    without_lookups(world)
+
+    world.dates.step()
+
+    view = world.views.of(SMALL_ID)
+    assert view is not None
+    assert view.exact_dates is None

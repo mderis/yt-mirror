@@ -57,7 +57,6 @@
   --ytm-duration-base: 200ms;
   --ytm-duration-arrive: 1200ms;
   --ytm-duration-working: 1400ms;
-  --ytm-duration-turn: 1000ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -66,7 +65,6 @@
     --ytm-duration-base: 0ms;
     --ytm-duration-arrive: 0ms;
     --ytm-duration-working: 0ms;
-    --ytm-duration-turn: 0ms;
   }
 }
 

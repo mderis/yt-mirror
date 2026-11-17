@@ -64,14 +64,17 @@ class DateFetchState:
             return self._known.key
 
     def progress(self, channel_id: str) -> ExactDatesProgress | None:
-        """Return how far the exact dates of a channel are, or None when none of its dates waits.
+        """Return how far the exact dates of a channel are, or None when none is being fetched.
+
+        Nothing is told while the fetch does not run at all: no key that works and
+        the lookups without a key switched off.
 
         Args:
             channel_id: The channel.
         """
         with self._lock:
             run = self._known.runs.get(channel_id)
-            if run is None:
+            if run is None or not self._known.active:
                 return None
             key = self._known.key
             return ExactDatesProgress(

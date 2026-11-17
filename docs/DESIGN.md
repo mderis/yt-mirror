@@ -175,8 +175,7 @@ Approved by the maintainer in milestone M0. The mockups do not define these as r
 | `duration-fast` | 150 ms | Hover, press, toggles |
 | `duration-base` | 200 ms | Menus, dialogs, panels, toasts |
 | `duration-arrive` | 1200 ms | The highlight that fades when an exact date replaces an approximate one (R-DT-13) |
-| `duration-working` | 1400 ms | One pass of the part of a progress bar that moves while the share of a step is unknown: processing, or a download whose size YouTube did not give (R-QU-04) |
-| `duration-turn` | 1000 ms | One turn of the loading icon of a date that is being fetched (R-DT-13). Under "reduce motion" the icon stands still |
+| `duration-working` | 1400 ms | One pass of the part of a progress bar that moves while the share of a step is unknown: processing, or a download whose size YouTube did not give (R-QU-04), and one turn of the loading icon of a date that is being fetched (R-DT-13) |
 
 All durations become 0 ms when the system "reduce motion" setting is on. A bar of unknown progress is then full, dimmed and still.
 
