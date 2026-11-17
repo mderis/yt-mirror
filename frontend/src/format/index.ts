@@ -68,6 +68,25 @@ export function formatDuration(seconds: number): string {
   return hours > 0 ? `${hours}:${two(minutes)}:${two(rest)}` : `${two(minutes)}:${two(rest)}`
 }
 
+/** A time in round numbers, as "about ... left" says it: the unit and how many of it. */
+export interface RoughTime {
+  unit: 'minute' | 'hour' | 'day'
+  count: number
+}
+
+/** A time span in round numbers: minutes up to an hour, hours up to two days, then days. */
+export function roughTime(seconds: number): RoughTime {
+  const minutes = Math.max(1, Math.ceil(seconds / MINUTE))
+  if (minutes < 60) {
+    return { unit: 'minute', count: minutes }
+  }
+  const hours = Math.round(seconds / HOUR)
+  if (hours < 48) {
+    return { unit: 'hour', count: hours }
+  }
+  return { unit: 'day', count: Math.round(seconds / (24 * HOUR)) }
+}
+
 const compactNumber = new Intl.NumberFormat(NUMBER_LOCALE, {
   notation: 'compact',
   maximumFractionDigits: 1,

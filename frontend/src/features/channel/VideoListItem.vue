@@ -149,7 +149,8 @@ function cancel(): void {
       <DateLabel
         :text="date.text"
         :approximate="date.approximate"
-        :note="t('channel.list.dateNote')"
+        :state="date.state"
+        :note="date.note"
       />
       <template v-if="row.views !== null">
         <span aria-hidden="true">{{ t('app.separator') }}</span>

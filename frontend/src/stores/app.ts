@@ -54,6 +54,8 @@ export const useAppStore = defineStore('app', () => {
       pauseChanged: (pause) => channels.setPause(pause),
       videoUpdated: (channelId, video) => videos.applyVideo(channelId, video),
       jobProgress: (download) => videos.applyDownload(download),
+      apiKeyChanged: (key) => channels.setApiKey(key),
+      checksProgress: (progress) => channels.setCheckingAll(progress),
       reconnected: reload,
     })
   }

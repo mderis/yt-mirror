@@ -371,6 +371,34 @@ function ref(name: string): string {
                   <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
                 </template>
               </VideoRow>
+              <VideoRow :title="t('themePreview.sampleVideo')">
+                <template #facts>
+                  <span>{{ t('themePreview.sampleUploaded') }}</span>
+                  <DateLabel
+                    approximate
+                    state="updating"
+                    :text="t('themePreview.sampleAroundDate')"
+                    :note="t('themePreview.sampleDateUpdating')"
+                  />
+                </template>
+                <template #status>
+                  <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
+                </template>
+              </VideoRow>
+              <VideoRow :title="t('themePreview.sampleVideo')">
+                <template #facts>
+                  <span>{{ t('themePreview.sampleUploaded') }}</span>
+                  <DateLabel
+                    approximate
+                    state="unavailable"
+                    :text="t('themePreview.sampleAroundDate')"
+                    :note="t('themePreview.sampleDateUnavailable')"
+                  />
+                </template>
+                <template #status>
+                  <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
+                </template>
+              </VideoRow>
             </div>
             <div class="flex items-center gap-3" data-component="skeleton">
               <SkeletonBlock class="h-18 w-32" />

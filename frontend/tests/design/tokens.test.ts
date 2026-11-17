@@ -115,10 +115,11 @@ describe('tokens.css', () => {
       '--ytm-duration-arrive',
       '--ytm-duration-base',
       '--ytm-duration-fast',
+      '--ytm-duration-turn',
       '--ytm-duration-working',
     ])
     expect([...tokens.reducedMotion.keys()].sort()).toEqual(durations)
-    expect([...tokens.reducedMotion.values()]).toEqual(['0ms', '0ms', '0ms', '0ms'])
+    expect([...tokens.reducedMotion.values()]).toEqual(['0ms', '0ms', '0ms', '0ms', '0ms'])
   })
 
   it('R-TH-07: the file is plain CSS that the website can import as it is', () => {

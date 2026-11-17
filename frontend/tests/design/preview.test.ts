@@ -120,6 +120,13 @@ describe('the theme preview page', () => {
       expect(components?.querySelector('[data-date="waiting"]')?.textContent, theme).toContain(
         'around 2005',
       )
+      // R-DT-13: the three states of a date that is not exact, on the preview page.
+      for (const state of ['updating', 'unavailable']) {
+        expect(
+          components?.querySelector(`[data-date="${state}"]`),
+          `${state} in ${theme}`,
+        ).not.toBeNull()
+      }
       expect(
         [...(components?.querySelectorAll('[data-component="icon"] svg') ?? [])].map((icon) =>
           icon.getAttribute('data-icon'),

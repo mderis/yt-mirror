@@ -43,6 +43,7 @@ const items = computed<MenuItem[]>(() => {
     ...checks,
     pause,
     { id: 'openFolder', label: t('channel.menu.openFolder'), icon: 'folder' },
+    { id: 'repairDates', label: t('channel.menu.repairDates'), icon: 'clock' },
     {
       id: 'openOnYouTube',
       label: t('channel.menu.openOnYouTube'),
@@ -61,6 +62,12 @@ function choose(id: string): void {
     pause: () => ui.run(channels.setPaused(channelId, true)),
     resume: () => ui.run(channels.setPaused(channelId, false)),
     openFolder: () => ui.run(channels.openFolder(channelId)),
+    repairDates: () =>
+      ui.run(
+        channels
+          .repairDates(channelId)
+          .then((result) => ui.showRepaired({ channel: props.channel.title, ...result })),
+      ),
     remove: () => ui.askRemove(channelId),
   }
   // "Open on YouTube" is a link: the browser opens it, nothing is left to do here.

@@ -13,12 +13,14 @@ import AppButton from '@/components/AppButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import IconButton from '@/components/IconButton.vue'
 import SkeletonBlock from '@/components/SkeletonBlock.vue'
+import { formatNumber } from '@/format'
 import { useErrorTexts } from '@/i18n/errors'
 import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
 import { useVideosStore } from '@/stores/videos'
 
 import ChannelHeader from './ChannelHeader.vue'
+import ExactDatesNotice from './ExactDatesNotice.vue'
 import CheckFailedBanner from './CheckFailedBanner.vue'
 import FullCheckProgress from './FullCheckProgress.vue'
 import { isBeingListed } from './status'
@@ -37,6 +39,23 @@ const videos = useVideosStore()
 const ui = useUiStore()
 
 const channel = computed(() => channels.byId.get(props.id))
+/** What "Repair dates" did for this channel, as a sentence (R-DT-09). */
+const repaired = computed(() => {
+  const result = ui.repaired
+  if (result === null || result.channel !== channel.value?.title) {
+    return null
+  }
+  const values = {
+    channel: result.channel,
+    checked: formatNumber(result.checked),
+    repaired: formatNumber(result.repaired),
+    failed: formatNumber(result.failed),
+  }
+  if (result.failed > 0) {
+    return t('repaired.failed', values)
+  }
+  return result.repaired > 0 ? t('repaired.some', values) : t('repaired.none', values)
+})
 const fullCheck = computed(() =>
   channel.value?.progress?.kind === 'full_check' ? channel.value.progress : null,
 )
@@ -70,7 +89,14 @@ watch(
   <main v-if="channel" class="flex h-full min-w-0 flex-col">
     <ChannelHeader :channel="channel" />
     <div
-      v-if="existing || channel.last_check_error || fullCheck"
+      v-if="
+        existing ||
+        channel.last_check_error ||
+        fullCheck ||
+        channel.key_notice ||
+        channel.exact_dates?.offer_key ||
+        repaired
+      "
       class="flex flex-col gap-3 px-7 pb-3"
     >
       <AppBanner v-if="existing" tone="info" data-banner="existing">
@@ -90,6 +116,18 @@ watch(
         :code="channel.last_check_error"
       />
       <FullCheckProgress v-if="fullCheck" :progress="fullCheck" />
+      <ExactDatesNotice :channel="channel" />
+      <AppBanner v-if="repaired" tone="info" data-banner="repaired">
+        {{ repaired }}
+        <template #action>
+          <IconButton
+            icon="close"
+            size="sm"
+            :label="t('error.dismiss')"
+            @press="ui.closeRepaired()"
+          />
+        </template>
+      </AppBanner>
     </div>
     <!-- It can be focused, so that the list can be scrolled with the keyboard (R-UI-13).
          It is `relative`, so that nothing inside it is placed against the window (R-UI-01). -->

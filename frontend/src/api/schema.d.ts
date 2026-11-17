@@ -234,6 +234,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/channels/{channel_id}/repair-dates': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Repair Dates
+     * @description Compare the dates of a channel's synced files and repair them (R-DT-09).
+     */
+    post: operations['repairDates']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/channels/{channel_id}/videos': {
     parameters: {
       query?: never
@@ -328,6 +348,54 @@ export interface paths {
      * @description Cancel a download that waits or runs (R-QU-02).
      */
     post: operations['cancelJob']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/settings/api-key': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Get Api Key
+     * @description Return how the API key stands. Never the key itself.
+     */
+    get: operations['getApiKey']
+    /**
+     * Save Api Key
+     * @description Save an API key in place of the saved one, and use it from now on (R-DT-12).
+     */
+    put: operations['saveApiKey']
+    post?: never
+    /**
+     * Remove Api Key
+     * @description Remove the API key: exact dates are looked up without it (R-DT-12).
+     */
+    delete: operations['removeApiKey']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/settings/api-key/test': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Test Api Key
+     * @description Ask the YouTube API once with a key, or with the saved one (R-DT-12).
+     */
+    post: operations['testApiKey']
     delete?: never
     options?: never
     head?: never
@@ -597,6 +665,29 @@ export interface components {
       existing: boolean
     }
     /**
+     * ApiKey
+     * @description How the optional YouTube API key stands (R-DT-12). Never the key itself.
+     *
+     *     Attributes:
+     *         status: None saved, saved, or saved but unreadable, invalid or out of quota.
+     *         until: Until when the app does without a failing key, or None.
+     */
+    ApiKey: {
+      status: components['schemas']['KeyStatus']
+      /** Until */
+      until: number | null
+    }
+    /**
+     * ApiKeyChangedEvent
+     * @description The data of the ``apikey.changed`` event of ``GET /api/events``.
+     *
+     *     Attributes:
+     *         api_key: How the key stands now (R-DT-12).
+     */
+    ApiKeyChangedEvent: {
+      api_key: components['schemas']['ApiKey']
+    }
+    /**
      * BannerChangedEvent
      * @description The data of the ``banner.changed`` event of ``GET /api/events``.
      *
@@ -671,6 +762,12 @@ export interface components {
      *         catalogue_version: A number that grows with every successful check of the channel.
      *         mirroring: While videos of the channel are downloaded, how many ended and how
      *             many there are (R-FB-01: "Mirroring X of Y"). Otherwise None.
+     *         exact_dates: While dates of the channel wait to be looked up, how far they are
+     *             ("Exact dates X of Y"), the time left and the key offer. Otherwise None.
+     *         key_notice: Whether a saved API key is not working while dates of the channel
+     *             wait (R-DT-12): "the API key is not working, using the slow way".
+     *         waiting_until: When the exact dates go on, while they wait for YouTube.
+     *         retry_at: When a failed check is tried again by itself (R-CH-25), or None.
      */
     Channel: {
       /** Auto Mirror */
@@ -679,6 +776,7 @@ export interface components {
       avatar_version: number
       /** Catalogue Version */
       catalogue_version: number
+      exact_dates?: components['schemas']['ExactDates'] | null
       /** Excluded */
       excluded: number
       /** First Listed At */
@@ -691,6 +789,11 @@ export interface components {
       handle: string | null
       /** Id */
       id: string
+      /**
+       * Key Notice
+       * @default false
+       */
+      key_notice: boolean
       /** Last Check At */
       last_check_at: number | null
       last_check_error: components['schemas']['ErrorCode'] | null
@@ -709,6 +812,8 @@ export interface components {
       pictures: number
       progress: components['schemas']['Progress'] | null
       quality: components['schemas']['Quality'] | null
+      /** Retry At */
+      retry_at?: number | null
       /** Size Bytes */
       size_bytes: number
       status: components['schemas']['ChannelStatus']
@@ -720,6 +825,8 @@ export interface components {
       url: string
       /** Videos */
       videos: number
+      /** Waiting Until */
+      waiting_until?: number | null
     }
     /**
      * ChannelStatus
@@ -731,6 +838,7 @@ export interface components {
     ChannelStatus:
       | 'mirroring'
       | 'checking'
+      | 'exact_dates'
       | 'waiting_for_youtube'
       | 'could_not_check'
       | 'new_videos'
@@ -808,6 +916,17 @@ export interface components {
       | 'schedule'
       | 'api'
     /**
+     * ChecksProgressEvent
+     * @description The data of the ``checks.progress`` event of ``GET /api/events``.
+     *
+     *     Attributes:
+     *         checking_all: How many checks of a check of all channels ended, and how many
+     *             there are, or None when it ended (R-CH-20: "Checking channels: 3 of 5").
+     */
+    ChecksProgressEvent: {
+      checking_all: components['schemas']['Mirroring'] | null
+    }
+    /**
      * ChosenFolderResponse
      * @description The answer of ``POST /api/folders/choose``.
      *
@@ -822,11 +941,32 @@ export interface components {
       video_files: number
     }
     /**
+     * DateInfo
+     * @description What an approximate date shows (R-DT-13).
+     *
+     *     Attributes:
+     *         state: Waiting, updating or unavailable.
+     *         reason: Why it is unavailable, or None.
+     *         retry_at: When it is tried again, or None.
+     */
+    DateInfo: {
+      reason: components['schemas']['ErrorCode'] | null
+      /** Retry At */
+      retry_at: number | null
+      state: components['schemas']['DateState']
+    }
+    /**
      * DatePrecision
      * @description The unit YouTube gave an approximate date in (R-DT-04, docs/GLOSSARY.md).
      * @enum {string}
      */
     DatePrecision: 'day' | 'week' | 'month' | 'year'
+    /**
+     * DateState
+     * @description What the approximate date of a video shows (R-DT-13).
+     * @enum {string}
+     */
+    DateState: 'waiting' | 'updating' | 'unavailable'
     /**
      * DiskSpace
      * @description The disk the library is on (R-UI-01).
@@ -931,6 +1071,9 @@ export interface components {
       | 'DB_UPGRADE_FAILED'
       | 'CHANNEL_BUSY'
       | 'DB_UNREADABLE'
+      | 'API_KEY_INVALID'
+      | 'API_QUOTA_EXCEEDED'
+      | 'API_KEY_UNREADABLE'
       | 'INTERNAL'
     /**
      * ErrorResponse
@@ -946,6 +1089,28 @@ export interface components {
       | components['schemas']['BannerChangedEvent']
       | components['schemas']['VideoUpdatedEvent']
       | components['schemas']['JobProgressEvent']
+      | components['schemas']['ApiKeyChangedEvent']
+      | components['schemas']['ChecksProgressEvent']
+    /**
+     * ExactDates
+     * @description How far the exact dates of a channel are (R-FB-01, R-DT-14, R-DT-15).
+     *
+     *     Attributes:
+     *         done: How many dates were found since the channel last had none waiting.
+     *         total: How many there are in all since then.
+     *         left_s: The measured time left, or None while it is not known.
+     *         offer_key: Whether the channel offers the key.
+     */
+    ExactDates: {
+      /** Done */
+      done: number
+      /** Left S */
+      left_s: number | null
+      /** Offer Key */
+      offer_key: boolean
+      /** Total */
+      total: number
+    }
     /**
      * FileFacts
      * @description The file of a synced video, as the details panel shows it (R-UI-08).
@@ -1054,6 +1219,12 @@ export interface components {
      * @enum {string}
      */
     KeptReason: 'trash_refused' | 'another_video' | 'not_checked' | 'outside_folder'
+    /**
+     * KeyStatus
+     * @description How the optional API key stands (R-DT-12).
+     * @enum {string}
+     */
+    KeyStatus: 'none' | 'saved' | 'unreadable' | 'invalid' | 'quota_exceeded'
     /**
      * LookupRequest
      * @description The body of ``POST /api/channels/lookup``.
@@ -1215,6 +1386,34 @@ export interface components {
       left: components['schemas']['KeptFileResponse'][]
     }
     /**
+     * RepairDatesResponse
+     * @description The answer of ``POST /api/channels/{channel_id}/repair-dates`` (R-DT-09).
+     *
+     *     Attributes:
+     *         checked: How many synced files were compared.
+     *         repaired: How many had other dates and were set again.
+     *         failed: How many could not be set or did not read back.
+     */
+    RepairDatesResponse: {
+      /** Checked */
+      checked: number
+      /** Failed */
+      failed: number
+      /** Repaired */
+      repaired: number
+    }
+    /**
+     * SaveApiKeyRequest
+     * @description The body of ``PUT /api/settings/api-key``.
+     *
+     *     Attributes:
+     *         key: The key as the user pasted it. Never logged or stored outside its file.
+     */
+    SaveApiKeyRequest: {
+      /** Key */
+      key: string
+    }
+    /**
      * Stage
      * @description What a running download does now (R-QU-04).
      * @enum {string}
@@ -1231,12 +1430,17 @@ export interface components {
      *         disk: The disk the library is on.
      *         can_choose_folder: Whether the folder dialog of macOS can be shown.
      *         youtube_pause: The pause of the whole app, or None (R-ER-05).
+     *         api_key: How the optional API key stands (R-DT-12).
+     *         checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
+     *             or None (R-CH-20).
      */
     StateResponse: {
+      api_key: components['schemas']['ApiKey']
       /** Can Choose Folder */
       can_choose_folder: boolean
       /** Channels */
       channels: components['schemas']['Channel'][]
+      checking_all?: components['schemas']['Mirroring'] | null
       disk: components['schemas']['DiskSpace']
       /** Library Folder */
       library_folder: string
@@ -1259,6 +1463,32 @@ export interface components {
      */
     TaskProgressEvent: {
       progress: components['schemas']['Progress']
+    }
+    /**
+     * TestApiKeyRequest
+     * @description The body of ``POST /api/settings/api-key/test``.
+     *
+     *     Attributes:
+     *         key: The key to test, or None for the saved key.
+     */
+    TestApiKeyRequest: {
+      /** Key */
+      key?: string | null
+    }
+    /**
+     * TestApiKeyResponse
+     * @description The answer of "Test key" (R-DT-12).
+     *
+     *     Attributes:
+     *         works: Whether the YouTube API answered with the key.
+     *         error_code: Why not, or None.
+     *         api_key: How the saved key stands now.
+     */
+    TestApiKeyResponse: {
+      api_key: components['schemas']['ApiKey']
+      error_code: components['schemas']['ErrorCode'] | null
+      /** Works */
+      works: boolean
     }
     /**
      * Tool
@@ -1359,8 +1589,10 @@ export interface components {
      *         height: The height of the file of a synced video (R-FB-02), or None.
      *         file_size: The size of its file in bytes, or None.
      *         error_code: Why the last download failed (R-QU-08), or None.
+     *         date: What an approximate date shows (R-DT-13), or None for an exact date.
      */
     Video: {
+      date?: components['schemas']['DateInfo'] | null
       download?: components['schemas']['Download'] | null
       /** Duration S */
       duration_s: number | null
@@ -2232,6 +2464,64 @@ export interface operations {
       }
     }
   }
+  repairDates: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RepairDatesResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   getChannelVideos: {
     parameters: {
       query?: never
@@ -2299,7 +2589,7 @@ export interface operations {
     }
     requestBody?: never
     responses: {
-      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress`` and ``banner.changed`` carry these data, in this order. */
+      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress``, ``banner.changed``, ``video.updated``, ``job.progress``, ``apikey.changed`` and ``checks.progress`` carry these data, in this order. */
       200: {
         headers: {
           [name: string]: unknown
@@ -2449,6 +2739,220 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['CancelJobResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  getApiKey: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ApiKey']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  saveApiKey: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SaveApiKeyRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ApiKey']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  removeApiKey: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ApiKey']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  testApiKey: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TestApiKeyRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['TestApiKeyResponse']
         }
       }
       /** @description Unauthorized */

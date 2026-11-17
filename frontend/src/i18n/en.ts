@@ -153,6 +153,7 @@ export const en = {
   shell: {
     channels: 'Channels',
     checkAll: 'Check all channels now',
+    checkingAll: 'Checking channels: {done} of {total}',
     addChannel: 'Add channel',
     freeSpace: '{size} free on {disk}',
   },
@@ -164,9 +165,92 @@ export const en = {
     newVideos: '{count} new video | {count} new videos',
     paused: 'Paused',
     couldNotCheck: 'Could not check',
+    couldNotCheckRetrying: 'Could not check · retrying in {in}',
+    couldNotCheckRetryingSoon: 'Could not check · retrying now',
+    exactDates: 'Exact dates {done} of {total}',
+    exactDatesLeft: 'Exact dates {done} of {total} · {left}',
     waitingForYouTube: 'Waiting for YouTube',
     nextAttempt: 'The next attempt is at {time}.',
     newBadge: '{count} new',
+  },
+  /** The answer of "Repair dates" (R-DT-09). */
+  repaired: {
+    none: 'Dates checked: every file of {channel} has the right dates.',
+    some: 'Dates checked: {repaired} of {checked} files of {channel} were set to their published time.',
+    failed:
+      'Dates checked: {failed} files of {channel} could not be set. They are tried again at the next check.',
+  },
+  /** The guide of the optional YouTube API key (R-DT-12, design: ApiKeyGuide.html). */
+  apiKey: {
+    title: 'Get exact dates faster (optional)',
+    close: 'Close',
+    intro:
+      'A key lets yt-mirror ask YouTube for exact upload dates 50 videos at a time, so a large channel takes seconds instead of hours. It is optional and only used for reading public video dates.',
+    freeTitle: 'The key is free.',
+    freeText:
+      'Google charges nothing for this, and you do not enter any payment details. There is only a daily usage limit, and yt-mirror stays far below it.',
+    steps: {
+      console: {
+        title: 'Open the Google Cloud Console',
+        text: 'Sign in with any Google account.',
+        link: 'Open Google Cloud Console',
+      },
+      project: {
+        title: 'Create a project',
+        text: 'Click the project menu at the top, then "New project". Any name works, for example "yt-mirror".',
+      },
+      enable: {
+        title: 'Turn on the YouTube Data API v3',
+        text: 'Go to "APIs and services", then "Library". Search for "YouTube Data API v3" and click "Enable".',
+      },
+      create: {
+        title: 'Create the key',
+        text: 'Go to "Credentials", click "Create credentials", then "API key". Copy the key that appears.',
+      },
+      restrict: {
+        title: 'Recommended: restrict the key',
+        text: 'Edit the key and under "API restrictions" allow only "YouTube Data API v3".',
+      },
+      paste: { title: 'Paste it here' },
+    },
+    field: 'API key',
+    savedHint: 'A key is saved. Paste a new one to replace it.',
+    test: 'Test key',
+    save: 'Save key',
+    remove: 'Remove key',
+    notNow: 'Not now',
+    stored:
+      'The key is stored only on this Mac. You can remove it at any time and yt-mirror keeps working without it.',
+    works: 'Key works. Exact dates will now load quickly.',
+    tested: {
+      api_key_invalid:
+        'YouTube did not accept this key. Check that it was copied whole and that the YouTube Data API v3 is turned on.',
+      api_quota_exceeded:
+        'The daily quota of this key is used up. It works again after midnight Pacific time.',
+      other: 'Google could not be reached. Try again in a minute.',
+    },
+    status: {
+      saved: 'A key is saved and used for exact dates.',
+      unreadable: 'Key saved but cannot be read. Paste it again and save it.',
+      invalid:
+        'YouTube did not accept the saved key. Exact dates are fetched the slow way until you save a working key.',
+      quota_exceeded:
+        'The daily quota of the saved key is used up. Exact dates are fetched the slow way until {time}.',
+    },
+    notice: 'Exact dates: the API key is not working, using the slow way.',
+    fix: 'Fix the key',
+    offer:
+      'Exact dates take {left} at this pace. With a free API key, the whole channel needs one request per 50 videos.',
+    offerAction: 'Get exact dates faster',
+  },
+  /** Round time spans (R-DT-14, R-CH-25). */
+  rough: {
+    minuteLeft: 'about {count} minute left | about {count} minutes left',
+    hourLeft: 'about {count} hour left | about {count} hours left',
+    dayLeft: 'about {count} day left | about {count} days left',
+    minute: '{count} min',
+    hour: '{count} h | {count} h',
+    day: '{count} day | {count} days',
   },
   /** The welcome screen of an app without channels (R-UI-02, design: Welcome.html). */
   welcome: {
@@ -247,6 +331,7 @@ export const en = {
     openFolder: 'Open folder',
     moreActions: 'More actions',
     menu: {
+      repairDates: 'Repair dates',
       label: 'Actions of {channel}',
       check: 'Check now',
       fullCheck: 'Full check',
@@ -268,6 +353,7 @@ export const en = {
     fullCheckLabel: 'Progress of the full check',
     cancelCheck: 'Cancel',
     failed: {
+      autoRetry: 'yt-mirror tries again by itself at {time}.',
       reach: 'Could not reach YouTube',
       keptList:
         'The video list below is from the last successful check ({when}). Your downloaded files are not affected.',
@@ -287,6 +373,21 @@ export const en = {
       uploadedAround: 'Uploaded around {date}',
       datePending: 'date pending',
       dateNote: 'Exact date pending',
+      dateUpdating: 'Getting the exact date...',
+      dateRetryAt: '{why} It is tried again at {time}.',
+      dateRetryLater: '{why} It is tried again later.',
+      dateWhy: {
+        bot_check: 'YouTube asks to confirm that you are not a bot.',
+        rate_limited: 'YouTube asked yt-mirror to slow down.',
+        network_unreachable: 'YouTube could not be reached.',
+        video_private: 'The video is private.',
+        video_removed: 'The video is not available.',
+        members_only: 'The video is for channel members only.',
+        age_restricted: 'The video needs a signed-in account.',
+        geo_blocked: 'The video is not available in your country.',
+        not_yet_available: 'The video is not released yet.',
+        other: 'The exact date could not be fetched.',
+      },
       views: '{count} views',
       notDownloaded: 'Not downloaded',
       queued: 'Queued',
@@ -410,6 +511,8 @@ export const en = {
     title: 'YouTube asks to confirm that you are not a bot',
     text: 'YouTube does this for some network addresses, whatever the channel or the video. yt-mirror has stopped asking YouTube by itself and tries again at {time}. You can wait, or try another network or another VPN location.',
     tryNow: 'Try now',
+    keyHint: 'The optional API key gets exact dates without this check.',
+    setUpKey: 'Set up the API key',
   },
   themePreview: {
     title: 'Theme preview',
@@ -484,6 +587,8 @@ export const en = {
     sampleExactDate: '11 Nov 2026',
     sampleAroundDate: 'around 2005',
     sampleDateNote: 'Exact date pending',
+    sampleDateUpdating: 'Getting the exact date...',
+    sampleDateUnavailable: 'YouTube asked yt-mirror to slow down. It is tried again at 14:20.',
   },
 } as const
 

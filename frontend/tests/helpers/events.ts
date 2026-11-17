@@ -1,7 +1,7 @@
 /** A stand-in for the browser's EventSource, so tests can play the event stream. */
 import { vi } from 'vitest'
 
-import type { Channel, Download, Pause, Progress, Tool, Video } from '@/api/client'
+import type { ApiKey, Channel, Counted, Download, Pause, Progress, Tool, Video } from '@/api/client'
 
 type Listener = (message: { data: string }) => void
 
@@ -64,6 +64,14 @@ export class FakeEventSource {
   }
 
   /** Play a break of the stream and its return. */
+  apiKeyChanged(key: ApiKey): void {
+    this.emit('apikey.changed', { api_key: key })
+  }
+
+  checksProgress(checkingAll: Counted | null): void {
+    this.emit('checks.progress', { checking_all: checkingAll })
+  }
+
   breakAndReturn(): void {
     this.emit('error')
     this.emit('open')

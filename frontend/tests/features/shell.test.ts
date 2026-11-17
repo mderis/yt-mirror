@@ -201,6 +201,7 @@ describe('the shell', () => {
       'Full check',
       'Pause channel',
       'Open folder',
+      'Repair dates',
       'Open on YouTube',
       'Remove channel',
     ])
@@ -219,7 +220,13 @@ describe('the shell', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((entry) => entry.textContent?.trim()),
-    ).toEqual(['Resume channel', 'Open folder', 'Open on YouTube', 'Remove channel'])
+    ).toEqual([
+      'Resume channel',
+      'Open folder',
+      'Repair dates',
+      'Open on YouTube',
+      'Remove channel',
+    ])
   })
 
   it('R-CH-23: "Check now" and "Full check" of the menu start a check of that kind', async () => {

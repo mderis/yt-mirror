@@ -4,15 +4,19 @@
  *
  * An exact date is plain text. A date that is not exact looks like a
  * placeholder that is being replaced: dimmed text, an icon for its state and
- * a tooltip that says what the state is, never told by colour alone. From
- * milestone M2 the one state is "waiting". Milestone M4 adds "updating" and
- * "unavailable". When the exact date arrives, it takes the place of the
- * approximate one with a short highlight that fades (R-DT-13, from milestone
- * M3). With "reduce motion" nothing moves.
+ * a tooltip that says what the state is, never told by colour alone.
+ * Waiting: a clock. Updating: a loading icon that turns. Unavailable: a
+ * warning, with why and when it is tried again. When the exact date
+ * arrives, it takes the place of the approximate one with a short highlight
+ * that fades. With "reduce motion" nothing moves, and the icons still differ.
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import AppIcon from './AppIcon.vue'
+import type { IconName } from './icons'
+
+/** The state of a date that is not exact. */
+export type DateLabelState = 'waiting' | 'updating' | 'unavailable'
 
 const props = withDefaults(
   defineProps<{
@@ -22,9 +26,21 @@ const props = withDefaults(
     approximate?: boolean
     /** What the state means, as the tooltip and for screen readers. */
     note?: string | undefined
+    /** The state of a date that is not exact. */
+    state?: DateLabelState
   }>(),
-  { approximate: false, note: undefined },
+  { approximate: false, note: undefined, state: 'waiting' },
 )
+
+const ICON_OF: Record<DateLabelState, IconName> = {
+  waiting: 'clock',
+  updating: 'loading',
+  unavailable: 'warning',
+}
+
+const icon = computed(() => ICON_OF[props.state])
+/** The loading icon turns; the other two stand still. */
+const motion = computed(() => (props.state === 'updating' ? 'animate-turn' : undefined))
 
 /** Whether the exact date has just arrived and is highlighted. */
 const arrived = ref(false)
@@ -52,10 +68,10 @@ watch(
   <span
     v-else
     class="relative inline-flex items-center gap-1 text-text-muted"
-    data-date="waiting"
+    :data-date="state"
     :title="note"
   >
-    <AppIcon name="clock" size="sm" />
+    <AppIcon :name="icon" size="sm" :class="motion" />
     <span>{{ text }}</span>
     <span v-if="note" class="sr-only">{{ note }}</span>
   </span>

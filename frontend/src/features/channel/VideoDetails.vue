@@ -202,7 +202,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <DateLabel
           :text="dateOf(video).text"
           :approximate="dateOf(video).approximate"
-          :note="t('channel.list.dateNote')"
+          :state="dateOf(video).state"
+          :note="dateOf(video).note"
         />
       </p>
       <section v-if="facts.length > 0" class="flex flex-col gap-2" data-details-file>

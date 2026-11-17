@@ -1,13 +1,15 @@
 /**
  * The one status line of a channel, as the sidebar shows it (R-FB-01,
  * R-CH-34, design: States.html): its words, its icon and its tone. The
- * backend decides which status it is. This module only gives it words.
+ * backend decides which status it is. This module only gives it words:
+ * "Exact dates 340 of 1,000 · about 50 minutes left" (R-DT-14) and "Could
+ * not check · retrying in 5 min" (R-CH-25) among them.
  */
 import { useI18n } from 'vue-i18n'
 
 import type { Channel } from '@/api/client'
 import type { IconName } from '@/components/icons'
-import { formatNumber, formatTime } from '@/format'
+import { formatNumber, formatTime, roughTime } from '@/format'
 import { clock } from '@/format/clock'
 import { useAgo } from '@/format/useAgo'
 import { useChannelsStore } from '@/stores/channels'
@@ -49,8 +51,27 @@ export function useStatusLine(): (channel: Channel) => StatusLine {
         tone: 'progress',
       }
     }
+    if (channel.status === 'exact_dates' && channel.exact_dates) {
+      const progress = channel.exact_dates
+      const values = {
+        done: formatNumber(progress.done),
+        total: formatNumber(progress.total),
+      }
+      if (progress.left_s === null) {
+        return { text: t('channelStatus.exactDates', values), icon: 'loading', tone: 'progress' }
+      }
+      const left = roughTime(progress.left_s)
+      return {
+        text: t('channelStatus.exactDatesLeft', {
+          ...values,
+          left: t(`rough.${left.unit}Left`, { count: left.count }, left.count),
+        }),
+        icon: 'loading',
+        tone: 'progress',
+      }
+    }
     if (channel.status === 'waiting_for_youtube') {
-      const until = channels.youtubePause?.until
+      const until = channels.youtubePause?.until ?? channel.waiting_until ?? undefined
       return {
         text: t('channelStatus.waitingForYouTube'),
         note:
@@ -62,7 +83,26 @@ export function useStatusLine(): (channel: Channel) => StatusLine {
       }
     }
     if (channel.status === 'could_not_check') {
-      return { text: t('channelStatus.couldNotCheck'), icon: 'warning', tone: 'failed' }
+      const at = channel.retry_at ?? null
+      if (at === null) {
+        return { text: t('channelStatus.couldNotCheck'), icon: 'warning', tone: 'failed' }
+      }
+      const seconds = at - clock.now
+      if (seconds <= 0) {
+        return {
+          text: t('channelStatus.couldNotCheckRetryingSoon'),
+          icon: 'warning',
+          tone: 'failed',
+        }
+      }
+      const wait = roughTime(seconds)
+      return {
+        text: t('channelStatus.couldNotCheckRetrying', {
+          in: t(`rough.${wait.unit}`, { count: wait.count }, wait.count),
+        }),
+        icon: 'warning',
+        tone: 'failed',
+      }
     }
     if (channel.status === 'new_videos') {
       const count = channel.new_videos

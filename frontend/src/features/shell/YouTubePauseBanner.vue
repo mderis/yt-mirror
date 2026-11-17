@@ -3,7 +3,9 @@
  * The banner of the "not a bot" check of YouTube (R-ER-05, R-FB-04): one
  * banner for the whole app, never one error per channel or video. It says
  * what the check is, that it depends on the network address, when the app
- * tries again and what the user can try. "Try now" ends the pause.
+ * tries again and what the user can try. "Try now" ends the pause. Without a
+ * key that works it also says that the optional API key gets exact dates
+ * without this check, with a button that opens the key guide (R-DT-12).
  */
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -35,8 +37,19 @@ async function tryNow(): Promise<void> {
       {{
         t('youtubePause.text', { time: formatTime(channels.youtubePause.until, clock.timeZone) })
       }}
+      <template v-if="channels.apiKey.status !== 'saved'">
+        {{ t('youtubePause.keyHint') }}</template
+      >
     </p>
     <template #action>
+      <AppButton
+        v-if="channels.apiKey.status !== 'saved'"
+        icon="key"
+        data-action="pause-key"
+        @press="ui.openApiKey()"
+      >
+        {{ t('youtubePause.setUpKey') }}
+      </AppButton>
       <AppButton icon="retry" :busy="trying" @press="tryNow">
         {{ t('youtubePause.tryNow') }}
       </AppButton>
