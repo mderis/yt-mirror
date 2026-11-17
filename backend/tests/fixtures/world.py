@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from tests.fixtures.database import migrated_engine
+from tests.fixtures.fakes.api_key_store import InMemoryApiKeyStore
 from tests.fixtures.fakes.app_meta_repository import InMemoryAppMetaRepository
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.file_system import FakeFileSystem
@@ -21,8 +22,10 @@ from tests.fixtures.fakes.image_cache import InMemoryImageCache
 from tests.fixtures.fakes.media_tools import FakeMediaTools
 from tests.fixtures.fakes.settings_repository import InMemorySettingsRepository
 from ytmirror.adapters.db.catalogue_repository import SqlCatalogueRepository
+from ytmirror.adapters.db.date_repository import SqlDateRepository
 from ytmirror.adapters.db.job_repository import SqlJobRepository
 from ytmirror.adapters.fixture_youtube import FixtureYouTube
+from ytmirror.adapters.fixture_youtube_api import FixtureYouTubeApi
 from ytmirror.core.channels import (
     ChannelFacts,
     ChannelListing,
@@ -49,6 +52,8 @@ from ytmirror.core.pacing import LookupBudget
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
+from ytmirror.services.date_fetch_state import DateFetchState
+from ytmirror.services.dates import DatesService
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
@@ -346,6 +351,8 @@ class World:
             budget=budget,
         )
         self.downloads = DownloadState()
+        self.date_repository = SqlDateRepository(engine, self.clock)
+        self.date_state = DateFetchState()
         self.views = ChannelViews(
             self.repository,
             self.settings,
@@ -353,6 +360,8 @@ class World:
             self.bus,
             youtube_paused=lambda: self.youtube.pause() is not None,
             downloads=self.downloads,
+            dates=self.date_state,
+            fetch_states=self.date_repository.fetch_states,
         )
         self.waited: list[float] = []
         self.during_wait: Callable[[], None] | None = None
@@ -391,8 +400,35 @@ class World:
             ),
             media=self.media,
         )
+        self.api = FixtureYouTubeApi(self.fixture.api_date)
+        self.keys = InMemoryApiKeyStore()
+        self.secrets: list[str] = []
+        """Every value made a secret of the logs."""
+        self.found_exact: list[str] = []
+        """The videos that got an exact time from the fetch."""
+        self.dates = DatesService(
+            dates=self.date_repository,
+            youtube=self.youtube,
+            api=self.api,
+            keys=self.keys,
+            settings=self.settings,
+            downloads=self.downloads,
+            state=self.date_state,
+            clock=self.clock,
+            events=self.bus,
+            register_secret=self.secrets.append,
+            tell_video=self.views.tell_video,
+            tell_channel=self.views.publish,
+            found_exact=self.found_exact.append,
+        )
         self.state = StateService(
-            self.views, self.settings, self.files, self.picker, self.meta, self.youtube
+            self.views,
+            self.settings,
+            self.files,
+            self.picker,
+            self.meta,
+            self.youtube,
+            api_key=self.dates.key_state,
         )
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""

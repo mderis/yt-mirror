@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ytmirror.core.channels import ChannelUpdated, Quality, TaskProgressed, YouTubePauseChanged
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.exact_dates import KeyStateChanged
 from ytmirror.core.jobs import JobProgressed, VideoUpdated
 
 APP_NAME = "yt-mirror"
@@ -375,5 +376,6 @@ type AppEvent = (
     | YouTubePauseChanged
     | VideoUpdated
     | JobProgressed
+    | KeyStateChanged
 )
 """Every event the services publish for the interface. Each milestone adds its own."""

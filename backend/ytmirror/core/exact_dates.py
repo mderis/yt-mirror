@@ -70,6 +70,19 @@ class FetchState:
 
 
 @dataclass(frozen=True, slots=True)
+class PendingDate:
+    """A video whose exact date the fetch may look up now.
+
+    Attributes:
+        video_id: The video.
+        channel_id: Its channel.
+    """
+
+    video_id: str
+    channel_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class DateShown:
     """What the date of one video shows while it is not exact (R-DT-13).
 
@@ -96,6 +109,67 @@ class FetchHold:
 
     reason: ErrorCode
     until: int | None
+
+
+class KeyStatus(StrEnum):
+    """How the optional API key stands (R-DT-12)."""
+
+    NONE = "none"
+    SAVED = "saved"
+    UNREADABLE = "unreadable"
+    INVALID = "invalid"
+    QUOTA_EXCEEDED = "quota_exceeded"
+
+
+@dataclass(frozen=True, slots=True)
+class KeyState:
+    """How the optional API key stands, for the key setting and the notice (R-DT-12).
+
+    Attributes:
+        status: Whether a key is saved, and whether it fails.
+        until: Until when the app does without a key that failed, or None when it is
+            until the key is saved again.
+    """
+
+    status: KeyStatus
+    until: int | None = None
+
+    @property
+    def failing(self) -> bool:
+        """Whether a saved key is not working: unreadable, invalid or out of quota."""
+        return self.status in (KeyStatus.UNREADABLE, KeyStatus.INVALID, KeyStatus.QUOTA_EXCEEDED)
+
+
+NO_KEY = KeyState(KeyStatus.NONE)
+"""No key is saved."""
+
+
+@dataclass(frozen=True, slots=True)
+class KeyStateChanged:
+    """Event: how the API key stands changed (R-DT-12).
+
+    Attributes:
+        key: How it stands now.
+    """
+
+    key: KeyState
+
+
+@dataclass(frozen=True, slots=True)
+class ExactDatesProgress:
+    """How far the exact dates of one channel are (R-FB-01, R-DT-14, R-DT-15).
+
+    Attributes:
+        done: How many dates were found since the channel last had none waiting.
+        total: How many there are in all since then.
+        left_s: The measured time left, or None while it is not known.
+        offer_key: Whether the channel offers the key.
+    """
+
+    done: int
+    total: int
+    left_s: int | None = None
+    offer_key: bool = False
 
 
 def retry_after_s(attempts: int) -> int:

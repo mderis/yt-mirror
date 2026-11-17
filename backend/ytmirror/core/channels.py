@@ -14,6 +14,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.exact_dates import DateShown, ExactDatesProgress
 
 if TYPE_CHECKING:
     from ytmirror.core.jobs import JobProgress
@@ -69,6 +70,7 @@ class ChannelStatus(StrEnum):
 
     MIRRORING = "mirroring"
     CHECKING = "checking"
+    EXACT_DATES = "exact_dates"
     WAITING_FOR_YOUTUBE = "waiting_for_youtube"
     COULD_NOT_CHECK = "could_not_check"
     NEW_VIDEOS = "new_videos"
@@ -373,6 +375,11 @@ class ChannelView:
             its catalogue may have changed.
         mirroring: While videos of the channel are downloaded: how many of them
             ended, and how many there are (R-FB-01). Otherwise None.
+        exact_dates: While dates of the channel wait to be looked up: how far they are,
+            the time left and whether the key is offered (R-DT-14, R-DT-15). Otherwise None.
+        key_notice: Whether a saved key is not working while dates of the channel wait
+            (R-DT-12).
+        waiting_until: When the exact-date fetch goes on, while it waits for YouTube.
     """
 
     channel: Channel
@@ -384,6 +391,9 @@ class ChannelView:
     avatar_version: int = 0
     catalogue_version: int = 0
     mirroring: tuple[int, int] | None = None
+    exact_dates: ExactDatesProgress | None = None
+    key_notice: bool = False
+    waiting_until: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,6 +453,8 @@ class VideoView:
             middle of the range the real date lies in (R-DT-04). Otherwise None.
         job_id: The job of a download that waits or runs, for Cancel, or None.
         progress: How far a running download is (R-QU-04), or None.
+        date: What an approximate date shows: waiting, updating or unavailable
+            (R-DT-13). None for an exact date or no date.
     """
 
     video: Video
@@ -450,3 +462,4 @@ class VideoView:
     published_around: int | None
     job_id: str | None = None
     progress: JobProgress | None = None
+    date: DateShown | None = None

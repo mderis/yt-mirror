@@ -28,6 +28,10 @@ class InMemoryApiKeyStore:
             raise AppError(ErrorCode.API_KEY_UNREADABLE, {"error": "PermissionError"})
         return self.key
 
+    def is_saved(self) -> bool:
+        """Return whether a key is saved, readable or not."""
+        return self.key is not None
+
     def write(self, key: str) -> None:
         """Save a key; a saved key can be read again."""
         self.key = key

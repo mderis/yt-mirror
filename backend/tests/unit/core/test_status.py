@@ -188,3 +188,26 @@ def test_only_work_the_app_would_do_by_itself_waits_for_youtube() -> None:
         False,
         False,
     ]
+
+
+def test_exact_dates_are_running_work_after_mirroring_and_checking() -> None:
+    """R-FB-01: "Exact dates X of Y" is running now, below mirroring and checking."""
+    channel = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
+
+    assert channel_status(channel, checking=False, new_videos=3, exact_dates=True) is (
+        ChannelStatus.EXACT_DATES
+    )
+    assert channel_status(channel, checking=True, new_videos=0, exact_dates=True) is (
+        ChannelStatus.CHECKING
+    )
+    assert channel_status(
+        channel, checking=False, new_videos=0, mirroring=True, exact_dates=True
+    ) is (ChannelStatus.MIRRORING)
+
+
+def test_exact_dates_held_back_make_a_listed_channel_wait_for_youtube() -> None:
+    """R-FB-01: held-up work is not running work; it waits for YouTube."""
+    listed = make_channel()
+
+    assert not waits_for_youtube(listed, youtube_paused=True)
+    assert waits_for_youtube(listed, youtube_paused=False, exact_dates_wait=True)

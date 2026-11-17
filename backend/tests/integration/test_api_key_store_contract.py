@@ -28,8 +28,11 @@ def test_no_key_is_saved_at_first(store: ApiKeyStore) -> None:
 
 def test_a_saved_key_is_read_back(store: ApiKeyStore) -> None:
     """R-DT-12: the key is kept on this Mac."""
+    assert not store.is_saved()
+
     store.write(KEY)
 
+    assert store.is_saved()
     assert store.read() == KEY
 
 

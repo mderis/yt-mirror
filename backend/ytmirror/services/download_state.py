@@ -10,6 +10,7 @@ Tests: backend/tests/unit/services/test_download_state.py
 """
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ytmirror.core.jobs import JobProgress
@@ -38,6 +39,7 @@ class DownloadState:
         self._channels: dict[str, str] = {}
         self._progress: dict[str, JobProgress] = {}
         self._batches: dict[str, list[int]] = {}
+        self._on_idle: list[Callable[[], None]] = []
 
     def queued(self, video_id: str, channel_id: str, job_id: str) -> None:
         """A download of a video was put in line.
@@ -79,6 +81,23 @@ class DownloadState:
             batch[0] += 1
             if channel_id not in self._channels.values():
                 del self._batches[channel_id]
+            idle = not self._jobs
+        if idle:
+            for work in list(self._on_idle):
+                work()
+
+    def busy(self) -> bool:
+        """Return whether any download waits or runs."""
+        with self._lock:
+            return bool(self._jobs)
+
+    def when_idle(self, work: Callable[[], None]) -> None:
+        """Register work to run when the last download that waited or ran has ended.
+
+        Args:
+            work: What to do. It must come back quickly.
+        """
+        self._on_idle.append(work)
 
     def job_of(self, video_id: str) -> str | None:
         """Return the job of a video that waits or runs, or None.

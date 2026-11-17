@@ -119,25 +119,29 @@ def is_new(video: Video, now: int) -> bool:
     return now - video.first_seen_at < NEW_FOR_S
 
 
-def waits_for_youtube(channel: Channel, *, youtube_paused: bool) -> bool:
+def waits_for_youtube(
+    channel: Channel, *, youtube_paused: bool, exact_dates_wait: bool = False
+) -> bool:
     """Return whether the app holds work for a channel until YouTube answers again (R-ER-05).
 
     While the app pauses what it asks of YouTube by itself, a channel waits
     when the app would otherwise work on it by itself. From milestone M2 that
     is a first listing that is still to come. A paused channel does not wait,
     and neither does one whose first listing failed: that one is left to the
-    user (R-CH-25).
+    user (R-CH-25). From milestone M4 a channel also waits while its exact
+    dates are held back by that pause or by the fetch's own back-off (R-FB-01).
 
     Args:
         channel: The channel.
         youtube_paused: Whether the pause of the whole app is in force.
+        exact_dates_wait: Whether the exact dates of the channel wait for YouTube.
     """
     return (
         youtube_paused
         and not channel.paused
         and channel.first_listed_at is None
         and channel.last_check_error is None
-    )
+    ) or exact_dates_wait
 
 
 def channel_status(
@@ -147,6 +151,7 @@ def channel_status(
     new_videos: int,
     waiting_for_youtube: bool = False,
     mirroring: bool = False,
+    exact_dates: bool = False,
 ) -> ChannelStatus:
     """Return the one status line of a channel (R-FB-01, R-CH-34).
 
@@ -164,11 +169,14 @@ def channel_status(
         waiting_for_youtube: Whether the app holds work for this channel until
             YouTube answers again (``waits_for_youtube``).
         mirroring: Whether videos of the channel wait to be downloaded or are.
+        exact_dates: Whether exact dates of the channel are being looked up, not held back.
     """
     if mirroring:
         return ChannelStatus.MIRRORING
     if checking:
         return ChannelStatus.CHECKING
+    if exact_dates:
+        return ChannelStatus.EXACT_DATES
     if waiting_for_youtube:
         return ChannelStatus.WAITING_FOR_YOUTUBE
     if channel.last_check_error is not None:

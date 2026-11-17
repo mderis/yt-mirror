@@ -18,7 +18,7 @@ from ytmirror import __version__
 from ytmirror.api import sse
 from ytmirror.api.errors import error_response, install_error_handlers
 from ytmirror.api.request_log import RequestLogMiddleware
-from ytmirror.api.routers import channels, health, state, tools, videos
+from ytmirror.api.routers import channels, health, settings, state, tools, videos
 from ytmirror.api.schemas import ErrorResponse
 from ytmirror.api.security import API_PREFIX, SESSION_COOKIE, SecurityMiddleware, SecurityPolicy
 from ytmirror.core.errors import ErrorCode
@@ -26,6 +26,7 @@ from ytmirror.ports.clock import Clock
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
+from ytmirror.services.dates import DatesService
 from ytmirror.services.diagnostics import DiagnosticsService
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
@@ -73,6 +74,7 @@ class ApiServices:
         views: The channels and videos as the interface shows them.
         thumbnails: The cached pictures.
         downloader: Puts videos in line and downloads them.
+        dates: The exact-date fetch and the API key.
     """
 
     diagnostics: DiagnosticsService
@@ -85,6 +87,7 @@ class ApiServices:
     views: ChannelViews
     thumbnails: ThumbnailService
     downloader: DownloaderService
+    dates: DatesService
 
 
 def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAPI:
@@ -126,6 +129,7 @@ def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAP
         videos.build_router(services.views, services.thumbnails, services.downloader),
         prefix=API_PREFIX,
     )
+    app.include_router(settings.build_router(services.dates), prefix=API_PREFIX)
     _add_favicon(app, config)
     _add_frontend(app, config)
     install_error_handlers(app)

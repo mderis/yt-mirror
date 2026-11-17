@@ -255,6 +255,8 @@ def run_app(
         redactor=redactor,
         console=console,
     )
+    # The API key, read or saved at any time, is a secret of the logs (R-LG-07).
+    container.secrets.connect(redactor.register)
     try:
         remove_old_logs(paths.logs_dir, container.clock.now().date())
         try:
@@ -271,6 +273,8 @@ def run_app(
         container.catalogue.start()
         container.thumbnails.start()
         container.downloader.start()
+        # The exact dates yield to the downloads, so they start after the downloader.
+        container.dates.start()
         # After the start of the downloader: the jobs it cleaned up count by when they ended.
         container.job_logs.clean()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
@@ -337,6 +341,9 @@ def database_message(error: AppError, logs: Path) -> tuple[str, str]:
 def _stop(server: BackgroundServer, container: Container) -> None:
     """The shutdown work of the app. Later milestones add their workers here."""
     _log.info("app.stopping", msg="yt-mirror is stopping")
+    # A lookup that runs is not waited for long: it only reads (R-PL-13).
+    container.dates.stop()
+    container.youtube.log_open_hour()
     # A check that is running ends at the next video and stores nothing (R-PL-13).
     container.catalogue.stop()
     # A download that is running is cancelled and its temp files deleted (R-PL-13, R-QA-06).
@@ -403,6 +410,7 @@ def api_services(container: Container) -> ApiServices:
         views=container.views,
         thumbnails=container.thumbnails,
         downloader=container.downloader,
+        dates=container.dates,
     )
 
 

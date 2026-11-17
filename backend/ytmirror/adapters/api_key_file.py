@@ -57,6 +57,10 @@ class ApiKeyFile:
             raise AppError(ErrorCode.API_KEY_UNREADABLE, {"error": "the file is empty"})
         return key
 
+    def is_saved(self) -> bool:
+        """Return whether the file of the key is there, without reading it."""
+        return self.path.exists()
+
     def write(self, key: str) -> None:
         """Save a key all at once, in a file only the user can read.
 

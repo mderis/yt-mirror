@@ -5,6 +5,11 @@ status (R-FB-01), its totals (R-CH-35) and the progress of a long check. The
 services that change a channel publish its new view through here, so the
 interface hears of every change within a second (R-FB-03).
 
+A channel also shows how far its exact dates are, with the time left, the
+key offer and a notice when a saved key is not working (R-DT-12 to R-DT-15),
+and a video shows whether its approximate date is waiting, updating or
+unavailable (R-DT-13).
+
 A channel also shows when the app holds work for it until YouTube answers
 again (R-ER-05, R-FB-01). The views listen for the beginning and the end of
 that pause and tell the interface about the channels it concerns.
@@ -15,7 +20,7 @@ Tests: backend/tests/unit/services/test_channel_views.py
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from ytmirror.core.channels import (
@@ -25,15 +30,19 @@ from ytmirror.core.channels import (
     ChannelView,
     TaskProgress,
     TaskProgressed,
+    Video,
     VideoView,
     YouTubePauseChanged,
 )
 from ytmirror.core.dates import moment_to_show
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.exact_dates import DateShown, FetchState, date_shown
+from ytmirror.core.jobs import VideoUpdated
 from ytmirror.core.models import AppEvent
 from ytmirror.core.status import NEW_FOR_S, channel_status, is_new, waits_for_youtube
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
+from ytmirror.services.date_fetch_state import DateFetchState
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
 from ytmirror.services.settings import SettingsService
@@ -50,6 +59,8 @@ class ChannelViews:
         events: EventBus,
         youtube_paused: Callable[[], bool] = lambda: False,
         downloads: DownloadState | None = None,
+        dates: DateFetchState | None = None,
+        fetch_states: Callable[[str], Mapping[str, FetchState]] = lambda channel_id: {},
     ) -> None:
         """Create the views.
 
@@ -60,6 +71,8 @@ class ChannelViews:
             events: Where changes are published, and where the pause of YouTube is heard.
             youtube_paused: Tells whether the app pauses what it asks of YouTube by itself.
             downloads: The downloads that wait or run.
+            dates: How the exact-date fetch stands.
+            fetch_states: What the fetch keeps for the videos of a channel.
         """
         self._repository = repository
         self._settings = settings
@@ -67,6 +80,8 @@ class ChannelViews:
         self._events = events
         self._youtube_paused = youtube_paused
         self._downloads = downloads if downloads is not None else DownloadState()
+        self._dates = dates if dates is not None else DateFetchState()
+        self._fetch_states = fetch_states
         events.subscribe(self._on_event)
         self._lock = threading.Lock()
         self._checking: set[str] = set()
@@ -117,16 +132,9 @@ class ChannelViews:
         if self._repository.channel(channel_id) is None:
             raise AppError(ErrorCode.NOT_FOUND, {"channel": channel_id})
         now = int(self._clock.now().timestamp())
+        states = self._fetch_states(channel_id)
         return tuple(
-            VideoView(
-                video=video,
-                is_new=is_new(video, now),
-                published_around=None
-                if video.published_at is None or video.published_precision is None
-                else moment_to_show(video.published_at, video.published_precision),
-                job_id=self._downloads.job_of(video.id),
-                progress=self._downloads.progress_of(video.id),
-            )
+            self._video_view(video, now, states.get(video.id))
             for video in self._repository.videos(channel_id)
         )
 
@@ -139,14 +147,39 @@ class ChannelViews:
         video = self._repository.video(video_id)
         if video is None:
             return None
+        states: Mapping[str, FetchState] = (
+            {} if video.published_exact else self._fetch_states(video.channel_id)
+        )
+        return self._video_view(video, int(self._clock.now().timestamp()), states.get(video.id))
+
+    def tell_video(self, video_id: str) -> None:
+        """Tell the interface how a video is now (R-FB-03). An unknown video is not told.
+
+        Args:
+            video_id: The video ID.
+        """
+        view = self.video(video_id)
+        if view is not None:
+            self._events.publish(VideoUpdated(view))
+
+    def _video_view(self, video: Video, now: int, state: FetchState | None) -> VideoView:
         return VideoView(
             video=video,
-            is_new=is_new(video, int(self._clock.now().timestamp())),
+            is_new=is_new(video, now),
             published_around=None
             if video.published_at is None or video.published_precision is None
             else moment_to_show(video.published_at, video.published_precision),
             job_id=self._downloads.job_of(video.id),
             progress=self._downloads.progress_of(video.id),
+            date=self._date_of(video, now, state),
+        )
+
+    def _date_of(self, video: Video, now: int, state: FetchState | None) -> DateShown | None:
+        """Return what an approximate date shows (R-DT-13), or None for an exact one."""
+        if video.published_exact or video.published_at is None or video.gone:
+            return None
+        return date_shown(
+            state, updating=self._dates.updating(video.id), hold=self._dates.hold(), now=now
         )
 
     def publish(self, channel_id: str) -> None:
@@ -248,6 +281,9 @@ class ChannelViews:
             avatar_version = self._avatars.get(channel.id, 0)
             catalogue_version = self._catalogues.get(channel.id, 0)
         mirroring = self._downloads.mirroring(channel.id)
+        exact_dates = self._dates.progress(channel.id)
+        dates_wait = self._dates.waits_for_youtube(channel.id)
+        hold = self._dates.hold() if dates_wait else None
         return ChannelView(
             channel=channel,
             status=channel_status(
@@ -255,9 +291,10 @@ class ChannelViews:
                 checking=checking,
                 new_videos=totals.new,
                 waiting_for_youtube=waits_for_youtube(
-                    channel, youtube_paused=self._youtube_paused()
+                    channel, youtube_paused=self._youtube_paused(), exact_dates_wait=dates_wait
                 ),
                 mirroring=mirroring is not None,
+                exact_dates=self._dates.running(channel.id),
             ),
             totals=totals,
             progress=progress,
@@ -266,6 +303,9 @@ class ChannelViews:
             avatar_version=avatar_version,
             catalogue_version=catalogue_version,
             mirroring=None if mirroring is None else (mirroring.done, mirroring.total),
+            exact_dates=exact_dates,
+            key_notice=exact_dates is not None and self._dates.key().failing,
+            waiting_until=None if hold is None else hold.until,
         )
 
     def _new_since(self) -> int:

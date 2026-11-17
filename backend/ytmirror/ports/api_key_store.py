@@ -21,6 +21,10 @@ class ApiKeyStore(Protocol):
         """
         ...
 
+    def is_saved(self) -> bool:
+        """Return whether a key is saved, without reading it."""
+        ...
+
     def write(self, key: str) -> None:
         """Save a key in place of the one saved before, all at once.
 
