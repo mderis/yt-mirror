@@ -27,6 +27,7 @@ backend/tests/integration/test_youtube_gateway_contract.py
 
 import calendar
 import datetime
+import functools
 import json
 import struct
 import subprocess
@@ -304,21 +305,22 @@ class FixtureYouTube:
                     )
                 else:
                     totals = tracker.finished(key, kind, size, self._monotonic())
-                on_progress(
-                    DownloadProgress(
-                        stage=stage,
-                        fraction=totals.fraction,
-                        speed_bps=totals.speed_bps,
-                        left_s=totals.left_s,
-                        height=_HEIGHT if stage is Stage.VIDEO else None,
-                        downloaded_bytes=totals.done_bytes,
-                        total_bytes=totals.total_bytes,
-                        parts=totals.parts,
-                    )
+                report = DownloadProgress(
+                    stage=stage,
+                    fraction=totals.fraction,
+                    speed_bps=totals.speed_bps,
+                    left_s=totals.left_s,
+                    height=_HEIGHT if stage is Stage.VIDEO else None,
+                    downloaded_bytes=totals.done_bytes,
+                    total_bytes=totals.total_bytes,
+                    parts=totals.parts,
                 )
+                on_progress(report)
                 reports += 1
                 if reports == plan.hold_after_report:
-                    self._hold(plan.hold_ms / 1000, is_cancelled)
+                    self._hold(
+                        plan.hold_ms / 1000, is_cancelled, functools.partial(on_progress, report)
+                    )
         on_progress(DownloadProgress(stage=Stage.PROCESSING))
         if is_cancelled():
             raise DownloadCancelledError("cancelled before the merge")
@@ -329,14 +331,23 @@ class FixtureYouTube:
             raise DownloadCancelledError("cancelled after the merge")
         return result
 
-    def _hold(self, seconds: float, is_cancelled: Callable[[], bool]) -> None:
-        """Wait in the middle of a download, as a slow network does, until it is cancelled."""
+    def _hold(
+        self, seconds: float, is_cancelled: Callable[[], bool], report_again: Callable[[], object]
+    ) -> None:
+        """Wait in the middle of a download, as a slow network does, until it is cancelled.
+
+        The last report is told again after half a second, as yt-dlp keeps reporting
+        while a download stalls: the downloader tells the window at most every quarter
+        second, and may have kept the report before the hold to itself.
+        """
         waited = 0.0
         while waited < seconds:
             if is_cancelled():
                 raise DownloadCancelledError("cancelled while the download was held")
             self._sleep(0.1)
             waited += 0.1
+            if abs(waited - 0.5) < 0.05:
+                report_again()
 
     def _write_video(
         self,

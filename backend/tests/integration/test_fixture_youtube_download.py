@@ -236,12 +236,14 @@ def test_a_download_can_be_held_in_the_middle_until_it_is_cancelled(tmp_path: Pa
     def told_and_cancel_on_hold(progress: DownloadProgress) -> None:
         nonlocal cancelled
         told.append(progress)
-        cancelled = len(told) == 3
+        cancelled = len(told) == 4
 
     held = youtube(tmp_path, hold_after_report=3, hold_ms=60_000)
 
     with pytest.raises(DownloadCancelledError, match="held"):
         held.download(request(tmp_path), told_and_cancel_on_hold, cancel_when_held)
 
-    assert len(told) == 3
+    # The fourth is the third told again while held, after the downloader's quarter second.
+    assert len(told) == 4
+    assert told[3] == told[2]
     assert 0.5 < (told[-1].fraction or 0) < 0.6
