@@ -45,7 +45,7 @@ from structlog.typing import FilteringBoundLogger
 
 from ytmirror.core.channels import Channel, Video, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
-from ytmirror.core.naming import same_name_key, video_file_name
+from ytmirror.core.naming import HIDDEN_DIR, same_name_key, video_file_name
 from ytmirror.core.status import change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.file_system import FileSystem
@@ -153,6 +153,7 @@ class RepairService:
             channel_id: The channel that was checked.
         """
         try:
+            self.settle_renames(channel_id)
             self.verify_files(channel_id)
             self.rename_retitled(channel_id)
             if self._settings.current().repair_dates:
@@ -171,6 +172,7 @@ class RepairService:
     def channel_opened(self, channel_id: str) -> None:
         """Look for the files of a channel the user opened (R-MI-06). Never raises."""
         try:
+            self.settle_renames(channel_id)
             self.verify_files(channel_id)
         except Exception as error:  # noqa: BLE001  (opening a channel never fails for this)
             _log.warning(
@@ -214,6 +216,18 @@ class RepairService:
                         folder=str(folder),
                     )
                 return 0, 0
+            try:
+                names = {same_name_key(name) for name in self._files.list_folder(folder)}
+            except (AppError, OSError) as error:
+                # Only a name missing from a listing that worked is missing (R-QU-11).
+                _log.info(
+                    "file.unchecked",
+                    msg="A channel folder could not be listed; no file is marked",
+                    channel_id=channel_id,
+                    folder=str(folder),
+                    error_code=getattr(error, "code", ErrorCode.FOLDER_UNAVAILABLE).value,
+                )
+                return 0, 0
             if self._views.set_folder_missing(channel_id, False):
                 _log.info(
                     "channel.folder_found",
@@ -222,16 +236,18 @@ class RepairService:
                     folder=str(folder),
                 )
             for video in self._repository.videos(channel_id):
-                if not video.file_name or video.placing_file:
+                if not video.file_name or video.placing_file or video.rename_to:
+                    # A download places this file, or a rename is still to be settled.
                     continue
                 path = folder / video.file_name
-                if video.status is VideoStatus.SYNCED and not self._files.exists(path):
-                    # A rename the app's end interrupted is completed, not counted as missing.
-                    if not self._take_moved(video, folder, video.file_name):
-                        missing += self._mark(
-                            video, VideoStatus.FILE_MISSING, "file_not_found", path
-                        )
-                elif video.status is VideoStatus.FILE_MISSING and self._is_own(video, path):
+                listed = same_name_key(video.file_name) in names
+                if video.status is VideoStatus.SYNCED and not listed:
+                    missing += self._mark(video, VideoStatus.FILE_MISSING, "file_not_found", path)
+                elif (
+                    video.status is VideoStatus.FILE_MISSING
+                    and listed
+                    and self._is_own(video, path)
+                ):
                     back += self._mark(video, VideoStatus.SYNCED, "file_back", path)
         if missing or back:
             self._views.publish(channel_id)
@@ -242,7 +258,8 @@ class RepairService:
             return False
         try:
             return self._media.probe(path).tags.get("video_id") == video.id
-        except AppError:
+        except AppError, OSError:
+            # A file that cannot be read is skipped, never taken (R-MI-06).
             return False
 
     def _mark(self, video: Video, status: VideoStatus, reason: str, path: Path) -> bool:
@@ -315,8 +332,54 @@ class RepairService:
             if self._files.exists(path):
                 self._repair_one(video, path, video.published_at)
 
+    def settle_renames(self, channel_id: str) -> int:
+        """Finish or undo the renames the app's end interrupted (R-FN-06).
+
+        The marker names the old and the new file, whatever the title is now:
+        the file under the new name with this video's ID inside is taken; a
+        file still under the old name means the move did not happen.
+
+        Args:
+            channel_id: The channel.
+
+        Returns:
+            How many renames were finished.
+        """
+        channel = self._repository.channel(channel_id)
+        if channel is None:
+            return 0
+        folder = self._views.folder_of(channel)
+        finished = 0
+        with self._lock:
+            if not self._files.folder_exists(folder):
+                return 0
+            for video in self._repository.videos(channel_id):
+                if video.rename_from is None or video.rename_to is None:
+                    continue
+                old, new = folder / video.rename_from, folder / video.rename_to
+                if not self._files.exists(old) and self._is_own(video, new):
+                    if self._repository.finish_rename(video.id, video.rename_from, video.rename_to):
+                        finished += 1
+                        _log.info(
+                            "file.renamed",
+                            msg="A rename that was interrupted was finished",
+                            video_id=video.id,
+                            old=video.rename_from,
+                            new=video.rename_to,
+                        )
+                        if video.published_at is not None and video.published_exact:
+                            self._repair_one(video, new, video.published_at)
+                        self._views.tell_video(video.id)
+                    continue
+                # Not moved, or not to be told apart: the file keeps its old name.
+                self._repository.clear_rename(video.id)
+        return finished
+
     def rename_retitled(self, channel_id: str) -> int:
         """Rename the synced files whose names no longer fit their titles (R-FN-06).
+
+        The names taken in the folder, by files and by the videos of every channel
+        that shares it, are worked out once and kept up to date as files are renamed.
 
         Args:
             channel_id: The channel.
@@ -332,91 +395,83 @@ class RepairService:
         with self._lock:
             if not self._files.folder_exists(folder):
                 return 0
-            for video in self._synced(channel_id):
-                assert video.file_name is not None
-                if fits_title(video.file_name, video):
-                    continue
-                renamed += self._rename(channel, video, folder)
+            retitled = [
+                video
+                for video in self._synced(channel_id)
+                if video.file_name and not fits_title(video.file_name, video)
+            ]
+            if not retitled:
+                return 0
+            on_disk = set(self._files.file_names(folder))
+            tracked = self._names_tracked_in(folder)
+            for video in retitled:
+                new = self._rename(video, folder, on_disk, tracked)
+                if new is not None:
+                    renamed += 1
+                    assert video.file_name is not None
+                    on_disk.discard(video.file_name)
+                    on_disk.add(new)
+                    tracked[video.id] = [new]
         return renamed
 
-    def _rename(self, channel: Channel, video: Video, folder: Path) -> bool:
+    def _rename(
+        self, video: Video, folder: Path, on_disk: set[str], tracked: dict[str, list[str]]
+    ) -> str | None:
         assert video.file_name is not None and video.published_at is not None
         old = video.file_name
-        source = folder / old
-        if not self._files.exists(source):
-            # The app ended between the move and storing the name: take the moved file.
-            return self._take_moved(video, folder, old)
         taken = [
-            *(
-                name
-                for name in self._files.file_names(folder)
-                if same_name_key(name) != same_name_key(old)
-            ),
-            *self._names_tracked_in(folder, video.id),
+            *(name for name in on_disk if same_name_key(name) != same_name_key(old)),
+            *(name for owner, names in tracked.items() if owner != video.id for name in names),
         ]
         new = video_file_name(video.title, video.id, taken)
         if same_name_key(new) == same_name_key(old):
-            return False
-        target = folder / new
+            return None
+        source, target = folder / old, folder / new
+        if not self._repository.mark_rename(video.id, old, new):
+            return None
         try:
             moved = self._files.move(source, target)
         except (AppError, OSError) as error:
+            self._repository.clear_rename(video.id)
             self._rename_failed(video, error)
-            return False
+            return None
         if not moved:
-            return False
-        if not self._repository.set_file_name(video.id, old, new):
+            self._repository.clear_rename(video.id)
+            return None
+        if not self._repository.finish_rename(video.id, old, new):
             # The video changed meanwhile: put the file back where the catalogue expects it.
             self._files.move(target, source)
-            return False
-        self._move_cover(folder, old, new)
+            self._repository.clear_rename(video.id)
+            return None
+        self._move_cover(video, folder, old, new)
         _log.info(
             "file.renamed",
             msg="A file was renamed after the new title of its video",
-            channel_id=channel.id,
+            channel_id=video.channel_id,
             video_id=video.id,
             old=old,
             new=new,
         )
         self._repair_one(video, target, video.published_at)
         self._views.tell_video(video.id)
-        return True
+        return new
 
-    def _take_moved(self, video: Video, folder: Path, old: str) -> bool:
-        """Store the name of a file a rename moved, found by the video ID inside it."""
-        plain = video_file_name(video.title, video.id, ())
-        for new in (plain, video_file_name(video.title, video.id, (plain,))):
-            target = folder / new
-            if not self._files.exists(target):
-                continue
-            try:
-                own = self._media.probe(target).tags.get("video_id") == video.id
-            except AppError:
-                own = False
-            if not own or not self._repository.set_file_name(video.id, old, new):
-                continue
-            _log.info(
-                "file.renamed",
-                msg="A rename that was interrupted was completed",
-                video_id=video.id,
-                old=old,
-                new=new,
-            )
-            assert video.published_at is not None
-            self._repair_one(video, target, video.published_at)
-            self._views.tell_video(video.id)
-            return True
-        return False
+    def _move_cover(self, video: Video, folder: Path, old: str, new: str) -> None:
+        """Rename the thumbnail next to the video with it, only if it is the app's (R-MD-05).
 
-    def _move_cover(self, folder: Path, old: str, new: str) -> None:
-        """Rename the thumbnail next to the video with it (R-MD-05), if there is one."""
+        That thumbnail is off by default, so a picture of that name can be the
+        user's own: it is moved only when its bytes are those of the app's copy
+        in the hidden folder, as the removal of a channel decides it.
+        """
         cover, renamed = (
             folder / Path(old).with_suffix(".jpg"),
             folder / Path(new).with_suffix(".jpg"),
         )
         try:
-            if self._files.exists(cover):
-                self._files.move(cover, renamed)
+            own_copy = self._files.read_bytes(folder / HIDDEN_DIR / f"{video.id}.jpg")
+            if own_copy is None or self._files.read_bytes(cover) != own_copy:
+                return
+            self._files.move(cover, renamed)
         except (AppError, OSError) as error:
             _log.warning(
                 "file.move_failed",
@@ -473,15 +528,22 @@ class RepairService:
             and not video.placing_file
         ]
 
-    def _names_tracked_in(self, folder: Path, except_video: str) -> list[str]:
-        """Every name the app tracks in a folder, of every channel that shares it."""
-        names: list[str] = []
+    def _names_tracked_in(self, folder: Path) -> dict[str, list[str]]:
+        """Every name the app tracks in a folder, by video, of every channel that shares it.
+
+        A file the user deleted keeps its name taken, and so do the names of a
+        download being placed and of a rename being made.
+        """
+        names: dict[str, list[str]] = {}
         for channel in self._repository.channels():
             if self._views.folder_of(channel) != folder:
                 continue
             for other in self._repository.videos(channel.id):
-                if other.id != except_video:
-                    names += [name for name in (other.file_name, other.placing_file) if name]
+                own = [
+                    name for name in (other.file_name, other.placing_file, other.rename_to) if name
+                ]
+                if own:
+                    names[other.id] = own
         return names
 
     def _channel(self, channel_id: str) -> Channel:

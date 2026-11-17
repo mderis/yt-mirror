@@ -56,6 +56,8 @@ class FakeFileSystem:
         self.denied: set[Path] = set()
         self.unavailable: set[Path] = set()
         self.disconnected: set[Path] = set()
+        self.unlistable: set[Path] = set()
+        """Folders whose listing fails, as one that cannot be read."""
         self.refuse_dates: set[Path] = set()
         self.drift_dates: set[Path] = set()
         self.outside: set[Path] = set()
@@ -112,6 +114,12 @@ class FakeFileSystem:
         """Return the names directly in the folder, the hidden ones only when asked."""
         names = {path.name for path in [*self.files, *self.folders] if path.parent == folder}
         return sorted(name for name in names if hidden or not name.startswith("."))
+
+    def list_folder(self, folder: Path) -> list[str]:
+        """Return every name in the folder, or fail as an unreadable or missing folder."""
+        if not self.folder_exists(folder) or folder in self.unlistable:
+            raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"folder": str(folder)})
+        return self.file_names(folder, hidden=True)
 
     def exists(self, path: Path) -> bool:
         """Return whether a file or folder is there, on a drive that is connected."""

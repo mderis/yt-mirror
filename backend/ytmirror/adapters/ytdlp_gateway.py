@@ -17,6 +17,7 @@ against a server on this Mac, backend/tests/integration/test_ytdlp_real_download
 The calls that reach YouTube are tested by backend/tests/live/.
 """
 
+import copy
 import datetime
 import importlib
 import json
@@ -61,9 +62,12 @@ off, the entries of a listing are fetched page by page while they are read."""
 type HttpGet = Callable[[str], bytes]
 """Fetches the bytes behind an address, or raises ``AppError``."""
 
-type Download = Callable[[str, Mapping[str, Any], Mapping[str, str]], Mapping[str, Any]]
-"""Downloads a video with yt-dlp: the address, the options, and tags to add to the
-file. Returns the processed answer of yt-dlp, ready to be written as JSON."""
+type Download = Callable[
+    [Mapping[str, Any], Mapping[str, Any], Mapping[str, str]], Mapping[str, Any]
+]
+"""Downloads a video with yt-dlp from the metadata the lookup before it gave, with the
+options and tags to add to the file: YouTube is not asked a second time (D-088).
+Returns the processed answer of yt-dlp, ready to be written as JSON."""
 
 VIDEOS_TAB = "/videos"
 UPLOADS_OF_LONG_VIDEOS = "https://www.youtube.com/playlist?list=UULF"
@@ -354,7 +358,7 @@ class YtDlpGateway:
         # Until here only YouTube was asked; from here yt-dlp writes into the temp folder.
         start_writing()
         try:
-            answer = self._download(address, options, tags)
+            answer = self._download(info, options, tags)
         except DownloadCancelledError:
             raise
         except Exception as error:
@@ -869,9 +873,15 @@ def checked_image(url: str, status: int, content: bytes) -> bytes:
 
 
 def download_with_ytdlp(
-    address: str, options: Mapping[str, Any], tags: Mapping[str, str]
+    info: Mapping[str, Any], options: Mapping[str, Any], tags: Mapping[str, str]
 ) -> Mapping[str, Any]:
-    """Download with the real yt-dlp, adding tags of our own to the file.
+    """Download with the real yt-dlp from metadata already looked up, adding tags of our own.
+
+    The metadata of the lookup before the download is processed again with the
+    options of the download, as yt-dlp does for ``--load-info-json``: the page
+    of the video is not asked for a second time, so a download counts as one
+    lookup in the budget (R-DT-06), and the streams fetched are the ones the
+    progress was planned with (D-088).
 
     A post-processor that runs before the download sets ``meta_<name>``
     fields, which the metadata step of yt-dlp writes as tags (R-MD-01, R-DT-08).
@@ -888,7 +898,7 @@ def download_with_ytdlp(
 
     with yt_dlp.YoutubeDL(dict(options)) as ydl:
         ydl.add_post_processor(_AddTagsPP(), when="pre_process")
-        answer = ydl.extract_info(address, download=True)
+        answer = ydl.process_ie_result(copy.deepcopy(dict(info)), download=True)
         clean = ydl.sanitize_info(answer)
     if not isinstance(clean, dict):
         raise AppError(ErrorCode.YOUTUBE_CHANGED, {"message": "yt-dlp gave no answer"})

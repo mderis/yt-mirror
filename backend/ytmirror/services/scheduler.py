@@ -21,7 +21,6 @@ woken. Tests call ``tick`` themselves, with a fake clock.
 Tests: backend/tests/unit/services/test_scheduler.py
 """
 
-import dataclasses
 import threading
 
 import structlog
@@ -212,13 +211,16 @@ class Scheduler:
             if at > now:
                 waits.append(at - now)
                 continue
-            retried = dataclasses.replace(channel, check_retries=channel.check_retries + 1)
-            self._repository.save_channel(retried)
+            # Only the count of retries is written: a pause or a check that ended
+            # meanwhile is never undone by the copy read above.
+            count = self._repository.count_check_retry(channel.id)
+            if count is None:
+                continue
             _log.info(
                 "scheduler.retry",
                 msg="A failed check is tried again",
                 channel_id=channel.id,
-                retry=retried.check_retries,
+                retry=count,
                 error_code=None if channel.last_check_error is None else channel.last_check_error,
             )
             self._request(channel.id, CheckKind.QUICK, CheckTrigger.RETRY)

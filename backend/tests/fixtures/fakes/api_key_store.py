@@ -41,3 +41,6 @@ class InMemoryApiKeyStore:
         """Forget the key."""
         self.key = None
         self.unreadable = False
+
+    def clean_leftovers(self) -> None:
+        """Nothing is left in memory."""

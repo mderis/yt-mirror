@@ -269,6 +269,8 @@ def run_app(
             container.native.show_alert(title, text)
             return EXIT_DB_UPGRADE_FAILED
         container.toolchain.verify()
+        # A copy of the key that an interrupted save left is never kept (D-085).
+        container.dates.tidy_key_store()
         # The checks and the pictures are background work: it starts with the app.
         container.catalogue.start()
         container.thumbnails.start()

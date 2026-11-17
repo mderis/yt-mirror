@@ -200,6 +200,22 @@ class MacFileSystem:
         except OSError:
             return []
 
+    def list_folder(self, folder: Path) -> list[str]:
+        """Return every name directly in a folder, or raise when it cannot be listed.
+
+        Args:
+            folder: The folder.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` for any error of the listing.
+        """
+        try:
+            return [entry.name for entry in folder.iterdir()]
+        except OSError as error:
+            raise AppError(
+                ErrorCode.FOLDER_UNAVAILABLE, {"folder": str(folder), "error": type(error).__name__}
+            ) from error
+
     def exists(self, path: Path) -> bool:
         """Return whether a file or folder exists, without following a last symlink.
 

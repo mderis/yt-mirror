@@ -11,7 +11,7 @@ from ytmirror.adapters.fixture_youtube import THUMBNAIL_ADDRESS
 from ytmirror.core.channels import ChannelReference, CheckKind, ReferenceKind
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.pacing import HOUR_S, LookupBudget
-from ytmirror.services.youtube_access import next_local_midnight
+from ytmirror.services.youtube_access import YouTubeAccess, next_local_midnight
 
 SMALL = ChannelReference(ReferenceKind.HANDLE, "@small")
 PICTURE = f"{THUMBNAIL_ADDRESS}sm000000001"
@@ -356,3 +356,24 @@ def test_the_lookups_of_each_hour_are_logged(tmp_path: Path) -> None:
         (1, 0, 300),
         (1, 0, 300),
     ]
+
+
+def test_the_budget_of_lookups_survives_a_restart(tmp_path: Path) -> None:
+    """R-DT-06: a new start of the app keeps the last hour's lookups and the halving."""
+    world = refused(World(tmp_path, budget=LookupBudget(per_hour=2)))
+    bot_check(lambda: world.youtube.lookup_channel(SMALL))
+    world.youtube.try_now()
+    world.gateway.refuse.clear()
+    world.youtube.exact_date("sm000000005")
+
+    again = YouTubeAccess(
+        world.gateway,
+        world.clock,
+        world.bus,
+        lambda delay, work: None,
+        budget=LookupBudget(per_hour=2),
+        memory=world.meta,
+    )
+
+    assert again.lookups_per_hour() == 1
+    assert again.exact_date_wait_s() > 0

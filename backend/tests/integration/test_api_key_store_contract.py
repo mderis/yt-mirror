@@ -134,3 +134,20 @@ def test_a_key_that_cannot_be_written_leaves_nothing_behind(tmp_path: Path) -> N
 
     assert failure.value.code is ErrorCode.API_KEY_UNREADABLE
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_copy_left_by_an_interrupted_save_is_deleted(tmp_path: Path) -> None:
+    """R-DT-12, D-085: "Remove key" and the start delete a hidden copy of a key (review of M4)."""
+    store = ApiKeyFile(tmp_path)
+    store.write(KEY)
+    leftover = tmp_path / f".{FILE_NAME}.0123456789abcdef.tmp"
+    leftover.write_text(KEY, encoding="utf-8")
+
+    store.clean_leftovers()
+    second = tmp_path / f".{FILE_NAME}.fedcba9876543210.tmp"
+    second.write_text(KEY, encoding="utf-8")
+    store.remove()
+
+    assert not leftover.exists()
+    assert not second.exists()
+    assert list(tmp_path.iterdir()) == []

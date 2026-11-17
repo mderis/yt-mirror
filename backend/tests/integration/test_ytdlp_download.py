@@ -54,11 +54,13 @@ class FakeYtDlp:
         self.extra: dict[str, Any] = {}
 
     def __call__(
-        self, address: str, options: Mapping[str, Any], tags: Mapping[str, str]
+        self, info: Mapping[str, Any], options: Mapping[str, Any], tags: Mapping[str, str]
     ) -> Mapping[str, Any]:
         """Do what yt-dlp does, in the order the real download showed."""
         self.options = options
         self.tags = tags
+        self.info = info
+        address = f"https://www.youtube.com/watch?v={info.get('id')}"
         folder = Path(options["outtmpl"]["default"]).parent
         progress: Callable[[Mapping[str, Any]], None] = options["progress_hooks"][0]
         processing: Callable[[Mapping[str, Any]], None] = options["postprocessor_hooks"][0]
@@ -510,3 +512,26 @@ def test_an_error_after_a_cancel_is_the_cancel(
         gateway(replay, ytdlp).download(
             request(tmp_path), cancel_when_processing, lambda: cancelled["now"]
         )
+
+
+def test_a_download_asks_youtube_once_and_downloads_what_the_lookup_gave(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06, D-088: one lookup per download, counted once in the budget.
+
+    The download is made from the metadata the lookup gave, with the format choice
+    of the download, so the streams fetched are those the progress was planned with.
+    """
+    asked: list[str] = []
+
+    def counting(address: str, options: Mapping[str, Any], process: bool) -> Mapping[str, Any]:
+        asked.append(address)
+        return replay(address, options, process)
+
+    YtDlpGateway(FakeClock(), tools=TOOLS, extract=counting, download=ytdlp).download(
+        request(tmp_path), lambda _progress: None, never
+    )
+
+    assert asked == [f"https://www.youtube.com/watch?v={VIDEO_ID}"]
+    assert ytdlp.info["id"] == VIDEO_ID
+    assert [stream["format_id"] for stream in ytdlp.info["requested_formats"]] == ["397", "251"]

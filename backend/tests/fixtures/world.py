@@ -351,6 +351,7 @@ class World:
             self.bus,
             lambda delay, work: self.later.append((delay, work)),
             budget=budget,
+            memory=self.meta,
         )
         self.downloads = DownloadState()
         self.date_repository = SqlDateRepository(engine, self.clock)

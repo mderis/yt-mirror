@@ -108,6 +108,8 @@ class VideoRow(Base):
     last_error_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False)
     placing_file: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rename_from: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rename_to: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 

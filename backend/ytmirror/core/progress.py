@@ -47,6 +47,9 @@ class PartKind(StrEnum):
     THUMBNAIL = "thumbnail"
 
 
+_STREAMS = frozenset({PartKind.VIDEO, PartKind.AUDIO})
+
+
 @dataclass(frozen=True, slots=True)
 class PlannedPart:
     """A part a download is going to fetch, as known before it starts.
@@ -136,7 +139,7 @@ class ProgressTracker:
             size: Its real size, when the report tells it.
             now: The time, in seconds of a clock that never goes back.
         """
-        part = self._parts.get(key) or self._add(key, kind, size)
+        part = self._parts.get(key) or self._unplanned(key, kind, size)
         if size is not None and size > 0:
             part.size, part.estimated = size, False
         part.done = max(part.done, done)
@@ -153,7 +156,7 @@ class ProgressTracker:
             size: Its final size, when it is told.
             now: The time.
         """
-        part = self._parts.get(key) or self._add(key, kind, size)
+        part = self._parts.get(key) or self._unplanned(key, kind, size)
         final = size if size is not None and size > 0 else max(part.done, part.size)
         part.size, part.done, part.estimated, part.finished = final, final, False, True
         return self._totals(now)
@@ -164,6 +167,20 @@ class ProgressTracker:
             if part.kind is kind and not part.finished:
                 part.done, part.estimated, part.finished = part.size, False, True
         return self._totals(now)
+
+    def _unplanned(self, key: str, kind: PartKind, size: int | None) -> _Part:
+        """Add a part the plan did not name, in place of planned streams of its kind.
+
+        When yt-dlp fetches another stream than the one planned, the planned
+        stream of that kind never arrives: it is dropped, so it neither holds
+        the percent back nor counts in the total (the percent still never goes
+        down).
+        """
+        if kind in _STREAMS:
+            for other, part in list(self._parts.items()):
+                if part.kind is kind and part.done == 0 and not part.finished:
+                    del self._parts[other]
+        return self._add(key, kind, size)
 
     def _add(self, key: str, kind: PartKind, size: int | None) -> _Part:
         known = size is not None and size > 0
@@ -177,7 +194,11 @@ class ProgressTracker:
         parts = list(self._parts.values())
         total = sum(part.size for part in parts)
         done = sum(min(part.done, part.size) for part in parts)
-        complete = all(part.finished for part in parts)
+        # Complete only once a stream is: a plan without streams is not done when only
+        # the subtitles and the thumbnail are.
+        complete = all(part.finished for part in parts) and any(
+            part.kind in _STREAMS and part.finished for part in parts
+        )
         measured = 1.0 if complete else min(_ALMOST_DONE, done / total if total else 0.0)
         self._shown = max(self._shown, measured)
         speed = self._speed(done, now)

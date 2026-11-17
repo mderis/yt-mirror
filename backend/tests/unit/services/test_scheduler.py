@@ -6,7 +6,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines
-from ytmirror.core.channels import ChecksProgressed
+from ytmirror.core.channels import CheckKind, ChecksProgressed
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import Settings
 
@@ -254,3 +254,60 @@ def test_the_scheduler_runs_the_exact_date_fetch(tmp_path: Path) -> None:
     world.scheduler.tick()
 
     assert (first, held, world.gateway.asked.count("exact_date")) == (1, 1, 2)
+
+
+def failed_quietly(tmp_path: Path) -> World:
+    """Two listed channels; the check of the small one failed; no checks by themselves."""
+    world = two_channels(tmp_path)
+    world.settings_repository.save(
+        Settings(check_on_open=False, recheck_interval_min=0, fetch_exact_dates=False)
+    )
+    world.gateway.refuse["listing"] = ErrorCode.NETWORK_UNREACHABLE
+    world.check(SMALL_ID)
+    world.gateway.refuse.clear()
+    return world
+
+
+def test_a_retry_never_undoes_a_pause_made_meanwhile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-CH-25, R-CH-31: the retry writes its count only (review of M4)."""
+    world = failed_quietly(tmp_path)
+    before = world.repository.channels()
+    world.channels.set_paused(SMALL_ID, True)
+    monkeypatch.setattr(world.repository, "channels", lambda: before)
+    world.clock.advance(5 * MINUTE)
+
+    world.scheduler.tick()
+
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    assert channel.paused
+    assert channel.check_retries == 0
+
+
+def test_no_retry_is_put_in_line_while_a_check_of_the_channel_runs(tmp_path: Path) -> None:
+    """R-CH-24, R-CH-25: a channel is in line at most once; its retry waits."""
+    world = failed_quietly(tmp_path)
+    world.catalogue.request_check(SMALL_ID, CheckKind.QUICK)
+    world.clock.advance(5 * MINUTE)
+
+    world.scheduler.tick()
+
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    assert channel.check_retries == 0
+
+
+def test_the_pause_of_youtube_puts_nothing_in_line(tmp_path: Path) -> None:
+    """R-ER-05: during the pause the scheduler queues no check at all, not even one refused."""
+    world = two_channels(tmp_path)
+    world.gateway.refuse["lookup"] = ErrorCode.BOT_CHECK
+    with pytest.raises(AppError):
+        world.channels.lookup("@small")
+
+    world.scheduler.tick()
+
+    assert world.views.checking_all() is None
+    assert not world.views.is_checking(SMALL_ID)
+    assert not world.views.is_checking(BIG_ID)

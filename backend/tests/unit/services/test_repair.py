@@ -1,5 +1,6 @@
 """Tests of date repair and the rename after a new title (``ytmirror.services.repair``)."""
 
+import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,8 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from structlog.testing import capture_logs
 
-from tests.fixtures.world import SMALL_ID, World, channel_file, log_lines, own_file
+from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines, own_file
+from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import ChannelStatus, Video, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import Settings
@@ -20,6 +22,8 @@ FULLWIDTH_COLON = chr(0xFF1A)
 NEWEST = "sm000000005"
 PUBLISHED = 1_793_379_761
 """The upload time the fake download gives."""
+OWN_COVER = b"twelve bytes"
+"""What the fake download writes as the thumbnail, kept in the hidden folder."""
 
 
 def synced(tmp_path: Path, *steps: dict[str, Any], **more: Any) -> World:
@@ -140,7 +144,8 @@ def test_a_file_named_by_its_video_id_gets_its_title_when_it_can(tmp_path: Path)
     old = video(world).file_name
     assert old is not None
     world.files.move(folder(world) / old, folder(world) / f"{NEWEST}.mkv")
-    world.repository.set_file_name(NEWEST, old, f"{NEWEST}.mkv")
+    world.repository.mark_rename(NEWEST, old, f"{NEWEST}.mkv")
+    world.repository.finish_rename(NEWEST, old, f"{NEWEST}.mkv")
 
     world.check(SMALL_ID)
 
@@ -148,38 +153,142 @@ def test_a_file_named_by_its_video_id_gets_its_title_when_it_can(tmp_path: Path)
 
 
 def test_the_thumbnail_next_to_the_video_is_renamed_with_it(tmp_path: Path) -> None:
-    """R-MD-05, R-FN-06: the cover next to the video follows its name."""
+    """R-MD-05, R-FN-06: the app's cover next to the video follows its name."""
     world = synced(tmp_path, {"retitle": {NEWEST: "New name"}})
-    world.files.add_files(folder(world), ["Video 5.jpg"], data=b"cover")
+    world.files.add_files(folder(world), ["Video 5.jpg"], data=OWN_COVER)
 
     world.check(SMALL_ID)
 
-    assert world.files.read_bytes(folder(world) / "New name.jpg") == b"cover"
+    assert world.files.read_bytes(folder(world) / "New name.jpg") == OWN_COVER
     assert not world.files.exists(folder(world) / "Video 5.jpg")
+
+
+def test_the_users_own_picture_of_that_name_is_never_renamed(tmp_path: Path) -> None:
+    """R-FN-06, R-MD-05: a .jpg that is not the app's copy stays as it is (review of M4)."""
+    world = synced(tmp_path, {"retitle": {NEWEST: "New name"}})
+    world.files.add_files(folder(world), ["Video 5.jpg"], data=b"my own picture")
+
+    world.check(SMALL_ID)
+
+    assert world.files.read_bytes(folder(world) / "Video 5.jpg") == b"my own picture"
+    assert not world.files.exists(folder(world) / "New name.jpg")
+    assert video(world).file_name == "New name.mkv"
+
+
+def interrupted(world: World, new: str) -> None:
+    """Mark a rename and move the file, as a rename the app's end stopped before storing."""
+    world.repository.mark_rename(NEWEST, "Video 5.mkv", new)
+    world.files.move(folder(world) / "Video 5.mkv", folder(world) / new)
 
 
 def test_an_interrupted_rename_is_completed_and_the_file_never_trashed(tmp_path: Path) -> None:
     """R-QA-06, R-FN-06: the file moved but its name was not stored; the next check stores it."""
     world = synced(tmp_path, {"retitle": {NEWEST: "Moved already"}}, {})
-    world.files.move(folder(world) / "Video 5.mkv", folder(world) / "Moved already.mkv")
+    interrupted(world, "Moved already.mkv")
     spoil(world, "Moved already.mkv")
 
     world.check(SMALL_ID)
 
     assert video(world).file_name == "Moved already.mkv"
+    assert video(world).rename_to is None
     assert world.files.read_bytes(folder(world) / "Moved already.mkv") == own_file(NEWEST)
     assert dates_of(world, "Moved already.mkv") == (PUBLISHED, PUBLISHED)
 
 
+def test_an_interrupted_rename_is_settled_whatever_the_title_is_by_then(tmp_path: Path) -> None:
+    """R-FN-06, R-QA-06: the marker, not the title, finds the file; then the new title follows.
+
+    Found by the review of M4: with a second new title before the next check, the
+    file was looked for under names of the newest title only and was lost track of.
+    """
+    world = synced(
+        tmp_path, {"retitle": {NEWEST: "Second title"}}, {"retitle": {NEWEST: "Third title"}}
+    )
+    world.check(SMALL_ID)
+    world.repository.mark_rename(NEWEST, "Second title.mkv", "Middle name.mkv")
+    world.files.move(folder(world) / "Second title.mkv", folder(world) / "Middle name.mkv")
+
+    world.check(SMALL_ID)
+
+    assert video(world).file_name == "Third title.mkv"
+    assert world.files.exists(folder(world) / "Third title.mkv")
+    assert not world.files.exists(folder(world) / "Middle name.mkv")
+    assert video(world).status is VideoStatus.SYNCED
+
+
+def test_a_rename_that_did_not_move_the_file_is_undone(tmp_path: Path) -> None:
+    """R-FN-06: a marker whose file still has its old name is cleared; nothing is lost."""
+    world = synced(tmp_path, {})
+    world.repository.mark_rename(NEWEST, "Video 5.mkv", "Never moved.mkv")
+
+    world.check(SMALL_ID)
+
+    assert (video(world).file_name, video(world).rename_to) == ("Video 5.mkv", None)
+    assert video(world).status is VideoStatus.SYNCED
+
+
 def test_a_file_of_another_video_under_the_new_name_is_not_taken(tmp_path: Path) -> None:
     """R-QA-06: only a file with this video's ID inside is taken as the moved one."""
-    world = synced(tmp_path, {"retitle": {NEWEST: "Someone else"}})
+    world = synced(tmp_path, {})
+    world.repository.mark_rename(NEWEST, "Video 5.mkv", "Someone else.mkv")
     world.files.trash(folder(world) / "Video 5.mkv")
     world.files.add_files(folder(world), ["Someone else.mkv"], data=b"video:other000001")
 
     world.check(SMALL_ID)
 
     assert video(world).file_name == "Video 5.mkv"
+    assert video(world).rename_to is None
+    assert video(world).status is VideoStatus.FILE_MISSING
+
+
+def test_the_file_goes_back_when_its_new_name_cannot_be_stored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-QA-06, R-FN-06: the video changed meanwhile; the file is where the catalogue says."""
+    world = synced(tmp_path, {"retitle": {NEWEST: "New name"}})
+
+    def changed_meanwhile(video_id: str, old: str, new: str) -> bool:
+        return False
+
+    monkeypatch.setattr(world.repository, "finish_rename", changed_meanwhile)
+
+    world.check(SMALL_ID)
+
+    assert world.files.exists(folder(world) / "Video 5.mkv")
+    assert not world.files.exists(folder(world) / "New name.mkv")
+    assert (video(world).file_name, video(world).rename_to) == ("Video 5.mkv", None)
+
+
+def test_names_of_other_channels_in_a_shared_folder_are_taken(tmp_path: Path) -> None:
+    """R-FN-05, R-FI-05: a name another channel tracks in the same folder is never reused."""
+    world = synced(tmp_path, {"retitle": {NEWEST: "Shared name"}})
+    other = world.repository.channels()[0]
+    world.repository.add_channel(
+        dataclasses.replace(other, id=BIG_ID, title="Big", handle="@big", position=1)
+    )
+    world.repository.apply_check(
+        dataclasses.replace(other, id=BIG_ID, title="Big", handle="@big", position=1),
+        CheckChanges(
+            inserted=(
+                dataclasses.replace(
+                    video(world),
+                    id="bg000000001",
+                    channel_id=BIG_ID,
+                    file_name="Shared name.mkv",
+                ),
+            ),
+            updated=(),
+            new=0,
+            changed=0,
+            removed=0,
+            returned=0,
+            read=0,
+        ),
+    )
+
+    world.check(SMALL_ID)
+
+    assert video(world).file_name == f"Shared name [{NEWEST}].mkv"
 
 
 def test_a_file_whose_name_fits_its_title_is_left_alone(tmp_path: Path) -> None:
@@ -411,3 +520,90 @@ def test_a_missing_video_can_be_mirrored_again(tmp_path: Path) -> None:
 
     assert video(world).status is VideoStatus.SYNCED
     assert world.files.exists(folder(world) / "Video 5.mkv")
+
+
+def test_a_folder_that_cannot_be_listed_marks_nothing(tmp_path: Path) -> None:
+    """R-MI-06, R-QU-11: a failed listing means unavailable, not missing."""
+    world = synced(tmp_path, {})
+    world.files.unlistable.add(folder(world))
+
+    with capture_logs() as logs:
+        world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.SYNCED
+    assert log_lines(logs, "file.unchecked")
+
+
+def test_files_are_looked_for_in_one_listing_not_one_by_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-MI-06: a folder that vanishes after its listing marks nothing it listed.
+
+    Every check of a single file now fails, as on a drive that went away during the loop.
+    """
+    world = synced(tmp_path, {})
+
+    def gone(path: Path) -> bool:
+        return False
+
+    monkeypatch.setattr(world.files, "exists", gone)
+
+    world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.SYNCED
+
+
+def test_a_video_whose_file_is_listed_again_but_cannot_be_read_stays_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-MI-06: a file whose own check fails is skipped, not taken back."""
+    world = synced(tmp_path, {}, {})
+    world.files.trash(folder(world) / "Video 5.mkv")
+    world.check(SMALL_ID)
+    world.files.add_files(folder(world), ["Video 5.mkv"], data=own_file(NEWEST))
+
+    def unreadable(path: Path) -> None:
+        raise OSError("Operation not permitted")
+
+    monkeypatch.setattr(world.media, "probe", unreadable)
+    with capture_logs() as logs:
+        world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.FILE_MISSING
+    assert log_lines(logs, "dates.repair.failed") == []
+
+
+def test_a_file_a_download_is_placing_is_not_looked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-MI-06, R-QA-06: while a download places its file, the file check leaves the video."""
+    world = synced(tmp_path)
+    placing = dataclasses.replace(video(world), placing_file="Video 5.mkv")
+    world.files.trash(folder(world) / "Video 5.mkv")
+
+    def only(channel_id: str) -> tuple[Video, ...]:
+        return (placing,)
+
+    monkeypatch.setattr(world.repository, "videos", only)
+
+    world.repair.verify_files(SMALL_ID)
+
+    assert world.statuses(NEWEST)[-1][1] == "synced"
+
+
+def test_only_a_synced_video_can_become_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-MI-06, R-QA-08: a video in line for download whose file is gone is not marked."""
+    world = synced(tmp_path)
+    queued = dataclasses.replace(video(world), status=VideoStatus.QUEUED)
+    world.files.trash(folder(world) / "Video 5.mkv")
+
+    def only(channel_id: str) -> tuple[Video, ...]:
+        return (queued,)
+
+    monkeypatch.setattr(world.repository, "videos", only)
+
+    world.repair.verify_files(SMALL_ID)
+
+    assert world.statuses(NEWEST)[-1][1] == "synced"

@@ -34,5 +34,9 @@ class ApiKeyStore(Protocol):
         ...
 
     def remove(self) -> None:
-        """Delete the saved key. Nothing happens when none is saved."""
+        """Delete the saved key, and any copy a save that was interrupted left."""
+        ...
+
+    def clean_leftovers(self) -> None:
+        """Delete the copies of a key that a save the app's end interrupted left. For the start."""
         ...

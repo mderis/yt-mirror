@@ -241,6 +241,7 @@ def build_container(
         events,
         _later,
         budget=LookupBudget(pace) if pace else None,
+        memory=SqlAppMetaRepository(engine, used_clock),
     )
     downloads = DownloadState()
     date_repository = SqlDateRepository(engine, used_clock)

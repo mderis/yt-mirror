@@ -265,3 +265,21 @@ def test_a_drive_is_connected_when_its_volume_is_mounted(tmp_path: Path) -> None
 
     assert files.drive_connected(tmp_path / "anything")
     assert not files.drive_connected(Path("/Volumes/yt-mirror-no-such-drive/YouTube/Channel"))
+
+
+def test_a_real_folder_that_cannot_be_searched_marks_nothing(app: Container, zone: str) -> None:
+    """R-MI-06, R-QU-11: mode 0600 lists the names but no file can be looked at; nothing is marked.
+
+    Found by the review of M4: a check of each file with lexists said "not there"
+    for every file of such a folder.
+    """
+    folder = synced_folder(app)
+    check_now(app)
+    folder.chmod(0o600)
+    try:
+        app.repair.channel_opened(CHANNEL_ID)
+        status = status_of(app)
+    finally:
+        folder.chmod(0o755)
+
+    assert status is VideoStatus.SYNCED

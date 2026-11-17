@@ -22,7 +22,12 @@ import pytest
 from tests.fixtures.media import ffmpeg_dir, make_media
 from ytmirror.adapters.child_processes_mac import names_folder
 from ytmirror.adapters.media_tools import FfprobeMediaTools
-from ytmirror.adapters.ytdlp_gateway import DOWNLOAD_OPTIONS, TAGS_STEP, download_with_ytdlp
+from ytmirror.adapters.ytdlp_gateway import (
+    DOWNLOAD_OPTIONS,
+    TAGS_STEP,
+    download_with_ytdlp,
+    extract_with_ytdlp,
+)
 from ytmirror.core.jobs import DownloadCancelledError
 
 pytestmark = pytest.mark.media
@@ -63,6 +68,11 @@ def address(ffmpeg: Path, tmp_path: Path) -> Iterator[str]:
         thread.join(5)
 
 
+def looked_up(address: str) -> Mapping[str, Any]:
+    """The metadata of the clip, as the lookup before a download gives it."""
+    return extract_with_ytdlp(address, {"quiet": True, "cachedir": False}, True)
+
+
 def options(ffmpeg: Path, work: Path, **more: Any) -> dict[str, Any]:
     """The download options of the app, without the steps a direct link has nothing for."""
     return {
@@ -84,7 +94,7 @@ def test_a_real_download_carries_the_tags_of_the_app(
     work = tmp_path / "work"
     tags = {"video_id": "clip0000001", "published_at": "2026-11-01T12:00:00Z"}
 
-    answer: Mapping[str, Any] = download_with_ytdlp(address, options(ffmpeg, work), tags)
+    answer: Mapping[str, Any] = download_with_ytdlp(looked_up(address), options(ffmpeg, work), tags)
 
     file = work / "clip0000001.mkv"
     facts = FfprobeMediaTools(ffmpeg / "ffprobe").probe(file)
@@ -105,7 +115,7 @@ def test_a_cancel_while_the_bytes_arrive_comes_out_of_yt_dlp_as_a_cancel(
     work = tmp_path / "work"
 
     with pytest.raises(DownloadCancelledError):
-        download_with_ytdlp(address, options(ffmpeg, work, progress_hooks=[cancel]), {})
+        download_with_ytdlp(looked_up(address), options(ffmpeg, work, progress_hooks=[cancel]), {})
 
     assert not (work / "clip0000001.mkv").exists()
 
@@ -124,7 +134,7 @@ def test_a_cancel_between_processing_steps_comes_out_of_yt_dlp_as_a_cancel(
 
     with pytest.raises(DownloadCancelledError):
         download_with_ytdlp(
-            address,
+            looked_up(address),
             options(ffmpeg, work, postprocessor_hooks=[cancel_at_the_metadata_step]),
             {"video_id": "clip0000001"},
         )
@@ -145,7 +155,7 @@ def test_the_hook_is_called_for_the_tags_step_before_the_bytes_arrive(
         told.append(f"{report.get('postprocessor')} {report.get('status')}")
 
     download_with_ytdlp(
-        address,
+        looked_up(address),
         options(
             ffmpeg,
             tmp_path / "work",

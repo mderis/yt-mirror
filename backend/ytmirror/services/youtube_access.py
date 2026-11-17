@@ -24,8 +24,9 @@ Tests: backend/tests/unit/services/test_youtube_access.py
 """
 
 import datetime
+import json
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 
 import structlog
 from structlog.typing import FilteringBoundLogger
@@ -42,11 +43,15 @@ from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import DownloadProgress, DownloadRequest, DownloadResult
 from ytmirror.core.pacing import HourCounts, LookupBudget, LookupKind
 from ytmirror.core.pauses import next_pause_s
+from ytmirror.ports.app_meta_repository import AppMetaRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.ports.youtube_gateway import YouTubeGateway
 from ytmirror.services.events import EventBus
 
 _log: FilteringBoundLogger = structlog.get_logger(__name__)
+
+BUDGET_KEY = "lookup_budget"
+"""Where the budget of lookups is kept in ``app_meta``, as JSON (R-DT-06)."""
 
 type CallLater = Callable[[float, Callable[[], None]], None]
 """Runs something after a number of seconds, without blocking the caller."""
@@ -75,6 +80,7 @@ class YouTubeAccess:
         *,
         budget: LookupBudget | None = None,
         midnight_after: Callable[[datetime.datetime], float] = next_local_midnight,
+        memory: AppMetaRepository | None = None,
     ) -> None:
         """Create the access.
 
@@ -85,6 +91,8 @@ class YouTubeAccess:
             call_later: Runs the end of a pause when its time has come.
             budget: The budget of lookups. Default: 300 an hour (D-084).
             midnight_after: Says when the day of a time ends, for the halved budget.
+            memory: Where the budget is kept across restarts: the lookups of the last
+                hour and the halving until midnight (R-DT-06).
         """
         self._gateway = gateway
         self._clock = clock
@@ -97,6 +105,8 @@ class YouTubeAccess:
         self._on_resume: list[Callable[[], None]] = []
         self._budget = budget if budget is not None else LookupBudget()
         self._midnight_after = midnight_after
+        self._memory = memory
+        self._restored = memory is None
 
     def pause(self) -> YouTubePause | None:
         """Return the pause that is in force, or None."""
@@ -121,12 +131,12 @@ class YouTubeAccess:
     def exact_date_wait_s(self) -> float:
         """Return how long the exact-date fetch waits before its next lookup (R-DT-06)."""
         with self._lock:
-            return self._budget.wait_s(self._now())
+            return self._budget_now().wait_s(self._now())
 
     def lookups_per_hour(self) -> int:
         """Return the budget of an hour as it is now: halved after a check (R-DT-06)."""
         with self._lock:
-            return self._budget.limit(self._now())
+            return self._budget_now().limit(self._now())
 
     def exact_date(self, video_id: str) -> int | None:
         """Look up the exact published time of a video for the exact-date fetch (R-DT-05).
@@ -252,6 +262,31 @@ class YouTubeAccess:
     def _now(self) -> float:
         return self._clock.now().timestamp()
 
+    def _budget_now(self) -> LookupBudget:
+        """Return the budget, read back from where it was kept the first time it is needed.
+
+        Not when the access is made: the database is brought up to date only after the
+        container is built. The caller holds the lock.
+        """
+        if not self._restored and self._memory is not None:
+            self._restored = True
+            try:
+                self._budget.restore(
+                    json.loads(self._memory.get(BUDGET_KEY) or "null"), self._now()
+                )
+            except Exception:  # noqa: BLE001  (an unreadable budget only starts afresh)
+                _log.warning("youtube.budget_unreadable", msg="The saved budget was not read")
+        return self._budget
+
+    def _remember(self, saved: Mapping[str, object]) -> None:
+        """Keep the budget for the next start (R-DT-06). A failure only loses that."""
+        if self._memory is None:
+            return
+        try:
+            self._memory.put(BUDGET_KEY, json.dumps(saved))
+        except Exception:  # noqa: BLE001  (a lookup never fails because the budget was not kept)
+            _log.warning("youtube.budget_unsaved", msg="The budget of lookups was not kept")
+
     def _ask[T](
         self,
         request: str,
@@ -265,7 +300,9 @@ class YouTubeAccess:
             raise AppError(ErrorCode.BOT_CHECK, {"paused_until": str(pause.until)})
         if counted is not None:
             with self._lock:
-                finished = self._budget.count(counted, self._now())
+                finished = self._budget_now().count(counted, self._now())
+                saved = self._budget.saved()
+            self._remember(saved)
             _log_hour(finished)
         try:
             answer = ask()
@@ -288,7 +325,7 @@ class YouTubeAccess:
             return
         now = self._clock.now()
         with self._lock:
-            finished = self._budget.halve(now.timestamp(), self._midnight_after(now))
+            finished = self._budget_now().halve(now.timestamp(), self._midnight_after(now))
             length = next_pause_s(self._last_pause_s)
             self._last_pause_s = length
             self._refused = request
@@ -304,6 +341,9 @@ class YouTubeAccess:
             pause_s=length,
             until=pause.until,
         )
+        with self._lock:
+            saved = self._budget.saved()
+        self._remember(saved)
         _log_hour(finished)
         self._events.publish(YouTubePauseChanged(pause))
         self._call_later(length, lambda: self._pause_is_over(pause))

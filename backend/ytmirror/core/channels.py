@@ -282,6 +282,9 @@ class Video:
         attempts: Automatic attempts since the last success.
         placing_file: The file a running download is moving into the channel folder, or
             None. Set before the move, cleared when the job ends (R-QA-06).
+        rename_from: The name of a file being renamed after a new title, or None.
+        rename_to: The name it is being renamed to, or None. Both are set before the
+            move and cleared when the new name is stored (R-FN-06).
     """
 
     id: str
@@ -314,6 +317,8 @@ class Video:
     last_error_at: int | None = None
     attempts: int = 0
     placing_file: str | None = None
+    rename_from: str | None = None
+    rename_to: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

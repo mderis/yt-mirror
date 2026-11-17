@@ -130,3 +130,39 @@ def test_the_open_hour_can_be_closed_at_the_end_of_the_app() -> None:
     assert closed is not None
     assert closed.exact_date == 1
     assert budget.close(START + 3) is None
+
+
+def test_a_second_check_never_moves_the_end_of_the_halving_later() -> None:
+    """R-DT-06: the halving ends at the midnight of the first check, whatever comes after."""
+    budget = LookupBudget()
+    budget.halve(START, MIDNIGHT)
+
+    budget.halve(START + HOUR_S, MIDNIGHT + 24 * HOUR_S)
+
+    assert budget.limit(MIDNIGHT) == 300
+
+
+def test_the_budget_is_kept_across_a_restart() -> None:
+    """R-DT-06: the lookups of the last hour and the halving survive a restart (review of M4)."""
+    before = LookupBudget(per_hour=3)
+    before.halve(START, MIDNIGHT)
+    for second in (0, 10, 20):
+        before.count(LookupKind.DOWNLOAD, START + second)
+
+    after = LookupBudget(per_hour=3)
+    after.restore(before.saved(), START + 30)
+
+    assert after.limit(START + 30) == 1
+    assert after.used(START + 30) == 3
+    assert after.wait_s(START + 30) > 0
+
+
+def test_what_is_old_or_unreadable_is_not_restored() -> None:
+    """R-DT-06: lookups older than an hour, a halving that ended, or nonsense are left out."""
+    budget = LookupBudget()
+
+    budget.restore({"recent": [START - HOUR_S, "x", START], "halved_until": START - 1}, START)
+    budget.restore("not a budget", START)
+
+    assert budget.used(START) == 1
+    assert budget.limit(START) == 300

@@ -21,6 +21,7 @@ Tests: backend/tests/unit/core/test_pacing.py
 from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import cast
 
 LOOKUPS_PER_HOUR = 300
 """The budget of one hour. One value, so that a later release can change it (D-084)."""
@@ -78,6 +79,28 @@ class LookupBudget:
         self._last_fetch: float | None = None
         self._halved_until: float | None = None
         self._hour: _Hour | None = None
+
+    def saved(self) -> dict[str, object]:
+        """Return what must survive a restart: the lookups of the last hour and the halving."""
+        return {"recent": list(self._recent), "halved_until": self._halved_until}
+
+    def restore(self, saved: object, now: float) -> None:
+        """Take back what ``saved`` gave, ignoring what is old or cannot be read.
+
+        Args:
+            saved: The value ``saved`` returned before the restart.
+            now: The time now.
+        """
+        if not isinstance(saved, dict):
+            return
+        values = cast(dict[str, object], saved)
+        recent = values.get("recent")
+        if isinstance(recent, list):
+            times = [at for at in cast(list[object], recent) if isinstance(at, int | float)]
+            self._recent = deque(sorted(float(at) for at in times if now - HOUR_S < at <= now))
+        halved = values.get("halved_until")
+        if isinstance(halved, int | float) and halved > now:
+            self._halved_until = float(halved)
 
     def limit(self, now: float) -> int:
         """Return the budget of an hour as it is now: halved after a check until its end."""

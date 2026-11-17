@@ -420,6 +420,15 @@ class DatesService:
             self.wake()
         return KeyTest(works=True)
 
+    def tidy_key_store(self) -> None:
+        """Delete the copies of a key an interrupted save left. Called once at the start."""
+        try:
+            self._keys.clean_leftovers()
+        except OSError as error:
+            _log.warning(
+                "apikey.leftover_kept", msg="A left copy of a key was not deleted", error=str(error)
+            )
+
     def prioritize(self, video_ids: Sequence[str]) -> None:
         """Put videos at the front of the fetch: a decision waits for their date (R-MI-03).
 
