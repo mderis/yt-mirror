@@ -13,6 +13,7 @@ from typing import Protocol
 
 from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import Channel, ChannelTotals, Video
+from ytmirror.core.status import StatusChange
 
 
 class CatalogueRepository(Protocol):
@@ -118,6 +119,17 @@ class CatalogueRepository(Protocol):
 
         Returns:
             Whether it was stored: False when the video has another name by now, or is gone.
+        """
+        ...
+
+    def change_status(self, change: StatusChange) -> bool:
+        """Change the status of a video whose file went or came back, with its event (R-LG-03).
+
+        Args:
+            change: The change, from the status the video must still have.
+
+        Returns:
+            Whether it was stored: False when the video has another status by now.
         """
         ...
 

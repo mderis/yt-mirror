@@ -85,6 +85,17 @@ class FileSystem(Protocol):
         """
         ...
 
+    def drive_connected(self, path: Path) -> bool:
+        """Return whether the drive a path is on is connected (R-QU-11, R-MI-06).
+
+        A folder that is not there on a connected drive was deleted; one on a
+        drive that is not connected is only unavailable.
+
+        Args:
+            path: A file or folder, which need not exist.
+        """
+        ...
+
     def count_video_files(self, folder: Path) -> int:
         """Return how many video files lie directly in a folder (R-CH-06).
 

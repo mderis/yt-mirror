@@ -57,6 +57,11 @@ export const en = {
       doing: 'Nothing was changed.',
       action: "Paste a channel link, a handle such as {'@'}name, or a channel ID.",
     },
+    file_missing: {
+      happened: 'The file of this video is no longer in its folder.',
+      doing: 'It may have been moved, renamed or deleted. Nothing was changed.',
+      action: 'Put the file back, or mirror the video again.',
+    },
     folder_unavailable: {
       happened: 'The folder cannot be used.',
       doing: 'Nothing was changed.',
@@ -165,6 +170,7 @@ export const en = {
     newVideos: '{count} new video | {count} new videos',
     paused: 'Paused',
     couldNotCheck: 'Could not check',
+    folderNotFound: 'Folder not found',
     couldNotCheckRetrying: 'Could not check · retrying in {in}',
     couldNotCheckRetryingSoon: 'Could not check · retrying now',
     exactDates: 'Exact dates {done} of {total}',
@@ -353,6 +359,11 @@ export const en = {
     fullCheckProgressWithoutTotal: 'Full check: {done}',
     fullCheckLabel: 'Progress of the full check',
     cancelCheck: 'Cancel',
+    folderNotFound: {
+      title: 'The folder of this channel was not found',
+      text: 'It is not at {folder}: it may have been moved, renamed or deleted. Its videos keep their status until it is there again. Put the folder back in this place, or remove the channel.',
+      remove: 'Remove channel',
+    },
     failed: {
       autoRetry: 'yt-mirror tries again by itself at {time}.',
       reach: 'Could not reach YouTube',
@@ -399,6 +410,7 @@ export const en = {
       synced: 'Synced · {height}p',
       syncedWithoutHeight: 'Synced',
       fileMissing: 'File missing',
+      mirrorAgain: 'Mirror again',
       failedStatus: 'Failed',
       stage: { video: 'Video', audio: 'Audio', processing: 'Processing' },
       quality: '{height}p',

@@ -402,3 +402,21 @@ describe('Repair dates', () => {
     expect(app.requests()).toContain(`POST /api/channels/${CHANNEL_ID}/repair-dates`)
   })
 })
+
+describe('a channel whose folder is gone', () => {
+  it('R-MI-06, D-087: the sidebar says "Folder not found" and the page offers to remove the channel', async () => {
+    await openApp({
+      channels: [channel({ status: 'folder_not_found' })],
+      route: `/channels/${CHANNEL_ID}`,
+    })
+
+    expect(sidebarStatus()).toContain('Folder not found')
+    const banner = await waitFor(() => part('[data-banner="folder-not-found"]'))
+    expect(banner.textContent).toContain('/Users/sam/Movies/YouTube/Sample Channel')
+    expect(banner.textContent).toContain('moved, renamed or deleted')
+
+    await fireEvent.click(within(banner).getByRole('button', { name: 'Remove channel' }))
+
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+})

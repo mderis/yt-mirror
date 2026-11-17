@@ -331,11 +331,16 @@ def test_a_file_is_shown_in_finder_and_played(subject: Subject, tmp_path: Path) 
 
 
 def test_a_missing_file_is_neither_shown_nor_played(subject: Subject, tmp_path: Path) -> None:
-    """R-UI-10, R-ER-02: a file that is gone is reported, not opened."""
+    """R-UI-10, R-MI-06: a file gone from its folder is FILE_MISSING; a folder gone, unavailable."""
+    folder = tmp_path / "Channel"
+    subject.files.make_folder(folder)
     for action in (subject.files.reveal, subject.files.open_file):
-        with pytest.raises(AppError) as failure:
-            action(tmp_path / "gone.mkv")
-        assert failure.value.code is ErrorCode.FOLDER_UNAVAILABLE
+        with pytest.raises(AppError) as gone_file:
+            action(folder / "gone.mkv")
+        with pytest.raises(AppError) as gone_folder:
+            action(tmp_path / "No folder" / "gone.mkv")
+        assert gone_file.value.code is ErrorCode.FILE_MISSING
+        assert gone_folder.value.code is ErrorCode.FOLDER_UNAVAILABLE
     assert subject.revealed == subject.played == []
 
 

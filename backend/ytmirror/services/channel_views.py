@@ -92,6 +92,8 @@ class ChannelViews:
         self._avatars: dict[str, int] = {}
         self._catalogues: dict[str, int] = {}
         self._batch: dict[str, bool] = {}
+        self._folders_missing: set[str] = set()
+        """The channels whose folder is gone from a connected drive (R-MI-06, D-087)."""
         """The channels of a check of all channels, and whether their check ended."""
 
     def folder_of(self, channel: Channel) -> Path:
@@ -221,6 +223,26 @@ class ChannelViews:
         if told:
             self._events.publish(ChecksProgressed(batch))
 
+    def set_folder_missing(self, channel_id: str, missing: bool) -> bool:
+        """Note whether the folder of a channel is gone from a connected drive, and tell it.
+
+        Args:
+            channel_id: The channel ID.
+            missing: Whether its folder was not found.
+
+        Returns:
+            Whether that changed.
+        """
+        with self._lock:
+            changed = (channel_id in self._folders_missing) != missing
+            if missing:
+                self._folders_missing.add(channel_id)
+            else:
+                self._folders_missing.discard(channel_id)
+        if changed:
+            self.publish(channel_id)
+        return changed
+
     def start_batch(self, channel_ids: list[str]) -> None:
         """Count checks of all channels together, for "Checking channels: 3 of 5" (R-CH-20).
 
@@ -319,6 +341,7 @@ class ChannelViews:
         with self._lock:
             self._checking.discard(channel_id)
             self._batch.pop(channel_id, None)
+            self._folders_missing.discard(channel_id)
             self._progress.pop(channel_id, None)
             self._pictures.pop(channel_id, None)
             self._avatars.pop(channel_id, None)
@@ -340,6 +363,7 @@ class ChannelViews:
             pictures = self._pictures.get(channel.id, 0)
             avatar_version = self._avatars.get(channel.id, 0)
             catalogue_version = self._catalogues.get(channel.id, 0)
+            folder_missing = channel.id in self._folders_missing
         mirroring = self._downloads.mirroring(channel.id)
         exact_dates = self._dates.progress(channel.id)
         dates_wait = self._dates.waits_for_youtube(channel.id)
@@ -356,6 +380,7 @@ class ChannelViews:
                 mirroring=mirroring is not None,
                 exact_dates=self._dates.running(channel.id),
                 exact_dates_wait=dates_wait,
+                folder_missing=folder_missing,
             ),
             totals=totals,
             progress=progress,

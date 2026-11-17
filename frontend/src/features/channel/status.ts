@@ -99,6 +99,9 @@ export function useStatusLine(): (channel: Channel) => StatusLine {
         tone: 'muted',
       }
     }
+    if (channel.status === 'folder_not_found') {
+      return { text: t('channelStatus.folderNotFound'), icon: 'warning', tone: 'failed' }
+    }
     if (channel.status === 'could_not_check') {
       const at = channel.retry_at ?? null
       if (at === null) {

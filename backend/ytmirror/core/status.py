@@ -36,6 +36,7 @@ ALLOWED_TRANSITIONS: frozenset[tuple[VideoStatus, VideoStatus]] = frozenset(
         (_S.SYNCED, _S.FILE_MISSING),  # the file was not found at a check
         (_S.SYNCED, _S.QUEUED),  # re-download: the old file stays until the new one is verified
         (_S.FILE_MISSING, _S.QUEUED),  # enqueue
+        (_S.FILE_MISSING, _S.SYNCED),  # the file is back, with this video's ID inside
     }
 )
 """Every allowed change of a video's status, as (from, to)."""
@@ -150,6 +151,7 @@ def channel_status(
     mirroring: bool = False,
     exact_dates: bool = False,
     exact_dates_wait: bool = False,
+    folder_missing: bool = False,
 ) -> ChannelStatus:
     """Return the one status line of a channel (R-FB-01, R-CH-34).
 
@@ -172,6 +174,8 @@ def channel_status(
         mirroring: Whether videos of the channel wait to be downloaded or are.
         exact_dates: Whether exact dates of the channel are being looked up, not held back.
         exact_dates_wait: Whether exact dates of the channel wait for YouTube.
+        folder_missing: Whether the channel folder is gone from a connected drive
+            (R-MI-06, D-087). It ranks with "Could not check", just before it.
     """
     if mirroring:
         return ChannelStatus.MIRRORING
@@ -179,6 +183,8 @@ def channel_status(
         return ChannelStatus.CHECKING
     if waiting_for_youtube:
         return ChannelStatus.WAITING_FOR_YOUTUBE
+    if folder_missing:
+        return ChannelStatus.FOLDER_NOT_FOUND
     if channel.last_check_error is not None:
         return ChannelStatus.COULD_NOT_CHECK
     if new_videos > 0:

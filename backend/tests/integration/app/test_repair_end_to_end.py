@@ -9,6 +9,7 @@ import calendar
 import dataclasses
 import json
 import os
+import shutil
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,7 +20,8 @@ from tests.fixtures.media import ffmpeg_dir
 from ytmirror.adapters.filesystem_mac import MacFileSystem
 from ytmirror.app.config import AppPaths
 from ytmirror.app.container import Container, build_container
-from ytmirror.core.channels import CheckKind
+from ytmirror.core.channels import ChannelStatus, CheckKind, VideoStatus
+from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.services.channels import NewChannel
 
 FULLWIDTH_COLON = chr(0xFF1A)
@@ -181,3 +183,85 @@ def test_finder_sorts_the_folder_by_date_in_the_order_of_the_app(
     assert (
         by_created == by_modified == newest_first == ["Video 3.mkv", "Video 1.mkv", "Video 2.mkv"]
     )
+
+
+def status_of(app: Container) -> VideoStatus:
+    """Return the stored status of the video."""
+    video = app.videos.video(VIDEO_ID)
+    assert video is not None
+    return video.status
+
+
+def check_now(app: Container) -> None:
+    """Run a quick check of the channel to its end."""
+    app.catalogue.request_check(CHANNEL_ID, CheckKind.QUICK)
+    assert app.catalogue.work_once() is True
+
+
+def test_a_real_file_put_back_from_the_trash_is_synced_again(
+    app: Container, tmp_path: Path, zone: str
+) -> None:
+    """R-MI-06: moved to the Trash, the video is missing; "Put Back" makes it synced again."""
+    folder = synced_folder(app)
+    check_now(app)
+    file = folder / f"Second{FULLWIDTH_COLON} title.mkv"
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+
+    file.rename(trash / file.name)
+    app.repair.channel_opened(CHANNEL_ID)
+    missing = status_of(app)
+    (trash / file.name).rename(file)
+    check_now(app)
+
+    assert missing is VideoStatus.FILE_MISSING
+    assert status_of(app) is VideoStatus.SYNCED
+    assert dates(file) == (PUBLISHED, PUBLISHED)
+
+
+def test_a_real_file_renamed_by_the_user_counts_as_missing(app: Container, zone: str) -> None:
+    """R-MI-06: a renamed file is not looked for; finding it is adoption (M8)."""
+    folder = synced_folder(app)
+    check_now(app)
+    file = next(entry for entry in folder.iterdir() if entry.suffix == ".mkv")
+
+    file.rename(folder / "Renamed by me.mkv")
+    app.repair.channel_opened(CHANNEL_ID)
+
+    assert status_of(app) is VideoStatus.FILE_MISSING
+    assert (folder / "Renamed by me.mkv").exists()
+
+
+def test_a_deleted_real_channel_folder_is_folder_not_found(app: Container, zone: str) -> None:
+    """R-MI-06, D-087: the folder gone from a connected drive; the videos keep their status."""
+    folder = synced_folder(app)
+    check_now(app)
+
+    shutil.rmtree(folder)
+    check_now(app)
+
+    assert status_of(app) is VideoStatus.SYNCED
+    view = app.views.of(CHANNEL_ID)
+    assert view is not None
+    assert view.status is ChannelStatus.FOLDER_NOT_FOUND
+
+
+def test_play_on_a_real_missing_file_says_the_file_is_missing(app: Container) -> None:
+    """R-MI-06, R-UI-10: FILE_MISSING when the folder is there; nothing is opened."""
+    folder = synced_folder(app)
+    for entry in folder.iterdir():
+        if entry.suffix == ".mkv":
+            entry.unlink()
+
+    with pytest.raises(AppError) as failure:
+        app.downloader.play(VIDEO_ID)
+
+    assert failure.value.code is ErrorCode.FILE_MISSING
+
+
+def test_a_drive_is_connected_when_its_volume_is_mounted(tmp_path: Path) -> None:
+    """R-QU-11: a folder under /Volumes/<name> is unavailable while that volume is not mounted."""
+    files = MacFileSystem()
+
+    assert files.drive_connected(tmp_path / "anything")
+    assert not files.drive_connected(Path("/Volumes/yt-mirror-no-such-drive/YouTube/Channel"))

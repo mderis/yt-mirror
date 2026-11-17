@@ -36,6 +36,8 @@ class FakeFileSystem:
         trashed: Every file or folder moved to the Trash, in order.
         denied: Folders that macOS does not let the app create.
         unavailable: Folders that cannot be created, as on a drive that is not connected.
+        disconnected: Drives, as their mount points, that are not connected: nothing
+            under them can be seen.
         refuse_dates: Files whose dates cannot be set.
         drift_dates: Files whose creation date reads back one hour off, as on a volume
             that does not keep it.
@@ -53,6 +55,7 @@ class FakeFileSystem:
         self.trashed: list[Path] = []
         self.denied: set[Path] = set()
         self.unavailable: set[Path] = set()
+        self.disconnected: set[Path] = set()
         self.refuse_dates: set[Path] = set()
         self.drift_dates: set[Path] = set()
         self.outside: set[Path] = set()
@@ -80,8 +83,12 @@ class FakeFileSystem:
         self._add_folder(folder)
 
     def folder_exists(self, folder: Path) -> bool:
-        """Return whether the folder was created."""
-        return folder in self.folders
+        """Return whether the folder was created, on a drive that is connected."""
+        return folder in self.folders and self.drive_connected(folder)
+
+    def drive_connected(self, path: Path) -> bool:
+        """Return whether the path lies on no drive that is disconnected."""
+        return not any(path.is_relative_to(drive) for drive in self.disconnected)
 
     def count_video_files(self, folder: Path) -> int:
         """Count the files of the folder that are video files and not hidden."""
@@ -107,8 +114,8 @@ class FakeFileSystem:
         return sorted(name for name in names if hidden or not name.startswith("."))
 
     def exists(self, path: Path) -> bool:
-        """Return whether a file or folder is there."""
-        return path in self.files or path in self.folders
+        """Return whether a file or folder is there, on a drive that is connected."""
+        return (path in self.files or path in self.folders) and self.drive_connected(path)
 
     def size_of(self, path: Path) -> int:
         """Return the size of the file, or of everything in the folder, or 0."""
@@ -187,14 +194,19 @@ class FakeFileSystem:
             raise ValueError(f"not the log of a job: {path}")
         del self.files[path]
 
+    def _must_be_there(self, path: Path) -> None:
+        if path in self.files and self.drive_connected(path):
+            return
+        if self.folder_exists(path.parent):
+            raise AppError(ErrorCode.FILE_MISSING, {"file": str(path)})
+        raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path)})
+
     def reveal(self, path: Path) -> None:
         """Remember that the file was shown in Finder."""
-        if path not in self.files:
-            raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path)})
+        self._must_be_there(path)
         self.revealed.append(path)
 
     def open_file(self, path: Path) -> None:
         """Remember that the file was opened."""
-        if path not in self.files:
-            raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path)})
+        self._must_be_there(path)
         self.played.append(path)

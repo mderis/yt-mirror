@@ -312,6 +312,7 @@ failed --retry--> queued
 processing --cancel, before the file is moved into its place--> not_downloaded
 downloading or processing --YouTube's "not a bot" check (R-ER-05)--> queued
 synced --file not found at check--> file_missing --enqueue--> queued
+file_missing --the file is back, with this video's ID inside--> synced
 synced --redownload--> queued (the old file stays until the new one is verified)
 ```
 
@@ -345,7 +346,7 @@ Measured in November 2026 on four real channels: a quick check with nothing new 
 **Work that follows a check, quick or full (R-CH-28).** Each step is added by the milestone that builds what it needs.
 
 6. For each synced file whose name no longer fits its video's title: rename it (R-FN-06) through `filesystem_mac`, never over another file, then set and read back its dates (`services/repair.py`). The file is moved first and its name stored after, only if the stored one is still the old one; a rename the app's end interrupted is completed at the next check, by the video ID inside the file. Never through the `placing_file` marker, whose files a start may move to the Trash.
-7. Verify that each synced file exists. Missing ones become `file_missing` (R-MI-06), unless the channel folder itself is unavailable (R-QU-11).
+7. Verify that each synced file exists, by name (`services/repair.py`, also when the channel is opened). Missing ones become `file_missing`, and a `file_missing` video whose file is back with its video ID inside becomes `synced` again (R-MI-06). When the channel folder itself is gone from a connected drive, nothing is marked and the channel shows "Folder not found" (D-087); while its drive is not connected, nothing changes (R-QU-11).
 8. Run exclusion rules on new videos (R-EX-06).
 9. Wake the exact-date fetch: the new videos wait for their exact dates (section 7.4).
 10. If dates repair is on, compare file dates with `published_at` and fix differences, then read them back (R-DT-09). "Repair dates" in the channel menu does the same on demand (`POST /channels/{id}/repair-dates`).

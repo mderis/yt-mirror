@@ -91,6 +91,7 @@ watch(
     <div
       v-if="
         existing ||
+        channel.status === 'folder_not_found' ||
         channel.last_check_error ||
         fullCheck ||
         channel.key_notice ||
@@ -108,6 +109,21 @@ watch(
             :label="t('error.dismiss')"
             @press="ui.noteExisting(null)"
           />
+        </template>
+      </AppBanner>
+      <AppBanner
+        v-if="channel.status === 'folder_not_found'"
+        tone="error"
+        data-banner="folder-not-found"
+      >
+        <p class="font-medium">{{ t('channel.folderNotFound.title') }}</p>
+        <p class="text-meta">
+          {{ t('channel.folderNotFound.text', { folder: channel.folder }) }}
+        </p>
+        <template #action>
+          <AppButton icon="trash" @press="ui.askRemove(channel.id)">
+            {{ t('channel.folderNotFound.remove') }}
+          </AppButton>
         </template>
       </AppBanner>
       <CheckFailedBanner

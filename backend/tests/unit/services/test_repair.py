@@ -9,7 +9,7 @@ from hypothesis import strategies as st
 from structlog.testing import capture_logs
 
 from tests.fixtures.world import SMALL_ID, World, channel_file, log_lines, own_file
-from ytmirror.core.channels import Video
+from ytmirror.core.channels import ChannelStatus, Video, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import Settings
 from ytmirror.services.repair import fits_title
@@ -254,3 +254,160 @@ def test_a_failed_repair_never_fails_or_undoes_the_check(
     assert channel.last_check_error is None
     assert channel.last_check_at == int(world.clock.now().timestamp())
     assert log_lines(logs, "dates.repair.failed")
+
+
+# --- missing files (R-MI-06, R-QU-11, D-087)
+
+
+def test_a_deleted_file_makes_its_video_missing_at_the_next_check(tmp_path: Path) -> None:
+    """R-MI-06, R-LG-03: "File missing", recorded with its reason, never downloaded by itself."""
+    world = synced(tmp_path, {})
+    world.files.trash(folder(world) / "Video 5.mkv")
+
+    with capture_logs() as logs:
+        world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.FILE_MISSING
+    assert world.statuses(NEWEST)[-1] == ("synced", "file_missing", "file_not_found")
+    assert [line["video_id"] for line in log_lines(logs, "file.missing")] == [NEWEST]
+    assert world.downloads.job_of(NEWEST) is None
+
+
+def test_opening_the_channel_finds_a_missing_file_too(tmp_path: Path) -> None:
+    """R-MI-06: the files are looked for when the channel is opened."""
+    world = synced(tmp_path)
+    world.files.trash(folder(world) / "Video 5.mkv")
+
+    world.state.open_channel(SMALL_ID)
+    world.run_background()
+
+    assert video(world).status is VideoStatus.FILE_MISSING
+
+
+def test_a_file_put_back_from_the_trash_is_synced_again(tmp_path: Path) -> None:
+    """R-MI-06: "Put Back" brings the same file back under its name; the video is synced again."""
+    world = synced(tmp_path, {}, {})
+    world.files.trash(folder(world) / "Video 5.mkv")
+    world.check(SMALL_ID)
+
+    world.files.add_files(folder(world), ["Video 5.mkv"], data=own_file(NEWEST))
+    world.files.set_dates(folder(world) / "Video 5.mkv", PUBLISHED)
+    with capture_logs() as logs:
+        world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.SYNCED
+    assert world.statuses(NEWEST)[-1] == ("file_missing", "synced", "file_back")
+    assert log_lines(logs, "file.returned")
+
+
+def test_a_file_put_back_is_synced_again_when_the_channel_is_opened(tmp_path: Path) -> None:
+    """R-MI-06: opening the channel finds the file that came back."""
+    world = synced(tmp_path)
+    world.files.trash(folder(world) / "Video 5.mkv")
+    world.state.open_channel(SMALL_ID)
+    world.run_background()
+
+    world.files.add_files(folder(world), ["Video 5.mkv"], data=own_file(NEWEST))
+    world.state.open_channel(SMALL_ID)
+    world.run_background()
+
+    assert video(world).status is VideoStatus.SYNCED
+
+
+def test_another_file_under_the_name_does_not_make_the_video_synced(tmp_path: Path) -> None:
+    """R-MI-06: only a file with this video's ID inside is taken back."""
+    world = synced(tmp_path, {}, {})
+    world.files.trash(folder(world) / "Video 5.mkv")
+    world.check(SMALL_ID)
+
+    world.files.add_files(folder(world), ["Video 5.mkv"], data=b"video:other000001")
+    world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.FILE_MISSING
+
+
+def test_a_file_the_user_renamed_in_its_folder_counts_as_missing(tmp_path: Path) -> None:
+    """R-MI-06: finding a renamed or moved file is adoption (M8), not a check."""
+    world = synced(tmp_path, {})
+    world.files.move(folder(world) / "Video 5.mkv", folder(world) / "My favourite.mkv")
+
+    world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.FILE_MISSING
+    assert world.files.exists(folder(world) / "My favourite.mkv")
+
+
+def test_a_channel_folder_gone_from_a_connected_drive_is_folder_not_found(
+    tmp_path: Path,
+) -> None:
+    """R-MI-06, D-087: no video is marked; the channel says "Folder not found"."""
+    world = synced(tmp_path, {}, {})
+    for path in [path for path in world.files.files if path.is_relative_to(folder(world))]:
+        del world.files.files[path]
+    world.files.folders = {
+        path for path in world.files.folders if not path.is_relative_to(folder(world))
+    }
+
+    with capture_logs() as logs:
+        world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.SYNCED
+    view = world.views.of(SMALL_ID)
+    assert view is not None
+    assert view.status is ChannelStatus.FOLDER_NOT_FOUND
+    assert log_lines(logs, "channel.folder_missing")
+    assert log_lines(logs, "file.missing") == []
+
+
+def test_a_channel_folder_that_is_there_again_ends_folder_not_found(tmp_path: Path) -> None:
+    """R-MI-06: (D-087) the folder back in its place, the channel is as before."""
+    world = synced(tmp_path, {}, {})
+    world.files.folders.discard(folder(world))
+    world.check(SMALL_ID)
+
+    world.files.folders.add(folder(world))
+    world.check(SMALL_ID)
+
+    view = world.views.of(SMALL_ID)
+    assert view is not None
+    assert view.status is not ChannelStatus.FOLDER_NOT_FOUND
+    assert video(world).status is VideoStatus.SYNCED
+
+
+def test_a_drive_that_is_not_connected_marks_nothing(tmp_path: Path) -> None:
+    """R-QU-11: an unplugged drive is unavailable, not missing: no status changes."""
+    world = synced(tmp_path, {})
+    world.files.disconnected.add(world.library)
+
+    with capture_logs() as logs:
+        world.check(SMALL_ID)
+
+    assert video(world).status is VideoStatus.SYNCED
+    view = world.views.of(SMALL_ID)
+    assert view is not None
+    assert view.status is not ChannelStatus.FOLDER_NOT_FOUND
+    assert log_lines(logs, "file.unchecked")
+
+
+def test_play_and_show_in_finder_say_the_file_is_missing(tmp_path: Path) -> None:
+    """R-MI-06, R-UI-10: a plain FILE_MISSING, not "the folder cannot be used"."""
+    world = synced(tmp_path)
+    world.files.trash(folder(world) / "Video 5.mkv")
+
+    for action in (world.downloader.play, world.downloader.reveal):
+        with pytest.raises(AppError) as failure:
+            action(NEWEST)
+        assert failure.value.code is ErrorCode.FILE_MISSING
+
+
+def test_a_missing_video_can_be_mirrored_again(tmp_path: Path) -> None:
+    """R-MI-06: "Mirror again" puts it in line; it is synced with a new file."""
+    world = synced(tmp_path, {})
+    world.files.trash(folder(world) / "Video 5.mkv")
+    world.check(SMALL_ID)
+
+    world.downloader.mirror([NEWEST])
+    world.download_all()
+
+    assert video(world).status is VideoStatus.SYNCED
+    assert world.files.exists(folder(world) / "Video 5.mkv")

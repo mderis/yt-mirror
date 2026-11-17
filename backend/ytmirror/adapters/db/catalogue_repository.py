@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.job_repository import DOWNLOAD_FIELDS
-from ytmirror.adapters.db.tables import ChannelRow, VideoRow
+from ytmirror.adapters.db.tables import ChannelRow, VideoEventRow, VideoRow
 from ytmirror.core.catalogue import CheckChanges
 from ytmirror.core.channels import (
     Channel,
@@ -26,6 +26,7 @@ from ytmirror.core.channels import (
     VideoStatus,
 )
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.status import StatusChange
 from ytmirror.ports.clock import Clock
 
 _CHUNK = 500
@@ -208,6 +209,29 @@ class SqlCatalogueRepository:
                 return False
             row.file_name = new
             row.updated_at = self._now()
+            return True
+
+    def change_status(self, change: StatusChange) -> bool:
+        """Change the status of a video, if it still has the status the change starts from."""
+        now = self._now()
+        with Session(self._engine) as session, session.begin():
+            row = session.get(VideoRow, change.video_id)
+            if row is None or row.status != change.from_status.value:
+                return False
+            row.status = change.to_status.value
+            row.updated_at = now
+            session.add(
+                VideoEventRow(
+                    video_id=change.video_id,
+                    at=now,
+                    from_status=change.from_status.value,
+                    to_status=change.to_status.value,
+                    reason=change.reason,
+                    job_id=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
             return True
 
     def totals(self, new_since: int) -> Mapping[str, ChannelTotals]:

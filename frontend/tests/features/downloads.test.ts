@@ -419,3 +419,25 @@ describe('the details panel', () => {
     expect(within(panel).queryByRole('button', { name: 'Mirror' })).toBeNull()
   })
 })
+
+describe('a video whose file is gone', () => {
+  it('R-MI-06: it says "File missing" and offers "Mirror again", not Play', async () => {
+    await openWith({ status: 'file_missing' })
+
+    expect(within(row()).getByText('File missing')).toBeTruthy()
+    expect(within(row()).getByRole('button', { name: 'Mirror again' })).toBeTruthy()
+    expect(within(row()).queryByRole('button', { name: 'Play' })).toBeNull()
+  })
+
+  it('R-MI-06, R-UI-10: Play on a file deleted since the last check says the file is gone', async () => {
+    await openWith(
+      { status: 'synced', height: 1080, file_size: 412_000_000 },
+      { [`POST /api/videos/${ID}/play`]: jsonResponse(errorBody('FILE_MISSING'), 404) },
+    )
+
+    await fireEvent.click(within(row()).getByRole('button', { name: 'Play' }))
+
+    expect(await screen.findByText(/no longer in its folder/)).toBeTruthy()
+    expect(screen.queryByText(/The folder cannot be used/)).toBeNull()
+  })
+})

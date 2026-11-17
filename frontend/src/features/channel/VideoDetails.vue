@@ -187,7 +187,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           icon="download"
           @press="ui.run(videos.mirror(video.id))"
         >
-          {{ t('details.mirror') }}
+          {{
+            video.status === 'file_missing' ? t('channel.list.mirrorAgain') : t('details.mirror')
+          }}
         </AppButton>
         <a
           :href="details.url"

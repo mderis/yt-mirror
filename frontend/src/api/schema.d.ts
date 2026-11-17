@@ -840,6 +840,7 @@ export interface components {
       | 'checking'
       | 'exact_dates'
       | 'waiting_for_youtube'
+      | 'folder_not_found'
       | 'could_not_check'
       | 'new_videos'
       | 'paused'
@@ -1074,6 +1075,7 @@ export interface components {
       | 'API_KEY_INVALID'
       | 'API_QUOTA_EXCEEDED'
       | 'API_KEY_UNREADABLE'
+      | 'FILE_MISSING'
       | 'INTERNAL'
     /**
      * ErrorResponse

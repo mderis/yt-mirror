@@ -431,7 +431,7 @@ class World:
             self.meta,
             self.youtube,
             api_key=self.dates.key_state,
-            channel_opened=lambda channel_id: self.scheduler.channel_selected(channel_id),
+            channel_opened=self._channel_opened,
         )
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
@@ -478,6 +478,11 @@ class World:
         self.thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
         self.channels.write_channel_file(channel_id)
         self.repair.after_check(channel_id)
+
+    def _channel_opened(self, channel_id: str) -> None:
+        """What the container does when a channel is opened: a check if old, files looked for."""
+        self.scheduler.channel_selected(channel_id)
+        self.background.append(lambda: self.repair.channel_opened(channel_id))
 
     def _found_exact(self, video_id: str) -> None:
         """What the container does when the fetch found an exact time: repair the file."""

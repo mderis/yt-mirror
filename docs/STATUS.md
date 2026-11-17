@@ -26,6 +26,9 @@ Status values: `Not started`, `In progress` (branch and draft pull request), `In
 
 Short facts the next session needs and cannot get from the code or the other docs: an open question that was answered, something that was deliberately postponed, a known problem. Newest first. Remove a note when it no longer matters.
 
+- **M5: auto-mirror never downloads more than a few missing files of a channel again at once without asking (D-087).** Above that limit it pauses for the channel and asks. A whole channel folder that is gone is "Folder not found" and marks no video missing, so it never starts such downloads.
+- **M8 adds "Locate folder" to "Folder not found" (D-087).** Pick the moved folder; it is accepted only when its `.yt-mirror/channel.json` names this channel, then the files are checked again. Until then the page offers "Remove channel" and says to put the folder back.
+- **M4 took the missing-file check of R-MI-06 from M5** (see the plan). M5 keeps the automatic download again with auto-mirror.
 - **M4's pace without a key is unproven (Q-08, D-084).** 300 lookups an hour is an eighth of the rate that brought YouTube's "not a bot" check once; real use decides, from the `youtube.lookups.hour` lines of the log. The number is `LOOKUPS_PER_HOUR` in `core/pacing.py`.
 - **The end-to-end apps look up no exact dates without a key** (`YTM_FAKE_LOOKUPS_PER_HOUR=0`, D-084, TESTING section 4). A test of exact dates asks its app for a fast pace (`test.use({ lookupsPerHour })`).
 - **M5 must keep renames and re-downloads apart (R-FN-06).** In M4 a synced video is never downloaded again, so the rename after a new title and the date repair (`services/repair.py`) touch only files no download works on, under one lock of their own. When M5 lets a synced video be downloaded again, the finishing step of the downloader must take the same lock and read the video's current file name, so a rename between the start and the end of a re-download is not undone.

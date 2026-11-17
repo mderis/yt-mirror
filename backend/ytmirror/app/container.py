@@ -338,8 +338,14 @@ def build_container(
         SqlAppMetaRepository(engine, used_clock),
         youtube,
         api_key=dates.key_state,
-        channel_opened=lambda channel_id: scheduler.channel_selected(channel_id),
+        channel_opened=lambda channel_id: _channel_opened(channel_id),
     )
+
+    def _channel_opened(channel_id: str) -> None:
+        # A check when the last is old (R-CH-21), and the files looked for (R-MI-06).
+        scheduler.channel_selected(channel_id)
+        _in_a_thread(lambda: repair.channel_opened(channel_id))
+
     scheduler = Scheduler(
         catalogue=catalogue,
         repository=repository,

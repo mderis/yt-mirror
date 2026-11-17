@@ -56,6 +56,7 @@ class ErrorCode(StrEnum):
     API_KEY_INVALID = "API_KEY_INVALID"
     API_QUOTA_EXCEEDED = "API_QUOTA_EXCEEDED"
     API_KEY_UNREADABLE = "API_KEY_UNREADABLE"
+    FILE_MISSING = "FILE_MISSING"
     INTERNAL = "INTERNAL"
 
     @property
@@ -104,6 +105,7 @@ _KINDS: dict[ErrorCode, ErrorKind] = {
     ErrorCode.API_KEY_INVALID: ErrorKind.TRANSIENT,
     ErrorCode.API_QUOTA_EXCEEDED: ErrorKind.TRANSIENT,
     ErrorCode.API_KEY_UNREADABLE: ErrorKind.TRANSIENT,
+    ErrorCode.FILE_MISSING: ErrorKind.PERMANENT,
     ErrorCode.INTERNAL: ErrorKind.TRANSIENT,
 }
 

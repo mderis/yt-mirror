@@ -222,7 +222,11 @@ function cancel(): void {
           icon="download"
           @press="ui.run(videos.mirror(video.id))"
         >
-          {{ t('channel.list.mirror') }}
+          {{
+            video.status === 'file_missing'
+              ? t('channel.list.mirrorAgain')
+              : t('channel.list.mirror')
+          }}
         </AppButton>
         <AppButton
           v-else-if="video.status === 'failed' && !video.gone"

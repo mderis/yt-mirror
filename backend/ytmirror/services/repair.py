@@ -1,12 +1,24 @@
-"""Date repair and the rename of a file whose video got a new title.
+"""Missing files, date repair and the rename of a file whose video got a new title.
 
-Implements R-DT-09, R-DT-10, R-FN-06 and the work of R-CH-28 that needs no
-listing. After every check (and on demand, "Repair dates" in the channel
-menu) the dates of each synced file are compared with the published time
-and set again where they differ, then read back (R-DT-07). A synced file
-whose name no longer fits its video's title is renamed to the title (also a
-file named by its video ID whose title can now be stored, R-FN-01): never
-over another file, its dates set and read back afterwards (R-DT-10).
+Implements R-MI-06, R-DT-09, R-DT-10, R-FN-06 and the work of R-CH-28 that
+needs no listing. After every check, and when a channel is opened, each
+synced file is looked for by its name, without reading it: a file that is
+not there makes its video "File missing", and the file of a "File missing"
+video that is back under its name, with this video's ID inside, makes it
+synced again (for example after "Put Back" from the Trash). A file renamed
+or moved by the user counts as missing; finding it is adoption. Only single
+files missing from a folder that is there are marked (D-087): a channel
+folder gone from a connected drive (moved, renamed or deleted) gives the
+channel the status "Folder not found" and leaves its videos as they are,
+and while the drive of the folder is not connected nothing is marked at all
+(R-QU-11).
+
+After every check (and on demand, "Repair dates" in the channel menu) the
+dates of each synced file are compared with the published time and set
+again where they differ, then read back (R-DT-07). A synced file whose name
+no longer fits its video's title is renamed to the title (also a file named
+by its video ID whose title can now be stored, R-FN-01): never over another
+file, its dates set and read back afterwards (R-DT-10).
 
 A rename moves the file first and then stores its new name, only if the
 stored one is still the old one. Should the app end between the two, the
@@ -14,8 +26,9 @@ next check finds the file under its new name, makes sure by the video ID
 inside it that it is this video, and stores the name: a file is never lost
 and never moved to the Trash by a rename.
 
-Only synced videos are touched; in milestone M4 a synced video is never
-downloaded again, so no download works on these files at the same time.
+Only synced and missing videos are touched; in milestone M4 neither is
+being downloaded while their files are looked at: a status change is stored
+only when the video still has the status it was read with.
 One lock keeps the repairs of a check and those asked for by hand apart.
 The activity log of R-FN-06 arrives in milestone M7; until then a rename is
 the log event ``file.renamed``.
@@ -33,6 +46,7 @@ from structlog.typing import FilteringBoundLogger
 from ytmirror.core.channels import Channel, Video, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.naming import same_name_key, video_file_name
+from ytmirror.core.status import change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.file_system import FileSystem
 from ytmirror.ports.media_tools import MediaTools
@@ -139,6 +153,7 @@ class RepairService:
             channel_id: The channel that was checked.
         """
         try:
+            self.verify_files(channel_id)
             self.rename_retitled(channel_id)
             if self._settings.current().repair_dates:
                 self.repair_dates(channel_id)
@@ -152,6 +167,99 @@ class RepairService:
                 else ErrorCode.INTERNAL.value,
                 error=str(error),
             )
+
+    def channel_opened(self, channel_id: str) -> None:
+        """Look for the files of a channel the user opened (R-MI-06). Never raises."""
+        try:
+            self.verify_files(channel_id)
+        except Exception as error:  # noqa: BLE001  (opening a channel never fails for this)
+            _log.warning(
+                "file.check_failed",
+                msg="The files of an opened channel could not be looked for",
+                channel_id=channel_id,
+                error=str(error),
+            )
+
+    def verify_files(self, channel_id: str) -> tuple[int, int]:
+        """Mark synced videos whose file is gone as missing, and those whose file is back as synced.
+
+        Implements R-MI-06 with R-QU-11. Files are looked for by name; only a
+        file that came back is read, for the video ID inside it.
+
+        Args:
+            channel_id: The channel.
+
+        Returns:
+            How many videos became missing, and how many synced again.
+        """
+        channel = self._repository.channel(channel_id)
+        if channel is None:
+            return 0, 0
+        folder = self._views.folder_of(channel)
+        missing = back = 0
+        with self._lock:
+            if not self._files.folder_exists(folder):
+                if not self._files.drive_connected(folder):
+                    _log.info(
+                        "file.unchecked",
+                        msg="The drive of a channel folder is not connected; no file is marked",
+                        channel_id=channel_id,
+                        folder=str(folder),
+                    )
+                elif self._views.set_folder_missing(channel_id, True):
+                    _log.warning(
+                        "channel.folder_missing",
+                        msg="The channel folder is not there; its videos keep their status",
+                        channel_id=channel_id,
+                        folder=str(folder),
+                    )
+                return 0, 0
+            if self._views.set_folder_missing(channel_id, False):
+                _log.info(
+                    "channel.folder_found",
+                    msg="The channel folder is there again",
+                    channel_id=channel_id,
+                    folder=str(folder),
+                )
+            for video in self._repository.videos(channel_id):
+                if not video.file_name or video.placing_file:
+                    continue
+                path = folder / video.file_name
+                if video.status is VideoStatus.SYNCED and not self._files.exists(path):
+                    # A rename the app's end interrupted is completed, not counted as missing.
+                    if not self._take_moved(video, folder, video.file_name):
+                        missing += self._mark(
+                            video, VideoStatus.FILE_MISSING, "file_not_found", path
+                        )
+                elif video.status is VideoStatus.FILE_MISSING and self._is_own(video, path):
+                    back += self._mark(video, VideoStatus.SYNCED, "file_back", path)
+        if missing or back:
+            self._views.publish(channel_id)
+        return missing, back
+
+    def _is_own(self, video: Video, path: Path) -> bool:
+        if not self._files.exists(path):
+            return False
+        try:
+            return self._media.probe(path).tags.get("video_id") == video.id
+        except AppError:
+            return False
+
+    def _mark(self, video: Video, status: VideoStatus, reason: str, path: Path) -> bool:
+        if not self._repository.change_status(
+            change_status(video.id, video.status, status, reason)
+        ):
+            return False
+        _log.info(
+            "file.missing" if status is VideoStatus.FILE_MISSING else "file.returned",
+            msg="A synced file is not in its folder"
+            if status is VideoStatus.FILE_MISSING
+            else "The file of a missing video is back",
+            video_id=video.id,
+            file=str(path),
+        )
+        self._views.tell_video(video.id)
+        return True
 
     def repair_dates(self, channel_id: str) -> RepairResult:
         """Set the dates of every synced file of a channel that differ (R-DT-09).

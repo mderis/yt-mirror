@@ -72,6 +72,7 @@ class ChannelStatus(StrEnum):
     CHECKING = "checking"
     EXACT_DATES = "exact_dates"
     WAITING_FOR_YOUTUBE = "waiting_for_youtube"
+    FOLDER_NOT_FOUND = "folder_not_found"
     COULD_NOT_CHECK = "could_not_check"
     NEW_VIDEOS = "new_videos"
     PAUSED = "paused"
