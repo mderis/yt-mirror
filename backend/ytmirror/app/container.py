@@ -62,6 +62,7 @@ from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.job_logs import JobLogsService
+from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.schema import SchemaService
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
@@ -95,6 +96,7 @@ class Container:
         downloader: Downloads videos, one job after another (milestone M3).
         job_logs: Deletes the logs of jobs that are no longer kept.
         dates: Looks up exact dates in the background, and keeps the API key.
+        scheduler: Starts checks by themselves and runs the exact-date fetch.
         secrets: Passes values that must never be logged to the logger, once it exists.
     """
 
@@ -118,6 +120,7 @@ class Container:
     downloader: DownloaderService
     job_logs: JobLogsService
     dates: DatesService
+    scheduler: Scheduler
     secrets: Secrets
 
 
@@ -317,6 +320,17 @@ def build_container(
         SqlAppMetaRepository(engine, used_clock),
         youtube,
         api_key=dates.key_state,
+        channel_opened=lambda channel_id: scheduler.channel_selected(channel_id),
+    )
+    scheduler = Scheduler(
+        catalogue=catalogue,
+        repository=repository,
+        views=views,
+        settings=settings,
+        youtube=youtube,
+        downloads=downloads,
+        dates=dates,
+        clock=used_clock,
     )
     return Container(
         info=info,
@@ -341,6 +355,7 @@ def build_container(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),
         dates=dates,
+        scheduler=scheduler,
         secrets=secrets,
     )
 

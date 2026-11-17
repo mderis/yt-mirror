@@ -45,6 +45,7 @@ from ytmirror.core.channels import (
     Video,
 )
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.schedule import checked_by_itself
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
 from ytmirror.services.channel_views import ChannelViews
@@ -179,20 +180,35 @@ class CatalogueService:
             self._views.set_checking(channel_id, True)
             self._wake.notify_all()
 
-    def request_check_all(self) -> int:
-        """Put a quick check of every channel that is not paused in line (R-CH-23).
+    def request_check_all(self, *, by_user: bool = True) -> int:
+        """Put a quick check of every channel that is not paused in line (R-CH-23, R-CH-20).
 
         Before every channel but the first the worker waits a random time
         of 1 to 3 seconds, so that YouTube is not asked in a burst (R-CH-24).
+        The checks are counted together for "Checking channels: 3 of 5".
+
+        Args:
+            by_user: Whether the user asked ("Check all channels now"). Otherwise the
+                app checks by itself (R-CH-20, R-CH-22): then only channels that were
+                listed, and a pause of the app holds the checks up.
 
         Returns:
             How many channels are checked.
         """
-        channels = [channel for channel in self._repository.channels() if not channel.paused]
+        channels = [
+            channel
+            for channel in self._repository.channels()
+            if not channel.paused and (by_user or checked_by_itself(channel))
+        ]
+        self._views.start_batch([channel.id for channel in channels])
         for index, channel in enumerate(channels):
             delay_s = 0.0 if index == 0 else self._choose_delay(*CHECK_ALL_DELAY_S)
             self.request_check(
-                channel.id, CheckKind.QUICK, trigger=CheckTrigger.CHECK_ALL, delay_s=delay_s
+                channel.id,
+                CheckKind.QUICK,
+                by_user=by_user,
+                trigger=CheckTrigger.CHECK_ALL if by_user else CheckTrigger.SCHEDULE,
+                delay_s=delay_s,
             )
         return len(channels)
 
@@ -396,6 +412,7 @@ class CatalogueService:
             if request.kind is CheckKind.FULL
             else channel.last_full_check_at,
             first_listed_at=now if first_listing else channel.first_listed_at,
+            check_retries=0,
         )
         if not self._repository.apply_check(checked, changes):
             return None

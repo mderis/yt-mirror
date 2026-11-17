@@ -15,10 +15,10 @@ that cannot be read, is refused or has used up its quota is done without,
 with no dialog: the key setting and a notice by the progress say so, with
 until when (R-DT-12). An unreadable key is logged once.
 
-The service runs on a thread of its own. ``step`` does one piece of work
-and says how long to wait before the next; ``wake`` ends a wait early, for
-example after a check, when the last download ended or when the pause of
-YouTube is over. Tests call ``step`` themselves.
+The scheduler runs the fetch (``services/scheduler.py``): ``step`` does
+one piece of work and says how long to wait before the next; ``wake`` ends
+the wait early, for example after a check, when the last download ended or
+when the pause of YouTube is over. Tests call ``step`` themselves.
 
 Tests: backend/tests/unit/services/test_dates.py
 """
@@ -142,10 +142,7 @@ class DatesService:
         self._tell_channel = tell_channel
         self._found_exact = found_exact
         self._lock = threading.Lock()
-        self._wake = threading.Condition(self._lock)
-        self._woken = False
-        self._stopped = False
-        self._thread: threading.Thread | None = None
+        self._waker: Callable[[], None] = lambda: None
         self._key: str | None = None
         self._key_read = False
         self._key_failure: tuple[KeyStatus, int | None] | None = None
@@ -157,42 +154,15 @@ class DatesService:
         youtube.when_asking_again(self.wake)
         downloads.when_idle(self.wake)
 
-    # --- the thread
+    # --- waking the scheduler
 
-    def start(self) -> None:
-        """Start the fetch on a thread of its own."""
-        self._thread = threading.Thread(target=self._run, name="exact-dates", daemon=True)
-        self._thread.start()
-
-    def stop(self, timeout_s: float = 5.0) -> None:
-        """Stop the fetch and wait for its thread. A lookup that runs is not interrupted."""
-        with self._wake:
-            self._stopped = True
-            self._wake.notify_all()
-        if self._thread is not None:
-            self._thread.join(timeout_s)
+    def connect_waker(self, waker: Callable[[], None]) -> None:
+        """Tell the fetch how to end the wait of the scheduler that runs it."""
+        self._waker = waker
 
     def wake(self) -> None:
         """End the wait of the fetch: there may be work, or work that was held may go on."""
-        with self._wake:
-            self._woken = True
-            self._wake.notify_all()
-
-    def _run(self) -> None:
-        while True:
-            try:
-                wait_s = self.step()
-            except Exception:  # noqa: BLE001  (the fetch must outlive any fault, and say so)
-                _log.exception("dates.fetch.failed", msg="The exact-date fetch failed; it goes on")
-                wait_s = IDLE_S
-            with self._wake:
-                if self._stopped:
-                    return
-                if not self._woken and (wait_s is None or wait_s > 0):
-                    self._wake.wait(IDLE_S if wait_s is None else wait_s)
-                self._woken = False
-                if self._stopped:
-                    return
+        self._waker()
 
     # --- one piece of work
 

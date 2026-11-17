@@ -99,6 +99,7 @@ class Channel(BaseModel):
         key_notice: Whether a saved API key is not working while dates of the channel
             wait (R-DT-12): "the API key is not working, using the slow way".
         waiting_until: When the exact dates go on, while they wait for YouTube.
+        retry_at: When a failed check is tried again by itself (R-CH-25), or None.
     """
 
     id: str
@@ -130,6 +131,7 @@ class Channel(BaseModel):
     exact_dates: ExactDates | None = None
     key_notice: bool = False
     waiting_until: int | None = None
+    retry_at: int | None = None
 
     @classmethod
     def of(cls, view: ChannelView) -> Channel:
@@ -167,6 +169,7 @@ class Channel(BaseModel):
             exact_dates=ExactDates.of(view.exact_dates),
             key_notice=view.key_notice,
             waiting_until=view.waiting_until,
+            retry_at=view.retry_at,
         )
 
 
@@ -553,6 +556,8 @@ class StateResponse(BaseModel):
         can_choose_folder: Whether the folder dialog of macOS can be shown.
         youtube_pause: The pause of the whole app, or None (R-ER-05).
         api_key: How the optional API key stands (R-DT-12).
+        checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
+            or None (R-CH-20).
     """
 
     channels: list[Channel]
@@ -562,6 +567,7 @@ class StateResponse(BaseModel):
     can_choose_folder: bool
     youtube_pause: Pause | None
     api_key: ApiKey
+    checking_all: Mirroring | None = None
 
     @classmethod
     def of(cls, state: AppState) -> StateResponse:
@@ -574,6 +580,9 @@ class StateResponse(BaseModel):
             can_choose_folder=state.can_choose_folder,
             youtube_pause=Pause.of(state.youtube_pause),
             api_key=ApiKey.of(state.api_key),
+            checking_all=None
+            if state.checking_all is None
+            else Mirroring(done=state.checking_all[0], total=state.checking_all[1]),
         )
 
 
@@ -877,3 +886,14 @@ class TestApiKeyResponse(BaseModel):
     works: bool
     error_code: ErrorCode | None
     api_key: ApiKey
+
+
+class ChecksProgressEvent(BaseModel):
+    """The data of the ``checks.progress`` event of ``GET /api/events``.
+
+    Attributes:
+        checking_all: How many checks of a check of all channels ended, and how many
+            there are, or None when it ended (R-CH-20: "Checking channels: 3 of 5").
+    """
+
+    checking_all: Mirroring | None

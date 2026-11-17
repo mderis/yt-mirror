@@ -28,6 +28,7 @@ from ytmirror.core.channels import (
     ChannelTotals,
     ChannelUpdated,
     ChannelView,
+    ChecksProgressed,
     TaskProgress,
     TaskProgressed,
     Video,
@@ -39,6 +40,7 @@ from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.exact_dates import DateShown, FetchState, date_shown
 from ytmirror.core.jobs import VideoUpdated
 from ytmirror.core.models import AppEvent
+from ytmirror.core.schedule import retry_at
 from ytmirror.core.status import NEW_FOR_S, channel_status, is_new, waits_for_youtube
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
@@ -89,6 +91,8 @@ class ChannelViews:
         self._pictures: dict[str, int] = {}
         self._avatars: dict[str, int] = {}
         self._catalogues: dict[str, int] = {}
+        self._batch: dict[str, bool] = {}
+        """The channels of a check of all channels, and whether their check ended."""
 
     def folder_of(self, channel: Channel) -> Path:
         """Return the folder of a channel as a real path (R-FI-01).
@@ -199,13 +203,49 @@ class ChannelViews:
             channel_id: The channel ID.
             checking: Whether a check is waiting or running.
         """
+        batch: tuple[int, int] | None = None
         with self._lock:
             if checking:
                 self._checking.add(channel_id)
             else:
                 self._checking.discard(channel_id)
                 self._progress.pop(channel_id, None)
+            told = not checking and self._batch.get(channel_id) is False
+            if told:
+                self._batch[channel_id] = True
+                batch = self._batch_progress()
+                if batch is not None and batch[0] == batch[1]:
+                    self._batch.clear()
+                    batch = None
         self.publish(channel_id)
+        if told:
+            self._events.publish(ChecksProgressed(batch))
+
+    def start_batch(self, channel_ids: list[str]) -> None:
+        """Count checks of all channels together, for "Checking channels: 3 of 5" (R-CH-20).
+
+        Channels of a batch that still runs are counted on.
+
+        Args:
+            channel_ids: The channels whose checks are put in line.
+        """
+        if not channel_ids:
+            return
+        with self._lock:
+            for channel_id in channel_ids:
+                self._batch[channel_id] = False
+            progress = self._batch_progress()
+        self._events.publish(ChecksProgressed(progress))
+
+    def checking_all(self) -> tuple[int, int] | None:
+        """Return how many checks of the batch of all channels ended, and how many there are."""
+        with self._lock:
+            return self._batch_progress()
+
+    def _batch_progress(self) -> tuple[int, int] | None:
+        if not self._batch:
+            return None
+        return sum(self._batch.values()), len(self._batch)
 
     def is_checking(self, channel_id: str) -> bool:
         """Return whether a check of a channel is waiting or running.
@@ -259,6 +299,7 @@ class ChannelViews:
         """
         with self._lock:
             self._checking.discard(channel_id)
+            self._batch.pop(channel_id, None)
             self._progress.pop(channel_id, None)
             self._pictures.pop(channel_id, None)
             self._avatars.pop(channel_id, None)
@@ -306,6 +347,7 @@ class ChannelViews:
             exact_dates=exact_dates,
             key_notice=exact_dates is not None and self._dates.key().failing,
             waiting_until=None if hold is None else hold.until,
+            retry_at=retry_at(channel),
         )
 
     def _new_since(self) -> int:

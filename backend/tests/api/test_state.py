@@ -44,6 +44,7 @@ def test_the_snapshot_of_a_new_app(client: TestClient, world: World) -> None:
         "can_choose_folder": True,
         "youtube_pause": None,
         "api_key": {"status": "none", "until": None},
+        "checking_all": None,
     }
 
 

@@ -380,6 +380,7 @@ class ChannelView:
         key_notice: Whether a saved key is not working while dates of the channel wait
             (R-DT-12).
         waiting_until: When the exact-date fetch goes on, while it waits for YouTube.
+        retry_at: When a failed check is tried again by itself (R-CH-25), or None.
     """
 
     channel: Channel
@@ -394,6 +395,7 @@ class ChannelView:
     exact_dates: ExactDatesProgress | None = None
     key_notice: bool = False
     waiting_until: int | None = None
+    retry_at: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,6 +407,18 @@ class ChannelUpdated:
     """
 
     view: ChannelView
+
+
+@dataclass(frozen=True, slots=True)
+class ChecksProgressed:
+    """Event: how far a check of all channels is: "Checking channels: 3 of 5" (R-CH-20).
+
+    Attributes:
+        progress: How many of the checks ended, and how many there are, or None when
+            no check of all channels runs.
+    """
+
+    progress: tuple[int, int] | None
 
 
 @dataclass(frozen=True, slots=True)

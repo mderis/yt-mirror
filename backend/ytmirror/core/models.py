@@ -11,7 +11,13 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from ytmirror.core.channels import ChannelUpdated, Quality, TaskProgressed, YouTubePauseChanged
+from ytmirror.core.channels import (
+    ChannelUpdated,
+    ChecksProgressed,
+    Quality,
+    TaskProgressed,
+    YouTubePauseChanged,
+)
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.exact_dates import KeyStateChanged
 from ytmirror.core.jobs import JobProgressed, VideoUpdated
@@ -377,5 +383,6 @@ type AppEvent = (
     | VideoUpdated
     | JobProgressed
     | KeyStateChanged
+    | ChecksProgressed
 )
 """Every event the services publish for the interface. Each milestone adds its own."""

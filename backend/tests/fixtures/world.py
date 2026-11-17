@@ -57,6 +57,7 @@ from ytmirror.services.dates import DatesService
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.settings import SettingsService
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
@@ -429,6 +430,7 @@ class World:
             self.meta,
             self.youtube,
             api_key=self.dates.key_state,
+            channel_opened=lambda channel_id: self.scheduler.channel_selected(channel_id),
         )
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
@@ -451,6 +453,16 @@ class World:
             run_in_background=self.background.append,
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
+        )
+        self.scheduler = Scheduler(
+            catalogue=self.catalogue,
+            repository=self.repository,
+            views=self.views,
+            settings=self.settings,
+            youtube=self.youtube,
+            downloads=self.downloads,
+            dates=self.dates,
+            clock=self.clock,
         )
 
     def _after_check(self, channel_id: str, kind: CheckKind) -> None:

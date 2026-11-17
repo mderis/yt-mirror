@@ -273,8 +273,9 @@ def run_app(
         container.catalogue.start()
         container.thumbnails.start()
         container.downloader.start()
-        # The exact dates yield to the downloads, so they start after the downloader.
-        container.dates.start()
+        # The checks by themselves and the exact dates: after the downloader, as the dates
+        # yield to downloads (R-CH-20, R-DT-06).
+        container.scheduler.start()
         # After the start of the downloader: the jobs it cleaned up count by when they ended.
         container.job_logs.clean()
         if container.settings.current().log_detail is LogDetail.VERBOSE:
@@ -341,8 +342,8 @@ def database_message(error: AppError, logs: Path) -> tuple[str, str]:
 def _stop(server: BackgroundServer, container: Container) -> None:
     """The shutdown work of the app. Later milestones add their workers here."""
     _log.info("app.stopping", msg="yt-mirror is stopping")
-    # A lookup that runs is not waited for long: it only reads (R-PL-13).
-    container.dates.stop()
+    # Nothing more starts by itself. A lookup that runs only reads (R-PL-13).
+    container.scheduler.stop()
     container.youtube.log_open_hour()
     # A check that is running ends at the next video and stores nothing (R-PL-13).
     container.catalogue.stop()
