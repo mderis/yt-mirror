@@ -140,8 +140,8 @@ def test_a_failed_check_is_retried_after_5_15_and_60_minutes(tmp_path: Path) -> 
     assert (channel.last_check_error, channel.check_retries) == (None, 0)
 
 
-def test_the_time_of_the_next_retry_is_what_the_scheduler_waits_for(tmp_path: Path) -> None:
-    """R-CH-25: the scheduler wakes when the retry is due."""
+def test_the_scheduler_looks_at_least_every_minute(tmp_path: Path) -> None:
+    """R-CH-25: a check that failed after the last look is retried within a minute of its time."""
     world = two_channels(tmp_path)
     world.settings_repository.save(
         Settings(check_on_open=False, recheck_interval_min=0, fetch_exact_dates=False)
@@ -149,7 +149,41 @@ def test_the_time_of_the_next_retry_is_what_the_scheduler_waits_for(tmp_path: Pa
     world.gateway.refuse["listing"] = ErrorCode.NETWORK_UNREACHABLE
     world.check(SMALL_ID)
 
-    assert world.scheduler.tick() == 5 * MINUTE
+    assert world.scheduler.tick() == 60
+
+
+def test_a_wake_during_a_step_of_the_fetch_is_not_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-DT-06: the end of the last download, told while the fetch looks, lets it go on at once."""
+    world = World(tmp_path)
+    steps: list[int] = []
+
+    def step() -> float | None:
+        steps.append(1)
+        if len(steps) == 1:
+            world.scheduler.wake()
+        return None
+
+    monkeypatch.setattr(world.dates, "step", step)
+
+    assert world.scheduler.tick() == 0
+    world.scheduler.tick()
+
+    assert len(steps) == 2
+
+
+def test_removing_a_channel_during_a_check_of_all_ends_the_count(tmp_path: Path) -> None:
+    """R-CH-20: "Checking channels: 1 of 2" does not stay when a channel goes."""
+    world = two_channels(tmp_path)
+    world.scheduler.tick()
+    while world.catalogue.work_once() and world.views.checking_all() != (1, 2):
+        world.run_background()
+
+    world.views.forget(BIG_ID)
+
+    assert world.views.checking_all() is None
+    assert [e.progress for e in world.events if isinstance(e, ChecksProgressed)][-1] is None
 
 
 def test_nothing_is_started_by_itself_while_youtube_pauses_the_app(tmp_path: Path) -> None:

@@ -467,3 +467,41 @@ def test_an_app_told_not_to_look_up_asks_nothing_without_a_key(tmp_path: Path) -
 
     assert quiet.step() is None
     assert asked(world) == 0
+
+
+def test_the_key_works_again_and_says_so_when_its_quota_starts_anew(tmp_path: Path) -> None:
+    """R-DT-12: at midnight Pacific time the key is used again, and the interface hears it."""
+    world = listed(tmp_path, channel_file(videos=3))
+    world.keys.key = "fixture-quota-key"
+    world.dates.step()
+    until = world.dates.key_state().until
+    assert until is not None
+    world.events.clear()
+    requests = world.api.requests
+
+    world.clock.advance(until - int(world.clock.now().timestamp()))
+    world.dates.step()
+
+    told = [event.key.status for event in world.events if isinstance(event, KeyStateChanged)]
+    assert told[0] is KeyStatus.SAVED
+    assert world.api.requests == requests + 1
+    later = world.dates.key_state().until
+    assert later is not None
+    assert later > until
+
+
+def test_a_fault_while_storing_never_leaves_a_video_updating(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-DT-13: an unexpected fault ends the "updating" state of the video."""
+    world = listed(tmp_path)
+
+    def broken(video_id: str, published_at: int) -> bool:
+        raise RuntimeError("the database went away")
+
+    monkeypatch.setattr(world.date_repository, "set_exact", broken)
+
+    with pytest.raises(RuntimeError):
+        world.dates.step()
+
+    assert not world.date_state.updating(NEWEST)

@@ -44,6 +44,10 @@ _log: FilteringBoundLogger = structlog.get_logger(__name__)
 BLOCKED_RETRY_S = 60.0
 """How soon a full check that downloads hold back is looked at again."""
 
+LONGEST_WAIT_S = 60.0
+"""The scheduler looks at least this often whether something is due: a check that failed
+since its last look is retried within a minute of its time (R-CH-25)."""
+
 
 class Scheduler:
     """Starts checks by themselves and runs the exact-date fetch."""
@@ -88,6 +92,8 @@ class Scheduler:
         self._last_all: int | None = None
         self._full: str | None = None
         self._dates_due = 0.0
+        self._wakes = 0
+        """Counts the wakes, so a wake during a step of the fetch is never lost."""
         youtube.when_asking_again(self.wake)
         dates.connect_waker(self.wake)
 
@@ -110,6 +116,7 @@ class Scheduler:
         """Look at once whether work is due: the exact-date fetch may go on."""
         with self._wake:
             self._woken = True
+            self._wakes += 1
             self._dates_due = 0.0
             self._wake.notify_all()
 
@@ -142,7 +149,7 @@ class Scheduler:
         if self._youtube.pause() is None:
             waits += self._checks(now)
         waits.append(self._run_dates())
-        return max(0.0, min(waits))
+        return max(0.0, min([*waits, LONGEST_WAIT_S]))
 
     def channel_selected(self, channel_id: str) -> None:
         """Check a channel the user selected, when its last check is older than 5 minutes.
@@ -258,10 +265,15 @@ class Scheduler:
         now = self._clock.monotonic()
         with self._wake:
             due = self._dates_due
+            wakes = self._wakes
         if due > now:
             return due - now
         wait_s = self._dates.step()
         waited = IDLE_S if wait_s is None else wait_s
         with self._wake:
+            if self._wakes != wakes:
+                # Woken while the step ran: the work it waited for may be there now.
+                self._dates_due = 0.0
+                return 0.0
             self._dates_due = self._clock.monotonic() + waited
         return waited

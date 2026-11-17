@@ -202,29 +202,31 @@ class DatesService:
         ids = [entry.video_id for entry in batch]
         self._updating(batch, updating=True)
         try:
-            found = self._api.video_dates(key, ids)
-        except AppError as error:
+            try:
+                found = self._api.video_dates(key, ids)
+            except AppError as error:
+                return self._api_failed(error, now)
+            self._api_backoff = None
+            stored = 0
+            for entry in batch:
+                published = found.get(entry.video_id)
+                if published is not None and self._dates.set_exact(entry.video_id, published):
+                    stored += 1
+                    self._state.found(entry.channel_id)
+                    self._found_exact(entry.video_id)
+            left_out = [video_id for video_id in ids if found.get(video_id) is None]
+            if left_out:
+                self._dates.left_out(left_out, now)
+            _log.info(
+                "dates.fetch.batch",
+                msg="The YouTube API gave exact dates",
+                asked=len(ids),
+                stored=stored,
+                left_out=len(left_out),
+            )
+        finally:
+            # Whatever happened, no video is shown as being fetched any more.
             self._updating(batch, updating=False)
-            return self._api_failed(error, now)
-        self._api_backoff = None
-        stored = 0
-        for entry in batch:
-            published = found.get(entry.video_id)
-            if published is not None and self._dates.set_exact(entry.video_id, published):
-                stored += 1
-                self._state.found(entry.channel_id)
-                self._found_exact(entry.video_id)
-        left_out = [video_id for video_id in ids if found.get(video_id) is None]
-        if left_out:
-            self._dates.left_out(left_out, now)
-        _log.info(
-            "dates.fetch.batch",
-            msg="The YouTube API gave exact dates",
-            asked=len(ids),
-            stored=stored,
-            left_out=len(left_out),
-        )
-        self._updating(batch, updating=False)
         self._refresh(self._now(), by_api=True)
         return 0
 
@@ -287,19 +289,23 @@ class DatesService:
         entry = batch[0]
         self._updating(batch, updating=True)
         try:
-            published = self._youtube.exact_date(entry.video_id)
-        except AppError as error:
-            self._updating(batch, updating=False)
-            return self._lookup_failed(entry, error, now)
-        self._backoff = None
-        self._meter.finished(self._clock.monotonic())
-        if published is None:
-            self._dates.failed(entry.video_id, ErrorCode.NOT_YET_AVAILABLE, now, retry_after_s)
-        elif self._dates.set_exact(entry.video_id, published):
-            self._state.found(entry.channel_id)
-            self._found_exact(entry.video_id)
-            _log.debug("dates.fetched", msg="An exact date was found", video_id=entry.video_id)
-        self._updating(batch, updating=False)
+            try:
+                published = self._youtube.exact_date(entry.video_id)
+            except AppError as error:
+                self._updating(batch, updating=False)
+                return self._lookup_failed(entry, error, now)
+            self._backoff = None
+            self._meter.finished(self._clock.monotonic())
+            if published is None:
+                self._dates.failed(entry.video_id, ErrorCode.NOT_YET_AVAILABLE, now, retry_after_s)
+            elif self._dates.set_exact(entry.video_id, published):
+                self._state.found(entry.channel_id)
+                self._found_exact(entry.video_id)
+                _log.debug("dates.fetched", msg="An exact date was found", video_id=entry.video_id)
+        finally:
+            # Whatever happened, the video is no longer shown as being fetched.
+            if self._state.updating(entry.video_id):
+                self._updating(batch, updating=False)
         self._refresh(self._now(), by_api=False)
         return 0
 
@@ -425,16 +431,23 @@ class DatesService:
 
     def _working_key(self, now: int, *, ignore_failure: bool = False) -> str | None:
         """Return the key when it can be used now, reading it the first time it is needed."""
+        expired = False
         with self._lock:
             failure = self._key_failure
             if failure is not None and failure[1] is not None and failure[1] <= now:
                 self._key_failure = failure = None
+                expired = True
                 if self._key is None:
                     self._key_read = False
-            if failure is not None and not ignore_failure:
-                return None
-            if self._key_read:
-                return self._key
+            known = self._key_read
+            key = self._key
+        if expired:
+            # The quota started anew: the key setting and the notice say so at once.
+            self._publish_key()
+        if failure is not None and not ignore_failure:
+            return None
+        if known:
+            return key
         try:
             key = self._keys.read()
         except AppError as error:
@@ -451,6 +464,9 @@ class DatesService:
         if key is not None:
             self._register_secret(key)
         with self._lock:
+            if self._key_read:
+                # Saved or removed meanwhile: that is newer than what was read.
+                return self._key
             self._key, self._key_read = key, True
         self._publish_key()
         return key

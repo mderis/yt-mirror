@@ -203,13 +203,17 @@ class CatalogueService:
         self._views.start_batch([channel.id for channel in channels])
         for index, channel in enumerate(channels):
             delay_s = 0.0 if index == 0 else self._choose_delay(*CHECK_ALL_DELAY_S)
-            self.request_check(
-                channel.id,
-                CheckKind.QUICK,
-                by_user=by_user,
-                trigger=CheckTrigger.CHECK_ALL if by_user else CheckTrigger.SCHEDULE,
-                delay_s=delay_s,
-            )
+            try:
+                self.request_check(
+                    channel.id,
+                    CheckKind.QUICK,
+                    by_user=by_user,
+                    trigger=CheckTrigger.CHECK_ALL if by_user else CheckTrigger.SCHEDULE,
+                    delay_s=delay_s,
+                )
+            except AppError:
+                # Paused or removed meanwhile: the others are checked all the same.
+                self._views.leave_batch(channel.id)
         return len(channels)
 
     def resume_first_listings(self, trigger: CheckTrigger = CheckTrigger.APP_START) -> None:

@@ -3,12 +3,14 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from structlog.testing import capture_logs
 
 from tests.fixtures.world import SMALL_ID, World, channel_file, log_lines, own_file
 from ytmirror.core.channels import Video
+from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import Settings
 from ytmirror.services.repair import fits_title
 
@@ -230,3 +232,25 @@ def test_a_video_that_got_its_exact_time_has_its_file_dates_repaired(tmp_path: P
     world.repair.repair_video(NEWEST)
 
     assert dates_of(world, "Video 5.mkv") == (PUBLISHED, PUBLISHED)
+
+
+def test_a_failed_repair_never_fails_or_undoes_the_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-CH-28, R-CH-25: the check is stored; its renames and repair are tried at the next."""
+    world = synced(tmp_path, {})
+
+    def unplugged(channel_id: str) -> int:
+        raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"folder": "gone"})
+
+    monkeypatch.setattr(world.repair, "rename_retitled", unplugged)
+    world.clock.advance(60)
+
+    with capture_logs() as logs:
+        world.check(SMALL_ID)
+
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    assert channel.last_check_error is None
+    assert channel.last_check_at == int(world.clock.now().timestamp())
+    assert log_lines(logs, "dates.repair.failed")

@@ -132,12 +132,26 @@ class RepairService:
     def after_check(self, channel_id: str) -> None:
         """The work of a check that needs no listing (R-CH-28): renames, then date repair.
 
+        A failure here never fails the check: the check is stored already, and the
+        work is tried again at the next one.
+
         Args:
             channel_id: The channel that was checked.
         """
-        self.rename_retitled(channel_id)
-        if self._settings.current().repair_dates:
-            self.repair_dates(channel_id)
+        try:
+            self.rename_retitled(channel_id)
+            if self._settings.current().repair_dates:
+                self.repair_dates(channel_id)
+        except Exception as error:  # noqa: BLE001  (a stored check must stay stored)
+            _log.warning(
+                "dates.repair.failed",
+                msg="The renames and the date repair after a check failed; tried at the next",
+                channel_id=channel_id,
+                error_code=error.code.value
+                if isinstance(error, AppError)
+                else ErrorCode.INTERNAL.value,
+                error=str(error),
+            )
 
     def repair_dates(self, channel_id: str) -> RepairResult:
         """Set the dates of every synced file of a channel that differ (R-DT-09).

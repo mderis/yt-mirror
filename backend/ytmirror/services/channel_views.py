@@ -237,6 +237,24 @@ class ChannelViews:
             progress = self._batch_progress()
         self._events.publish(ChecksProgressed(progress))
 
+    def leave_batch(self, channel_id: str) -> None:
+        """Count a channel of a check of all channels as done without its check.
+
+        For a channel that was removed, or whose check could not be put in line.
+
+        Args:
+            channel_id: The channel ID.
+        """
+        with self._lock:
+            if channel_id not in self._batch:
+                return
+            self._batch[channel_id] = True
+            batch = self._batch_progress()
+            if batch is not None and batch[0] == batch[1]:
+                self._batch.clear()
+                batch = None
+        self._events.publish(ChecksProgressed(batch))
+
     def checking_all(self) -> tuple[int, int] | None:
         """Return how many checks of the batch of all channels ended, and how many there are."""
         with self._lock:
@@ -297,6 +315,7 @@ class ChannelViews:
         Args:
             channel_id: The channel ID.
         """
+        self.leave_batch(channel_id)
         with self._lock:
             self._checking.discard(channel_id)
             self._batch.pop(channel_id, None)

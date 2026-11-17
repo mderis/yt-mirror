@@ -29,6 +29,12 @@ Use these words, with these meanings, in code, UI text, logs, tests and docs. If
 | **Removed from YouTube** | No longer listed on the channel after two consecutive successful full checks | flag `gone` |
 | **Published time** | The moment the video became public on YouTube | `published_at` |
 | **Exact date / approximate date** | Whether the published time is known to the second or only roughly | `published_exact` |
+| **Exact-date fetch** | The background work that gets the exact dates of videos with approximate ones: with the API key from the YouTube API, without it by one lookup per video (R-DT-05) | `DatesService` |
+| **Lookup** | One request for the full facts of one video, through yt-dlp. A lookup of the exact-date fetch and the metadata lookup of a download are the requests that can bring YouTube's "not a bot" check | `exact_date`, the first step of `download` |
+| **Lookup budget** | How many lookups an hour the app allows itself, shared by the exact-date fetch and the downloads: 300, halved after a "not a bot" check (R-DT-06, D-084) | `LookupBudget` |
+| **API key** | The optional, free key of the YouTube Data API that the user can enter. Kept in `data/youtube-api-key`, never in the database (R-DT-12, D-085) | `ApiKeyStore` |
+| **Waiting / updating / unavailable** | The three states of an approximate date (R-DT-13): not fetched yet, being fetched, fetching failed or is held back | `DateState` |
+| **Check by itself** | A check the app starts without the user: on open, on selection, on the interval, a retry, or a full check (R-CH-20 to R-CH-26) | `Scheduler`, trigger `schedule` |
 | **Date precision** | The unit YouTube gave an approximate date in: day, week, month or year. It tells the range the real date lies in (R-DT-04) | `published_precision` |
 | **Library** | The default parent folder for channel folders | `library` |
 | **Channel folder** | The folder that holds one channel's video files | `folder` |
