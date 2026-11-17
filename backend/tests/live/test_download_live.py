@@ -12,9 +12,12 @@ import pytest
 from tests.conftest import REAL_TOOLS
 from ytmirror.adapters.filesystem_mac import MacFileSystem
 from ytmirror.adapters.media_tools import FfprobeMediaTools
+from ytmirror.adapters.system_clock import SystemClock
+from ytmirror.adapters.ytdlp_gateway import GatewayTools, YtDlpGateway
 from ytmirror.app.config import AppPaths
 from ytmirror.app.container import build_container
 from ytmirror.core.channels import Quality, VideoStatus
+from ytmirror.core.jobs import DownloadRequest
 from ytmirror.core.media import verification_problem
 from ytmirror.services.channels import NewChannel
 
@@ -74,3 +77,41 @@ def test_one_real_video_is_downloaded_at_480p_with_metadata_and_dates(tmp_path: 
     assert (file.parent / ".yt-mirror" / f"{video_id}.info.json").is_file()
     assert (file.parent / ".yt-mirror" / f"{video_id}.jpg").read_bytes().startswith(b"\xff\xd8")
     assert (paths.cache_dir / "deno").is_dir()
+
+
+# A public 17-second nature clip offered up to 2160p.
+ABOVE_1080P = "eWGXW0HaGkM"
+
+
+def test_a_real_video_above_1080p_is_downloaded_from_its_one_lookup(tmp_path: Path) -> None:
+    """R-QL-01, R-QU-04, D-088: best quality from the metadata of the lookup, above 1080p."""
+    if not (REAL_TOOLS / "ffmpeg" / "ffprobe").is_file() or not (REAL_TOOLS / "deno").is_dir():
+        pytest.fail("the live download needs the tools of the app folder: run ./start once")
+    deno = REAL_TOOLS / "deno" / "deno"
+    gateway = YtDlpGateway(
+        SystemClock(), tools=GatewayTools(ffmpeg_folder=REAL_TOOLS / "ffmpeg", deno=deno)
+    )
+    told: list[float] = []
+    again: list[int] = []
+
+    result = gateway.download(
+        DownloadRequest(
+            video_id=ABOVE_1080P,
+            quality=Quality.BEST,
+            work_folder=tmp_path / "work",
+            log_file=tmp_path / "job.log",
+        ),
+        lambda progress: told.append(progress.fraction) if progress.fraction is not None else None,
+        lambda: False,
+        start_writing=lambda: (tmp_path / "work").mkdir(),
+        on_lookup_again=lambda: again.append(1),
+    )
+
+    facts = FfprobeMediaTools(REAL_TOOLS / "ffmpeg" / "ffprobe").probe(result.file)
+    assert verification_problem(facts, result.duration_s) is None
+    assert facts.height is not None
+    assert facts.height > 1080
+    assert facts.tags["video_id"] == ABOVE_1080P
+    assert again == []
+    assert told == sorted(told)
+    assert told[-1] == 1.0

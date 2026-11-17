@@ -13,7 +13,7 @@ import pytest
 
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.ytdlp_replay import VIDEO_ID, Replay
-from ytmirror.adapters.ytdlp_gateway import TAGS_STEP, GatewayTools, YtDlpGateway
+from ytmirror.adapters.ytdlp_gateway import FRESH_INFO_S, TAGS_STEP, GatewayTools, YtDlpGateway
 from ytmirror.core.channels import Quality
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import (
@@ -52,6 +52,9 @@ class FakeYtDlp:
         self.video_size: int | None = 3000
         self.audio_size: int | None = 1000
         self.extra: dict[str, Any] = {}
+        self.calls = 0
+        self.refuse_links = 0
+        """How many downloads YouTube answers with HTTP 403, as for links that expired."""
 
     def __call__(
         self, info: Mapping[str, Any], options: Mapping[str, Any], tags: Mapping[str, str]
@@ -60,6 +63,10 @@ class FakeYtDlp:
         self.options = options
         self.tags = tags
         self.info = info
+        self.calls += 1
+        if self.refuse_links > 0:
+            self.refuse_links -= 1
+            raise RuntimeError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
         address = f"https://www.youtube.com/watch?v={info.get('id')}"
         folder = Path(options["outtmpl"]["default"]).parent
         progress: Callable[[Mapping[str, Any]], None] = options["progress_hooks"][0]
@@ -535,3 +542,68 @@ def test_a_download_asks_youtube_once_and_downloads_what_the_lookup_gave(
     assert asked == [f"https://www.youtube.com/watch?v={VIDEO_ID}"]
     assert ytdlp.info["id"] == VIDEO_ID
     assert [stream["format_id"] for stream in ytdlp.info["requested_formats"]] == ["397", "251"]
+
+
+def counting(replay: Replay, asked: list[str]) -> Any:
+    """The replay of yt-dlp, noting every address it is asked."""
+
+    def extract(address: str, options: Mapping[str, Any], process: bool) -> Mapping[str, Any]:
+        asked.append(address)
+        return replay(address, options, process)
+
+    return extract
+
+
+def test_links_youtube_refuses_are_read_again_once_and_counted(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06, D-088: an HTTP 403 on reused metadata: one more lookup, counted, then a retry."""
+    asked: list[str] = []
+    again: list[int] = []
+    ytdlp.refuse_links = 1
+    gateway = YtDlpGateway(
+        FakeClock(), tools=TOOLS, extract=counting(replay, asked), download=ytdlp
+    )
+
+    result = gateway.download(
+        request(tmp_path), lambda _p: None, never, on_lookup_again=lambda: again.append(1)
+    )
+
+    assert result.file.name == f"{VIDEO_ID}.mkv"
+    assert (len(asked), len(again), ytdlp.calls) == (2, 1, 2)
+
+
+def test_links_refused_twice_are_not_read_a_third_time(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06: one retry only; the second refusal fails the download with its code."""
+    asked: list[str] = []
+    ytdlp.refuse_links = 2
+    gateway = YtDlpGateway(
+        FakeClock(), tools=TOOLS, extract=counting(replay, asked), download=ytdlp
+    )
+
+    with pytest.raises(AppError):
+        gateway.download(request(tmp_path), lambda _p: None, never)
+
+    assert (len(asked), ytdlp.calls) == (2, 2)
+
+
+def test_metadata_older_than_five_minutes_is_read_again_before_the_download(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-DT-06: old metadata may hold expired links: one more lookup, counted."""
+    asked: list[str] = []
+    again: list[int] = []
+    clock = FakeClock()
+    gateway = YtDlpGateway(clock, tools=TOOLS, extract=counting(replay, asked), download=ytdlp)
+
+    gateway.download(
+        request(tmp_path),
+        lambda _p: None,
+        never,
+        start_writing=lambda: clock.advance(FRESH_INFO_S + 1),
+        on_lookup_again=lambda: again.append(1),
+    )
+
+    assert (len(asked), len(again), ytdlp.calls) == (2, 1, 1)

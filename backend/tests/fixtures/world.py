@@ -200,6 +200,7 @@ class RefusingGateway:
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download, unless downloads are refused, with the stand-in when there is one."""
         self._maybe_refuse("download")

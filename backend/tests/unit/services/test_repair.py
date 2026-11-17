@@ -11,7 +11,7 @@ from structlog.testing import capture_logs
 
 from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file, log_lines, own_file
 from ytmirror.core.catalogue import CheckChanges
-from ytmirror.core.channels import ChannelStatus, Video, VideoStatus
+from ytmirror.core.channels import Channel, ChannelStatus, Video, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.models import Settings
 from ytmirror.services.repair import fits_title
@@ -607,3 +607,35 @@ def test_only_a_synced_video_can_become_missing(
     world.repair.verify_files(SMALL_ID)
 
     assert world.statuses(NEWEST)[-1][1] == "synced"
+
+
+def test_the_names_taken_in_a_folder_are_worked_out_once_per_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-FN-06: renames of many files do not read every channel once per file (review of M4)."""
+    world = synced(tmp_path)
+    world.downloader.mirror(["sm000000004"])
+    world.download_all()
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    retitled = (
+        dataclasses.replace(video(world), title="New five"),
+        dataclasses.replace(video(world, "sm000000004"), title="New four"),
+    )
+    world.repository.apply_check(
+        channel, CheckChanges((), retitled, new=0, changed=2, removed=0, returned=0, read=2)
+    )
+    reads: list[int] = []
+    channels = world.repository.channels
+
+    def counted() -> tuple[Channel, ...]:
+        reads.append(1)
+        return channels()
+
+    monkeypatch.setattr(world.repository, "channels", counted)
+
+    world.repair.rename_retitled(SMALL_ID)
+
+    assert video(world).file_name == "New five.mkv"
+    assert video(world, "sm000000004").file_name == "New four.mkv"
+    assert len(reads) == 1

@@ -234,13 +234,15 @@ class FixtureYouTube:
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Write a few seconds of real MKV for a fixture video, as yt-dlp would.
 
         The file has the tags, chapters, subtitles, cover and info JSON of a
         real download (ARCHITECTURE section 7.3), written by the real ffmpeg.
-        A fixture video can fail with a code, fail its subtitles, be slow, or
-        be a premiere.
+        A fixture video can fail with a code, fail its subtitles, be slow, be a
+        premiere, or wait after one of its progress reports (``hold_after_report``,
+        ``hold_ms``) so that a row can be seen in the middle of a download.
 
         Args:
             request: What to download, and where to.
@@ -248,6 +250,7 @@ class FixtureYouTube:
             is_cancelled: Asked before every step.
             start_writing: Called after the metadata lookup (which a fixture video
                 can make slow with ``metadata_delay_ms``), before anything is written.
+            on_lookup_again: Not called: the fake never reads its metadata twice.
 
         Raises:
             AppError: ``VIDEO_REMOVED`` for an unknown video, the code the
@@ -284,6 +287,7 @@ class FixtureYouTube:
         streams = (("video", PartKind.VIDEO, _VIDEO_BYTES), ("audio", PartKind.AUDIO, _AUDIO_BYTES))
         planned += [PlannedPart(key, kind, size if known else None) for key, kind, size in streams]
         tracker = ProgressTracker(planned)
+        reports = 0
         tracker.finish_kind(PartKind.THUMBNAIL, self._monotonic())
         if subtitles is not None:
             tracker.finished(PartKind.SUBTITLES.value, PartKind.SUBTITLES, _SUBTITLE_BYTES, 0)
@@ -312,6 +316,9 @@ class FixtureYouTube:
                         parts=totals.parts,
                     )
                 )
+                reports += 1
+                if reports == plan.hold_after_report:
+                    self._hold(plan.hold_ms / 1000, is_cancelled)
         on_progress(DownloadProgress(stage=Stage.PROCESSING))
         if is_cancelled():
             raise DownloadCancelledError("cancelled before the merge")
@@ -321,6 +328,15 @@ class FixtureYouTube:
         if is_cancelled():
             raise DownloadCancelledError("cancelled after the merge")
         return result
+
+    def _hold(self, seconds: float, is_cancelled: Callable[[], bool]) -> None:
+        """Wait in the middle of a download, as a slow network does, until it is cancelled."""
+        waited = 0.0
+        while waited < seconds:
+            if is_cancelled():
+                raise DownloadCancelledError("cancelled while the download was held")
+            self._sleep(0.1)
+            waited += 0.1
 
     def _write_video(
         self,
@@ -605,6 +621,8 @@ class _FixtureChannel:
             exact_date_fails=ErrorCode(exact_fails) if exact_fails else None,
             exact_date_delay_s=float(entry.get("exact_date_delay_ms", 0)) / 1000,
             upcoming=bool(entry.get("upcoming", False)),
+            hold_after_report=entry.get("hold_after_report"),
+            hold_ms=float(entry.get("hold_ms", 0)),
             api_missing=bool(entry.get("api_missing", False)),
             chapters=tuple(
                 Chapter(start_s=float(start), title=str(title))
@@ -676,6 +694,8 @@ class _DownloadPlan:
     exact_date_fails: ErrorCode | None
     exact_date_delay_s: float
     upcoming: bool
+    hold_after_report: int | None
+    hold_ms: float
     api_missing: bool
     chapters: tuple[Chapter, ...]
 

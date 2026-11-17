@@ -2,6 +2,7 @@
 
 import datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from structlog.testing import capture_logs
@@ -377,3 +378,26 @@ def test_the_budget_of_lookups_survives_a_restart(tmp_path: Path) -> None:
 
     assert again.lookups_per_hour() == 1
     assert again.exact_date_wait_s() > 0
+
+
+def test_a_lookup_a_download_makes_again_is_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-DT-06: metadata read again for a download (old, or links refused) uses the budget."""
+    world = World(tmp_path)
+    world.add_and_list()
+    download = world.gateway.download
+
+    def reading_again(*args: Any, **kwargs: Any) -> Any:
+        kwargs["on_lookup_again"]()
+        return download(*args, **kwargs)
+
+    monkeypatch.setattr(world.gateway, "download", reading_again)
+    world.downloader.mirror(["sm000000005"])
+    world.download_all()
+
+    assert world.youtube.exact_date_wait_s() == 0
+    with capture_logs() as logs:
+        world.clock.advance(HOUR_S)
+        world.youtube.log_finished_hour()
+    assert log_lines(logs, "youtube.lookups.hour")[0]["download"] == 2

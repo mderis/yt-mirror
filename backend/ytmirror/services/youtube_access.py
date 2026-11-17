@@ -253,7 +253,11 @@ class YouTubeAccess:
         return self._ask(
             "download",
             lambda: self._gateway.download(
-                request, on_progress, is_cancelled, start_writing=start_writing
+                request,
+                on_progress,
+                is_cancelled,
+                start_writing=start_writing,
+                on_lookup_again=self._count_again,
             ),
             by_user=by_user,
             counted=LookupKind.DOWNLOAD,
@@ -261,6 +265,15 @@ class YouTubeAccess:
 
     def _now(self) -> float:
         return self._clock.now().timestamp()
+
+    def _count_again(self) -> None:
+        """Count a metadata lookup a download made again (R-DT-06, D-089)."""
+        _log.info("youtube.lookup_again", msg="A download read the metadata of its video again")
+        with self._lock:
+            finished = self._budget_now().count(LookupKind.DOWNLOAD, self._now())
+            saved = self._budget.saved()
+        self._remember(saved)
+        _log_hour(finished)
 
     def _budget_now(self) -> LookupBudget:
         """Return the budget, read back from where it was kept the first time it is needed.

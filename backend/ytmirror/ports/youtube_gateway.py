@@ -104,6 +104,7 @@ class YouTubeGateway(Protocol):
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download one video as an MKV with its metadata, into the temp folder of its job.
 
@@ -116,6 +117,9 @@ class YouTubeGateway(Protocol):
                 written, after what only reads from YouTube. It raises
                 ``DownloadCancelledError`` when the job was cancelled meanwhile:
                 then nothing is written (R-QU-02).
+            on_lookup_again: Told of each time the metadata of the video is read again,
+                when it was too old or its stream links were refused, so the budget of
+                lookups counts it (R-DT-06).
 
         Raises:
             AppError: With the code of what went wrong, for example ``MEMBERS_ONLY``.

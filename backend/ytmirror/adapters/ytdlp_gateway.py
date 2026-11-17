@@ -243,6 +243,18 @@ _VIDEO_CODES: tuple[tuple[ErrorCode, tuple[str, ...]], ...] = (
 )
 
 
+FRESH_INFO_S = 5 * 60
+"""Metadata older than this when its download starts is read again: its links may expire."""
+
+_LINK_REFUSED = ("http error 403", "403: forbidden", "403 forbidden")
+
+
+def _link_refused(text: str) -> bool:
+    """Whether a download failed because YouTube refused a stream link (HTTP 403)."""
+    lowered = text.lower()
+    return any(sign in lowered for sign in _LINK_REFUSED)
+
+
 def code_of(error_text: str, *, video: bool = False) -> ErrorCode:
     """Return the error code for an error text of yt-dlp.
 
@@ -295,10 +307,15 @@ class YtDlpGateway:
         is_cancelled: Callable[[], bool],
         *,
         start_writing: Callable[[], None] = lambda: None,
+        on_lookup_again: Callable[[], None] = lambda: None,
     ) -> DownloadResult:
         """Download one video into the temp folder of its job (ARCHITECTURE section 7.3).
 
-        The full metadata is read first, to choose the subtitles (R-MD-03).
+        The full metadata is read first, to choose the subtitles (R-MD-03), and
+        the download is made from it (D-088). Metadata older than
+        ``FRESH_INFO_S`` when the download starts is read again, and so is
+        metadata whose stream links YouTube refuses (HTTP 403), once; each such
+        lookup is told to ``on_lookup_again``, which counts it (R-DT-06).
         Then yt-dlp downloads the streams, merges them into MKV and embeds the
         subtitles, the metadata with chapters, the info JSON and the cover.
 
@@ -309,6 +326,7 @@ class YtDlpGateway:
                 download ends with ``DownloadCancelledError`` at the next step.
             start_writing: Called after the metadata lookup, which only reads,
                 and before yt-dlp writes anything (R-QU-02).
+            on_lookup_again: Told of each lookup made again, for the budget.
 
         Raises:
             AppError: With the code of what went wrong.
@@ -318,10 +336,13 @@ class YtDlpGateway:
         address = f"https://www.youtube.com/watch?v={request.video_id}"
         # The same format choice as the download: yt-dlp then names the streams it
         # will fetch, with their sizes, for one progress of the whole Mirror (D-088).
-        info = self._ask_about_video(
-            address,
-            {**METADATA_OPTIONS, **self._runtime(), "format": format_selector(request.quality)},
-        )
+        metadata_options = {
+            **METADATA_OPTIONS,
+            **self._runtime(),
+            "format": format_selector(request.quality),
+        }
+        looked_up_at = self._clock.monotonic()
+        info = self._ask_about_video(address, metadata_options)
         if info.get("live_status") == "is_upcoming":
             raise AppError(
                 ErrorCode.NOT_YET_AVAILABLE,
@@ -357,21 +378,34 @@ class YtDlpGateway:
             tags["published_at"] = _iso(published)
         # Until here only YouTube was asked; from here yt-dlp writes into the temp folder.
         start_writing()
-        try:
-            answer = self._download(info, options, tags)
-        except DownloadCancelledError:
-            raise
-        except Exception as error:
-            # Asked first: when the job was cancelled or the app quits, its ffmpeg was
-            # stopped, and what yt-dlp raises then is the cancel (R-QU-02, R-PL-13).
-            if is_cancelled():
-                raise DownloadCancelledError("cancelled: the tools were stopped") from error
-            if isinstance(error, AppError):
+        if self._clock.monotonic() - looked_up_at > FRESH_INFO_S:
+            # Its stream links may have expired: read it again, as one more lookup.
+            on_lookup_again()
+            info = self._ask_about_video(address, metadata_options)
+        fetched_again = False
+        while True:
+            try:
+                answer = self._download(info, options, tags)
+                break
+            except DownloadCancelledError:
                 raise
-            text = f"{type(error).__name__}: {error}"
-            if steps.current == _SUBTITLE_STEP or _SUBTITLE_FAILURE in text.lower():
-                raise SubtitlesFailedError(text) from error
-            raise AppError(code_of(text, video=True), {"message": str(error)}) from error
+            except Exception as error:
+                # Asked first: when the job was cancelled or the app quits, its ffmpeg was
+                # stopped, and what yt-dlp raises then is the cancel (R-QU-02, R-PL-13).
+                if is_cancelled():
+                    raise DownloadCancelledError("cancelled: the tools were stopped") from error
+                if isinstance(error, AppError):
+                    raise
+                text = f"{type(error).__name__}: {error}"
+                if steps.current == _SUBTITLE_STEP or _SUBTITLE_FAILURE in text.lower():
+                    raise SubtitlesFailedError(text) from error
+                if not fetched_again and _link_refused(text):
+                    # The links of the metadata expired or are refused: read it once more.
+                    fetched_again = True
+                    on_lookup_again()
+                    info = self._ask_about_video(address, metadata_options)
+                    continue
+                raise AppError(code_of(text, video=True), {"message": str(error)}) from error
         file = request.work_folder / f"{request.video_id}.mkv"
         if not file.is_file():
             raise AppError(

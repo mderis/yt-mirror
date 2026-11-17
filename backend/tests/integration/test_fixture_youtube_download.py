@@ -223,3 +223,25 @@ def test_without_ffmpeg_the_fake_cannot_write_a_file(tmp_path: Path) -> None:
         fake.download(request(tmp_path), lambda _progress: None, never)
 
     assert failure.value.code is ErrorCode.TOOL_MISSING
+
+
+def test_a_download_can_be_held_in_the_middle_until_it_is_cancelled(tmp_path: Path) -> None:
+    """infra: ``hold_after_report`` keeps a row in the middle of a download for a screenshot."""
+    told: list[DownloadProgress] = []
+    cancelled = False
+
+    def cancel_when_held() -> bool:
+        return cancelled
+
+    def told_and_cancel_on_hold(progress: DownloadProgress) -> None:
+        nonlocal cancelled
+        told.append(progress)
+        cancelled = len(told) == 3
+
+    held = youtube(tmp_path, hold_after_report=3, hold_ms=60_000)
+
+    with pytest.raises(DownloadCancelledError, match="held"):
+        held.download(request(tmp_path), told_and_cancel_on_hold, cancel_when_held)
+
+    assert len(told) == 3
+    assert 0.5 < (told[-1].fraction or 0) < 0.6
