@@ -351,10 +351,11 @@ class ChannelViews:
                 checking=checking,
                 new_videos=totals.new,
                 waiting_for_youtube=waits_for_youtube(
-                    channel, youtube_paused=self._youtube_paused(), exact_dates_wait=dates_wait
+                    channel, youtube_paused=self._youtube_paused()
                 ),
                 mirroring=mirroring is not None,
                 exact_dates=self._dates.running(channel.id),
+                exact_dates_wait=dates_wait,
             ),
             totals=totals,
             progress=progress,

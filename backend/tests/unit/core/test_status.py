@@ -5,7 +5,7 @@ import itertools
 import pytest
 
 from tests.fixtures.catalogue import NOW, make_channel, make_video
-from ytmirror.core.channels import ChannelStatus, VideoStatus
+from ytmirror.core.channels import Channel, ChannelStatus, VideoStatus
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.status import (
     ALLOWED_TRANSITIONS,
@@ -190,24 +190,35 @@ def test_only_work_the_app_would_do_by_itself_waits_for_youtube() -> None:
     ]
 
 
-def test_exact_dates_are_running_work_after_mirroring_and_checking() -> None:
-    """R-FB-01: "Exact dates X of Y" is running now, below mirroring and checking."""
-    channel = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
+def test_exact_dates_are_background_work_below_a_failed_check_and_new_videos() -> None:
+    """R-FB-01, D-086: running work and failures first, then new videos, then exact dates."""
+    listed = make_channel()
+    failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
 
-    assert channel_status(channel, checking=False, new_videos=3, exact_dates=True) is (
-        ChannelStatus.EXACT_DATES
-    )
-    assert channel_status(channel, checking=True, new_videos=0, exact_dates=True) is (
-        ChannelStatus.CHECKING
-    )
-    assert channel_status(
-        channel, checking=False, new_videos=0, mirroring=True, exact_dates=True
-    ) is (ChannelStatus.MIRRORING)
+    def status(
+        channel: Channel, *, new: int = 0, checking: bool = False, mirroring: bool = False
+    ) -> ChannelStatus:
+        return channel_status(
+            channel, checking=checking, new_videos=new, exact_dates=True, mirroring=mirroring
+        )
+
+    assert status(listed) is ChannelStatus.EXACT_DATES
+    assert status(failed) is ChannelStatus.COULD_NOT_CHECK
+    assert status(listed, new=3) is ChannelStatus.NEW_VIDEOS
+    assert status(listed, checking=True) is ChannelStatus.CHECKING
+    assert status(listed, mirroring=True) is ChannelStatus.MIRRORING
+    assert status(make_channel(paused=True)) is ChannelStatus.EXACT_DATES
 
 
-def test_exact_dates_held_back_make_a_listed_channel_wait_for_youtube() -> None:
-    """R-FB-01: held-up work is not running work; it waits for YouTube."""
+def test_exact_dates_that_wait_for_youtube_say_so_in_their_own_place() -> None:
+    """R-FB-01, D-086: held exact dates wait for YouTube, below new videos and a failure."""
     listed = make_channel()
 
+    def status(channel: Channel, new: int = 0) -> ChannelStatus:
+        return channel_status(channel, checking=False, new_videos=new, exact_dates_wait=True)
+
+    assert status(listed) is ChannelStatus.WAITING_FOR_YOUTUBE
+    assert status(listed, new=2) is ChannelStatus.NEW_VIDEOS
+    failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
+    assert status(failed) is ChannelStatus.COULD_NOT_CHECK
     assert not waits_for_youtube(listed, youtube_paused=True)
-    assert waits_for_youtube(listed, youtube_paused=False, exact_dates_wait=True)

@@ -60,6 +60,7 @@ test.describe('with exact dates looked up fast', () => {
     await expect(banner).toContainText('The optional API key gets exact dates without this check.')
     await expect(sidebar(page).locator('[data-status]')).toHaveText('Waiting for YouTube')
     await expect(dates(page, 'unavailable')).toHaveCount(3)
+    await expect(page.locator('[data-exact-dates]')).toContainText('waiting for YouTube until')
 
     await banner.getByRole('button', { name: 'Set up the API key' }).click()
     const guide = page.locator('[data-dialog="api-key"]')

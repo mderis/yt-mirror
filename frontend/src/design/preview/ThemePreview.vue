@@ -366,28 +366,12 @@ function ref(name: string): string {
                     :text="t('themePreview.sampleAroundDate')"
                     :note="t('themePreview.sampleDateNote')"
                   />
-                </template>
-                <template #status>
-                  <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
-                </template>
-              </VideoRow>
-              <VideoRow :title="t('themePreview.sampleVideo')">
-                <template #facts>
-                  <span>{{ t('themePreview.sampleUploaded') }}</span>
                   <DateLabel
                     approximate
                     state="updating"
                     :text="t('themePreview.sampleAroundDate')"
                     :note="t('themePreview.sampleDateUpdating')"
                   />
-                </template>
-                <template #status>
-                  <StatusChip>{{ t('themePreview.sampleChips.plain') }}</StatusChip>
-                </template>
-              </VideoRow>
-              <VideoRow :title="t('themePreview.sampleVideo')">
-                <template #facts>
-                  <span>{{ t('themePreview.sampleUploaded') }}</span>
                   <DateLabel
                     approximate
                     state="unavailable"

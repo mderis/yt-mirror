@@ -134,6 +134,48 @@ describe('the status of a channel whose exact dates are fetched', () => {
   })
 })
 
+describe('the exact dates in the header of the channel page', () => {
+  it('R-FB-01, D-086: the progress is in the header while the sidebar tells new videos', async () => {
+    await openApp({
+      channels: [
+        channel({
+          status: 'new_videos',
+          new_videos: 2,
+          exact_dates: { done: 340, total: 1000, left_s: 3000, offer_key: true },
+        }),
+      ],
+      route: `/channels/${CHANNEL_ID}`,
+    })
+
+    const header = await waitFor(() => part('[data-exact-dates]'))
+    expect(header.textContent).toContain('Exact dates 340 of 1,000 · about 50 minutes left')
+    expect(sidebarStatus()).toContain('2 new videos')
+  })
+
+  it('R-FB-01: exact dates held back by YouTube say so in the header, with until when', async () => {
+    await openApp({
+      channels: [
+        channel({
+          status: 'waiting_for_youtube',
+          waiting_until: NOW + 900,
+          exact_dates: { done: 3, total: 10, left_s: null, offer_key: false },
+        }),
+      ],
+      route: `/channels/${CHANNEL_ID}`,
+    })
+
+    const header = await waitFor(() => part('[data-exact-dates]'))
+    expect(header.textContent).toContain('Exact dates 3 of 10 · waiting for YouTube until 06:57')
+  })
+
+  it('R-FB-01: without dates waiting the header says nothing of them', async () => {
+    await openApp({ channels: [channel()], route: `/channels/${CHANNEL_ID}` })
+
+    await screen.findByRole('heading', { level: 1, name: 'Sample Channel' })
+    expect(document.querySelector('[data-exact-dates]')).toBeNull()
+  })
+})
+
 describe('the optional API key', () => {
   it('R-DT-15: a long fetch without a key offers the key with the measured time', async () => {
     await openApp({

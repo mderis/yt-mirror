@@ -169,6 +169,7 @@ export const en = {
     couldNotCheckRetryingSoon: 'Could not check · retrying now',
     exactDates: 'Exact dates {done} of {total}',
     exactDatesLeft: 'Exact dates {done} of {total} · {left}',
+    exactDatesWaiting: 'Exact dates {done} of {total} · waiting for YouTube until {time}',
     waitingForYouTube: 'Waiting for YouTube',
     nextAttempt: 'The next attempt is at {time}.',
     newBadge: '{count} new',

@@ -4,7 +4,9 @@
  * StateLoading.html, docs/DESIGN.md sections 8.1 and 8.3): the name, the
  * totals, the result and the times of the last check and the last full check,
  * and the actions. While the first listing runs it shows the progress of the
- * listing instead (R-CH-11).
+ * listing instead (R-CH-11). While dates of the channel wait for their exact
+ * dates, their progress is always here, whatever the status line of the
+ * sidebar says (R-FB-01, D-086).
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -22,7 +24,7 @@ import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
 
 import ChannelMenu from './ChannelMenu.vue'
-import { isBeingListed } from './status'
+import { isBeingListed, useExactDatesText } from './status'
 
 const props = defineProps<{
   /** The channel that is open. */
@@ -33,6 +35,9 @@ const { t } = useI18n()
 const agoText = useAgo()
 const channels = useChannelsStore()
 const ui = useUiStore()
+
+const exactDatesOf = useExactDatesText()
+const exactDates = computed(() => exactDatesOf(props.channel))
 
 const menuOpen = ref(false)
 const listing = computed(() => isBeingListed(props.channel))
@@ -118,6 +123,19 @@ const fullCheck = computed(() =>
             t('app.separator')
           }}</span>
           <span v-if="fullCheck" class="text-text-muted">{{ fullCheck }}</span>
+        </p>
+        <p
+          v-if="exactDates"
+          class="mt-1 flex items-center gap-2 text-text-muted"
+          role="status"
+          data-exact-dates
+        >
+          <AppIcon
+            :name="channel.waiting_until ? 'clock' : 'loading'"
+            size="md"
+            :class="channel.waiting_until ? undefined : 'animate-turn'"
+          />
+          {{ exactDates }}
         </p>
       </template>
     </div>

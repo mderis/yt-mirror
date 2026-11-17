@@ -34,11 +34,43 @@ export function isBeingListed(channel: Channel): boolean {
   )
 }
 
+/**
+ * Returns a function that tells how far the exact dates of a channel are:
+ * "Exact dates 340 of 1,000 · about 50 minutes left", or that they wait for
+ * YouTube and until when. Null while none of its dates waits (R-DT-14, D-086).
+ */
+export function useExactDatesText(): (channel: Channel) => string | null {
+  const { t } = useI18n()
+  return (channel) => {
+    const progress = channel.exact_dates ?? null
+    if (progress === null) {
+      return null
+    }
+    const values = { done: formatNumber(progress.done), total: formatNumber(progress.total) }
+    const until = channel.waiting_until ?? null
+    if (until !== null) {
+      return t('channelStatus.exactDatesWaiting', {
+        ...values,
+        time: formatTime(until, clock.timeZone),
+      })
+    }
+    if (progress.left_s === null) {
+      return t('channelStatus.exactDates', values)
+    }
+    const left = roughTime(progress.left_s)
+    return t('channelStatus.exactDatesLeft', {
+      ...values,
+      left: t(`rough.${left.unit}Left`, { count: left.count }, left.count),
+    })
+  }
+}
+
 /** Returns a function that gives the status line of a channel. */
 export function useStatusLine(): (channel: Channel) => StatusLine {
   const { t } = useI18n()
   const agoText = useAgo()
   const channels = useChannelsStore()
+  const exactDatesOf = useExactDatesText()
   return (channel) => {
     if (channel.status === 'mirroring' && channel.mirroring) {
       const done = Math.min(channel.mirroring.done + 1, channel.mirroring.total)
@@ -51,24 +83,9 @@ export function useStatusLine(): (channel: Channel) => StatusLine {
         tone: 'progress',
       }
     }
-    if (channel.status === 'exact_dates' && channel.exact_dates) {
-      const progress = channel.exact_dates
-      const values = {
-        done: formatNumber(progress.done),
-        total: formatNumber(progress.total),
-      }
-      if (progress.left_s === null) {
-        return { text: t('channelStatus.exactDates', values), icon: 'loading', tone: 'progress' }
-      }
-      const left = roughTime(progress.left_s)
-      return {
-        text: t('channelStatus.exactDatesLeft', {
-          ...values,
-          left: t(`rough.${left.unit}Left`, { count: left.count }, left.count),
-        }),
-        icon: 'loading',
-        tone: 'progress',
-      }
+    const exactDates = exactDatesOf(channel)
+    if (channel.status === 'exact_dates' && exactDates !== null) {
+      return { text: exactDates, icon: 'loading', tone: 'progress' }
     }
     if (channel.status === 'waiting_for_youtube') {
       const until = channels.youtubePause?.until ?? channel.waiting_until ?? undefined

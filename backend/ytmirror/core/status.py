@@ -119,29 +119,26 @@ def is_new(video: Video, now: int) -> bool:
     return now - video.first_seen_at < NEW_FOR_S
 
 
-def waits_for_youtube(
-    channel: Channel, *, youtube_paused: bool, exact_dates_wait: bool = False
-) -> bool:
+def waits_for_youtube(channel: Channel, *, youtube_paused: bool) -> bool:
     """Return whether the app holds work for a channel until YouTube answers again (R-ER-05).
 
     While the app pauses what it asks of YouTube by itself, a channel waits
     when the app would otherwise work on it by itself. From milestone M2 that
     is a first listing that is still to come. A paused channel does not wait,
     and neither does one whose first listing failed: that one is left to the
-    user (R-CH-25). From milestone M4 a channel also waits while its exact
-    dates are held back by that pause or by the fetch's own back-off (R-FB-01).
+    user (R-CH-25). Exact dates that wait for YouTube are told in their own,
+    lower place of the status line (D-086).
 
     Args:
         channel: The channel.
         youtube_paused: Whether the pause of the whole app is in force.
-        exact_dates_wait: Whether the exact dates of the channel wait for YouTube.
     """
     return (
         youtube_paused
         and not channel.paused
         and channel.first_listed_at is None
         and channel.last_check_error is None
-    ) or exact_dates_wait
+    )
 
 
 def channel_status(
@@ -152,15 +149,19 @@ def channel_status(
     waiting_for_youtube: bool = False,
     mirroring: bool = False,
     exact_dates: bool = False,
+    exact_dates_wait: bool = False,
 ) -> ChannelStatus:
     """Return the one status line of a channel (R-FB-01, R-CH-34).
 
     One status is shown at a time, by the priority of R-FB-01: what is
-    running now (mirroring, checking, a first listing, matching, exact dates),
-    then waiting for YouTube, then could not check, then new videos, then
-    paused, then up to date. What is running outranks a past failure, so a
-    retry after a failed check is seen. The statuses of later milestones take
-    their place in this order when they are built.
+    running now (mirroring, checking, a first listing, matching), then waiting
+    for YouTube, then could not check, then new videos, then exact dates, then
+    paused, then up to date. Exact dates are background work (D-086): they
+    never hide a failed check or new videos, and exact dates held back by
+    YouTube show "Waiting for YouTube" in their own place. What is running
+    outranks a past failure, so a retry after a failed check is seen. The
+    statuses of later milestones take their place in this order when they
+    are built.
 
     Args:
         channel: The channel.
@@ -170,19 +171,22 @@ def channel_status(
             YouTube answers again (``waits_for_youtube``).
         mirroring: Whether videos of the channel wait to be downloaded or are.
         exact_dates: Whether exact dates of the channel are being looked up, not held back.
+        exact_dates_wait: Whether exact dates of the channel wait for YouTube.
     """
     if mirroring:
         return ChannelStatus.MIRRORING
     if checking:
         return ChannelStatus.CHECKING
-    if exact_dates:
-        return ChannelStatus.EXACT_DATES
     if waiting_for_youtube:
         return ChannelStatus.WAITING_FOR_YOUTUBE
     if channel.last_check_error is not None:
         return ChannelStatus.COULD_NOT_CHECK
     if new_videos > 0:
         return ChannelStatus.NEW_VIDEOS
+    if exact_dates:
+        return ChannelStatus.EXACT_DATES
+    if exact_dates_wait:
+        return ChannelStatus.WAITING_FOR_YOUTUBE
     if channel.paused:
         return ChannelStatus.PAUSED
     return ChannelStatus.UP_TO_DATE
