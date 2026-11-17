@@ -60,6 +60,14 @@ class Settings:
             when there are no creator ones (R-MD-03).
         thumbnail_next_to_video: Whether the thumbnail is also saved next to
             the video file (R-MD-05).
+        check_on_open: Whether all channels are checked when the app opens (R-CH-20).
+        recheck_interval_min: Minutes between two automatic quick checks of all
+            channels, one of ``RECHECK_INTERVALS_MIN``; 0 means never (R-CH-22).
+        full_check_days: A full check runs by itself for a channel whose last one
+            is older than this many days (R-CH-26).
+        fetch_exact_dates: Whether exact dates are looked up in the background
+            without a key (R-DT-05).
+        repair_dates: Whether every check repairs the dates of synced files (R-DT-09).
     """
 
     log_detail: LogDetail = LogDetail.NORMAL
@@ -68,6 +76,18 @@ class Settings:
     embed_subtitles: bool = True
     auto_subtitles: bool = True
     thumbnail_next_to_video: bool = False
+    check_on_open: bool = True
+    recheck_interval_min: int = 30
+    full_check_days: int = 7
+    fetch_exact_dates: bool = True
+    repair_dates: bool = True
+
+
+RECHECK_INTERVALS_MIN = (30, 60, 180, 0)
+"""The choices of the re-check interval: 30 minutes, 1 hour, 3 hours, never (R-CH-22)."""
+
+FULL_CHECK_DAYS = range(1, 366)
+"""The days a full check may be apart (R-CH-26)."""
 
 
 @dataclass(frozen=True, slots=True)

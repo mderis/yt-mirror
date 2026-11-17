@@ -218,6 +218,8 @@ class Channel:
         position: The place in the sidebar, from 0.
         folder_created: Whether the app created the channel folder. Only such a folder
             may go to the Trash when a removal leaves it empty (R-CH-32).
+        check_retries: How many automatic retries of a failed check were made since
+            the last successful one (R-CH-25).
     """
 
     id: str
@@ -238,6 +240,7 @@ class Channel:
     last_check_error_at: int | None = None
     position: int = 0
     folder_created: bool = False
+    check_retries: int = 0
 
 
 @dataclass(frozen=True, slots=True)

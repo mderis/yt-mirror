@@ -305,6 +305,7 @@ def _channel_of(row: ChannelRow) -> Channel:
         last_check_error_at=row.last_check_error_at,
         position=row.position,
         folder_created=row.folder_created,
+        check_retries=row.check_retries,
     )
 
 

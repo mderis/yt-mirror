@@ -60,6 +60,7 @@ class ChannelRow(Base):
     last_check_error_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     folder_created: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    check_retries: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -72,6 +73,7 @@ class VideoRow(Base):
         Index("ix_videos_channel_position", "channel_id", "channel_position"),
         Index("ix_videos_channel_status", "channel_id", "status"),
         Index("ix_videos_status", "status"),
+        Index("ix_videos_exact", "published_exact", "gone"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -166,5 +168,22 @@ class PendingSideFileRow(Base):
     )
     path: Mapped[str] = mapped_column(Text, nullable=False)
     data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class DateFetchRow(Base):
+    """What the exact-date fetch keeps for one video without an exact date (R-DT-06, R-DT-13)."""
+
+    __tablename__ = "date_fetch_queue"
+
+    video_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    next_try_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    api_left_out_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
