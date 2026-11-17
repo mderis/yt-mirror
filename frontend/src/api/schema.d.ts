@@ -996,10 +996,17 @@ export interface components {
      *         speed_bps: Bytes per second, or None.
      *         left_s: Seconds left of the download, or None.
      *         height: The height being downloaded, or None.
-     *         downloaded_bytes: How many bytes arrived, or None. Shown when the
-     *             fraction is not known.
+     *         downloaded_bytes: How many bytes arrived, all parts together, or None.
+     *         total_bytes: How many bytes all parts have, real or estimated, or None.
+     *         parts: Each part: video, audio, subtitles, thumbnail (R-QU-04).
+     *         again: Whether this is a second download without subtitles (R-MD-04).
      */
     Download: {
+      /**
+       * Again
+       * @default false
+       */
+      again: boolean
       /** Channel Id */
       channel_id: string
       /** Downloaded Bytes */
@@ -1012,11 +1019,40 @@ export interface components {
       job_id: string
       /** Left S */
       left_s: number | null
+      /**
+       * Parts
+       * @default []
+       */
+      parts: components['schemas']['DownloadPart'][]
       /** Speed Bps */
       speed_bps: number | null
       stage: components['schemas']['Stage']
+      /** Total Bytes */
+      total_bytes?: number | null
       /** Video Id */
       video_id: string
+    }
+    /**
+     * DownloadPart
+     * @description One part of a running download, for the details panel (R-QU-04).
+     *
+     *     Attributes:
+     *         kind: Video, audio, subtitles or thumbnail.
+     *         size: Its size in bytes, real or estimated.
+     *         done: How many of its bytes arrived.
+     *         estimated: Whether the size is an estimate.
+     *         finished: Whether it is complete.
+     */
+    DownloadPart: {
+      /** Done */
+      done: number
+      /** Estimated */
+      estimated: boolean
+      /** Finished */
+      finished: boolean
+      kind: components['schemas']['PartKind']
+      /** Size */
+      size: number
     }
     /**
      * ErrorBody
@@ -1317,6 +1353,12 @@ export interface components {
       /** Channel Id */
       channel_id: string | null
     }
+    /**
+     * PartKind
+     * @description What a part of a download is.
+     * @enum {string}
+     */
+    PartKind: 'video' | 'audio' | 'subtitles' | 'thumbnail'
     /**
      * Pause
      * @description The pause of what the app asks of YouTube by itself (R-ER-05).

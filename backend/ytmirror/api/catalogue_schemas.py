@@ -32,6 +32,7 @@ from ytmirror.core.exact_dates import (
     KeyStatus,
 )
 from ytmirror.core.jobs import JobProgress, Stage
+from ytmirror.core.progress import PartKind, PartProgress
 from ytmirror.services.channels import ChannelLookup, ChosenFolder, KeptFile, KeptReason
 from ytmirror.services.downloader import VideoDetails
 from ytmirror.services.state import AppState
@@ -264,8 +265,10 @@ class Download(BaseModel):
         speed_bps: Bytes per second, or None.
         left_s: Seconds left of the download, or None.
         height: The height being downloaded, or None.
-        downloaded_bytes: How many bytes arrived, or None. Shown when the
-            fraction is not known.
+        downloaded_bytes: How many bytes arrived, all parts together, or None.
+        total_bytes: How many bytes all parts have, real or estimated, or None.
+        parts: Each part: video, audio, subtitles, thumbnail (R-QU-04).
+        again: Whether this is a second download without subtitles (R-MD-04).
     """
 
     job_id: str
@@ -277,6 +280,9 @@ class Download(BaseModel):
     left_s: int | None
     height: int | None
     downloaded_bytes: int | None
+    total_bytes: int | None = None
+    parts: list[DownloadPart] = []
+    again: bool = False
 
     @classmethod
     def of(cls, progress: JobProgress) -> Download:
@@ -291,6 +297,38 @@ class Download(BaseModel):
             left_s=progress.left_s,
             height=progress.height,
             downloaded_bytes=progress.downloaded_bytes,
+            total_bytes=progress.total_bytes,
+            parts=[DownloadPart.of(part) for part in progress.parts],
+            again=progress.again,
+        )
+
+
+class DownloadPart(BaseModel):
+    """One part of a running download, for the details panel (R-QU-04).
+
+    Attributes:
+        kind: Video, audio, subtitles or thumbnail.
+        size: Its size in bytes, real or estimated.
+        done: How many of its bytes arrived.
+        estimated: Whether the size is an estimate.
+        finished: Whether it is complete.
+    """
+
+    kind: PartKind
+    size: int
+    done: int
+    estimated: bool
+    finished: bool
+
+    @classmethod
+    def of(cls, part: PartProgress) -> DownloadPart:
+        """Return the wire form of a part."""
+        return cls(
+            kind=part.kind,
+            size=part.size,
+            done=part.done,
+            estimated=part.estimated,
+            finished=part.finished,
         )
 
 

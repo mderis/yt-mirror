@@ -77,10 +77,6 @@ class FakeYtDlp:
         video = {"vcodec": "av01", "acodec": "none", "height": 480, "format_id": "397"}
         audio = {"vcodec": "none", "acodec": "opus", "format_id": "251"}
         sizes = {"397": self.video_size, "251": self.audio_size}
-        requested = [
-            {**video, "filesize": sizes["397"]},
-            {**audio, "filesize_approx": sizes["251"]},
-        ]
         for stream in (video, audio):
             format_id = str(stream["format_id"])
             total = sizes[format_id] or 1000
@@ -88,7 +84,7 @@ class FakeYtDlp:
                 progress(
                     {
                         "status": "downloading",
-                        "info_dict": {**stream, "requested_formats": requested},
+                        "info_dict": stream,
                         "downloaded_bytes": done,
                         "total_bytes": sizes[format_id],
                         "speed": 2048.0,
@@ -98,7 +94,7 @@ class FakeYtDlp:
             progress(
                 {
                     "status": "finished",
-                    "info_dict": {**stream, "requested_formats": requested},
+                    "info_dict": stream,
                     "downloaded_bytes": total,
                     "total_bytes": total,
                 }
@@ -126,9 +122,18 @@ def ytdlp() -> FakeYtDlp:
 
 
 @pytest.fixture
-def replay() -> Replay:
-    """The recorded metadata of a video, and of channels."""
-    return Replay()
+def replay(ytdlp: FakeYtDlp) -> Replay:
+    """The recorded metadata of a video, and of channels.
+
+    The lookup before a download is made with the format choice of the download,
+    so it names the streams yt-dlp will fetch, with the sizes YouTube gives (D-088).
+    """
+    replay = Replay()
+    replay.video["requested_formats"] = [
+        {"format_id": "397", "vcodec": "av01", "acodec": "none", "filesize": ytdlp.video_size},
+        {"format_id": "251", "vcodec": "none", "acodec": "opus", "filesize": ytdlp.audio_size},
+    ]
+    return replay
 
 
 def gateway(replay: Replay, ytdlp: FakeYtDlp) -> YtDlpGateway:
@@ -280,51 +285,53 @@ def test_with_subtitles_switched_off_none_are_embedded(
     assert ytdlp.options["writeautomaticsub"] is False
 
 
-def test_progress_tells_the_stage_percent_speed_and_time_left(
+def test_progress_goes_from_0_to_100_percent_once_for_the_whole_mirror(
     tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
 ) -> None:
-    """R-QU-04: one percent for the whole video, its video and audio streams together.
+    """R-QU-04, D-088: video and audio, each reported from 0 to 100% by yt-dlp, count as one.
 
-    The steps before the download and the subtitle file are no progress of the video.
+    The reports have the shape of the real yt-dlp: the information of each stream
+    names no other stream. The M3 test gave them ``requested_formats``, which hid
+    that the second stream started again at 0%.
     """
     told: list[DownloadProgress] = []
 
     gateway(replay, ytdlp).download(request(tmp_path), told.append, never)
 
-    streams = [report for report in told if report.stage is not Stage.PROCESSING]
-    assert [(report.stage, report.fraction) for report in streams] == [
-        (Stage.VIDEO, 0.375),
-        (Stage.VIDEO, 0.75),
-        (Stage.AUDIO, 0.875),
-        (Stage.AUDIO, 1.0),
-    ]
-    assert told[0] == DownloadProgress(
-        stage=Stage.VIDEO,
-        fraction=0.375,
-        speed_bps=2048.0,
-        left_s=1,
-        height=480,
-        downloaded_bytes=1500,
-    )
-    assert [report.downloaded_bytes for report in streams] == [1500, 3000, 3500, 4000]
-    assert told[1].height == 480
-    assert told[2].height is None
-    assert told.index(DownloadProgress(stage=Stage.PROCESSING)) == 4
+    downloading = [report for report in told if report.stage is not Stage.PROCESSING]
+    fractions = [report.fraction or 0.0 for report in downloading]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    assert fractions.count(1.0) == 1
+    assert told[-1].stage is Stage.PROCESSING or told.index(
+        DownloadProgress(stage=Stage.PROCESSING)
+    ) == len(downloading)
+    last = downloading[-1]
+    assert last.total_bytes == last.downloaded_bytes
+    assert {part.kind.value for part in last.parts} == {"thumbnail", "subtitles", "video", "audio"}
+    assert all(part.finished for part in last.parts)
+    audio_starts = next(report for report in downloading if report.stage is Stage.AUDIO)
+    video_ends = downloading[downloading.index(audio_starts) - 1]
+    assert (audio_starts.fraction or 0) >= (video_ends.fraction or 0)
 
 
-def test_without_a_size_the_progress_says_how_much_arrived(
+def test_a_stream_without_a_size_is_estimated_and_the_percent_never_goes_down(
     tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
 ) -> None:
-    """R-QU-04: when YouTube gives no size, no percent is made up; the bytes are counted."""
+    """R-QU-04, D-088: an unknown size is estimated, corrected, and the percent only grows."""
     ytdlp.audio_size = None
+    replay.video["requested_formats"][1]["filesize"] = None
     told: list[DownloadProgress] = []
 
     gateway(replay, ytdlp).download(request(tmp_path), told.append, never)
 
-    streams = [report for report in told if report.stage is not Stage.PROCESSING]
-    assert [report.fraction for report in streams] == [None, None, None, None]
-    assert [report.downloaded_bytes for report in streams] == [1500, 3000, 3500, 4000]
-    assert streams[0].left_s == 3
+    downloading = [report for report in told if report.stage is not Stage.PROCESSING]
+    fractions = [report.fraction or 0.0 for report in downloading]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    first = downloading[0]
+    audio = next(part for part in first.parts if part.kind.value == "audio")
+    assert audio.estimated
 
 
 def test_a_finished_download_gives_its_file_thumbnail_metadata_and_chapters(

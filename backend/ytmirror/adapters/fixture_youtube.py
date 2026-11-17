@@ -56,6 +56,7 @@ from ytmirror.core.jobs import (
     SubtitleKind,
     SubtitlesFailedError,
 )
+from ytmirror.core.progress import PartKind, PlannedPart, ProgressTracker
 
 THUMBNAIL_ADDRESS = "fixture://thumbnail/"
 AVATAR_ADDRESS = "fixture://avatar/"
@@ -74,6 +75,7 @@ class FixtureYouTube:
         folder: Path,
         sleep: Callable[[float], None] = time.sleep,
         ffmpeg: Path | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         """Read every channel file of a folder.
 
@@ -81,6 +83,7 @@ class FixtureYouTube:
             folder: The folder with one ``*.json`` file per channel.
             sleep: Waits a number of seconds, for the channels that answer slowly.
             ffmpeg: The ffmpeg program that writes the video files of downloads.
+            monotonic: A clock that never goes back, for the speed of a download.
 
         Raises:
             ValueError: When a file does not describe a channel.
@@ -90,6 +93,7 @@ class FixtureYouTube:
             channel = _FixtureChannel(file.stem, json.loads(file.read_text(encoding="utf-8")))
             self._channels[channel.facts.channel_id] = channel
         self._sleep = sleep
+        self._monotonic = monotonic
         self._ffmpeg = ffmpeg
         self._lock = threading.Lock()
         self.listings_started: dict[str, int] = {}
@@ -270,26 +274,42 @@ class FixtureYouTube:
         if plan.fails is not None:
             raise AppError(plan.fails, {"message": f"the fixture fails {request.video_id}"})
         subtitles = _chosen_subtitles(plan.subtitles, request)
-        # As the real gateway reports it: one share of the whole video, the video
-        # stream first (three quarters of the bytes), then the audio stream.
-        sizes = {Stage.VIDEO: _VIDEO_BYTES, Stage.AUDIO: _AUDIO_BYTES}
-        total = _VIDEO_BYTES + _AUDIO_BYTES
-        arrived = 0
-        for stage in (Stage.VIDEO, Stage.AUDIO):
-            for _ in range(4):
+        # As yt-dlp does it: each part is a download of its own, reported from 0 to
+        # 100%: the thumbnail (not reported), the subtitles, the video stream, then
+        # the audio stream. The same tracker as the real gateway adds them up (D-088).
+        known = not plan.size_unknown
+        planned = [PlannedPart(PartKind.THUMBNAIL.value, PartKind.THUMBNAIL, None)]
+        if subtitles is not None:
+            planned.append(PlannedPart(PartKind.SUBTITLES.value, PartKind.SUBTITLES, None))
+        streams = (("video", PartKind.VIDEO, _VIDEO_BYTES), ("audio", PartKind.AUDIO, _AUDIO_BYTES))
+        planned += [PlannedPart(key, kind, size if known else None) for key, kind, size in streams]
+        tracker = ProgressTracker(planned)
+        tracker.finish_kind(PartKind.THUMBNAIL, self._monotonic())
+        if subtitles is not None:
+            tracker.finished(PartKind.SUBTITLES.value, PartKind.SUBTITLES, _SUBTITLE_BYTES, 0)
+        for key, kind, size in streams:
+            stage = Stage.VIDEO if kind is PartKind.VIDEO else Stage.AUDIO
+            for step in range(1, 5):
                 if is_cancelled():
                     raise DownloadCancelledError(f"cancelled during {stage.value}")
                 if plan.step_delay_s:
                     self._sleep(plan.step_delay_s)
-                arrived += sizes[stage] // 4
+                if step < 4:
+                    totals = tracker.arrived(
+                        key, kind, size * step // 4, size if known else None, self._monotonic()
+                    )
+                else:
+                    totals = tracker.finished(key, kind, size, self._monotonic())
                 on_progress(
                     DownloadProgress(
                         stage=stage,
-                        fraction=None if plan.size_unknown else arrived / total,
-                        speed_bps=1_500_000.0,
-                        left_s=None if plan.size_unknown else round((total - arrived) / 1_500_000),
+                        fraction=totals.fraction,
+                        speed_bps=totals.speed_bps,
+                        left_s=totals.left_s,
                         height=_HEIGHT if stage is Stage.VIDEO else None,
-                        downloaded_bytes=arrived,
+                        downloaded_bytes=totals.done_bytes,
+                        total_bytes=totals.total_bytes,
+                        parts=totals.parts,
                     )
                 )
         on_progress(DownloadProgress(stage=Stage.PROCESSING))
@@ -633,6 +653,9 @@ _HEIGHT = 270
 _VIDEO_BYTES = 6_000_000
 _AUDIO_BYTES = 2_000_000
 """The sizes the fake reports for the two streams of a video."""
+
+_SUBTITLE_BYTES = 40_000
+"""The size of the subtitle file the fake reports."""
 
 
 @dataclass(frozen=True, slots=True)

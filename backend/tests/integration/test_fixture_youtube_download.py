@@ -141,7 +141,10 @@ def test_a_premiere_is_tagged_with_its_release_time(tmp_path: Path) -> None:
 
 
 def test_progress_goes_through_video_audio_and_processing(tmp_path: Path) -> None:
-    """R-QU-04: one percent for the whole video grows through both streams, then processing."""
+    """R-QU-04, D-088: the fake sends video and audio as separate downloads, like yt-dlp.
+
+    One percent for the whole Mirror grows once through both streams, then processing.
+    """
     told: list[DownloadProgress] = []
 
     youtube(tmp_path).download(request(tmp_path), told.append, never)
@@ -151,21 +154,25 @@ def test_progress_goes_through_video_audio_and_processing(tmp_path: Path) -> Non
     ]
     fractions = [report.fraction or 0 for report in told[:8]]
     assert fractions == sorted(fractions)
-    assert (told[3].fraction, told[7].fraction) == (0.75, 1.0)
-    assert told[7].downloaded_bytes == 8_000_000
+    assert fractions.count(1.0) == 1
+    assert 0.7 < (told[3].fraction or 0) < 0.8
+    assert told[7].fraction == 1.0
+    assert told[7].downloaded_bytes == told[7].total_bytes
+    video_parts = [part for part in told[3].parts if part.kind.value == "video"]
+    assert video_parts[0].finished
     assert told[8].fraction is None
 
 
-def test_a_download_without_a_size_counts_the_bytes(tmp_path: Path) -> None:
-    """R-QU-04: with ``size_unknown`` the progress has the bytes that arrived and no percent."""
+def test_a_download_without_a_size_is_estimated_and_never_goes_down(tmp_path: Path) -> None:
+    """R-QU-04, D-088: with ``size_unknown`` the sizes are estimated and the percent only grows."""
     told: list[DownloadProgress] = []
 
     youtube(tmp_path, size_unknown=True).download(request(tmp_path), told.append, never)
 
-    assert {report.fraction for report in told} == {None}
-    assert [report.downloaded_bytes for report in told[:8]] == sorted(
-        report.downloaded_bytes or 0 for report in told[:8]
-    )
+    fractions = [report.fraction or 0 for report in told[:8]]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    assert any(part.estimated for part in told[0].parts)
 
 
 def test_a_cancel_ends_the_download_before_its_file_is_written(tmp_path: Path) -> None:

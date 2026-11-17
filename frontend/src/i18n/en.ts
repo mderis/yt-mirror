@@ -416,6 +416,9 @@ export const en = {
       quality: '{height}p',
       speed: '{size}/s',
       left: '{time} left',
+      bytesOf: '{done} of {total}',
+      aboutLeft: 'about {time} left',
+      again: 'Downloading again without subtitles',
       progressLabel: 'Progress of {title}',
       mirror: 'Mirror',
       cancel: 'Cancel',
@@ -455,6 +458,16 @@ export const en = {
   },
   /** The details panel of a video (R-UI-08, design: Details.html). */
   details: {
+    parts: {
+      title: 'Parts',
+      video: 'Video',
+      audio: 'Audio',
+      subtitles: 'Subtitles',
+      thumbnail: 'Thumbnail',
+      waiting: 'waiting',
+      done: 'done',
+      about: 'about {size}',
+    },
     label: 'Video details',
     close: 'Close details',
     loading: 'Loading the details...',

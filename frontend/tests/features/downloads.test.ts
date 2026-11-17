@@ -38,6 +38,9 @@ function download(changes: Partial<Download> = {}): Download {
     left_s: 65,
     height: 1080,
     downloaded_bytes: 1_200_000_000,
+    total_bytes: 2_860_000_000,
+    parts: [],
+    again: false,
     ...changes,
   }
 }
@@ -66,14 +69,14 @@ describe('downloading videos', () => {
     await waitFor(() => expect(app.requests()).toContain('POST /api/jobs/J1/cancel'))
   })
 
-  it('R-QU-04, R-FB-02: a download shows its percent, stage, quality, speed and time left', async () => {
+  it('R-QU-04: a download reads "Downloading 62% · 340 of 550 MB · about 2 min left"', async () => {
     const app = await openWith()
 
     app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'downloading', job_id: 'J1' }))
     app.stream().jobProgress(download())
 
     await waitFor(() => expect(within(row()).getByText('Downloading 42%')).toBeTruthy())
-    expect(part('[data-progress-facts]').textContent).toBe('Video · 1080p · 3 MB/s · 01:05 left')
+    expect(part('[data-progress-facts]').textContent).toBe('1.2 of 2.9 GB · about 2 min left')
     const bar = within(row()).getByRole('progressbar', { name: 'Progress of Video 1' })
     expect(bar.getAttribute('aria-valuenow')).toBe('42')
     expect(
@@ -338,6 +341,43 @@ describe('the details panel', () => {
     }
   }
 
+  it('R-QU-04: the details list each part of a running download with its size and progress', async () => {
+    const app = await openWith(
+      { status: 'downloading', job_id: 'J1' },
+      {
+        [`GET /api/videos/${ID}`]: jsonResponse(
+          details({ video: video(1, { status: 'downloading', job_id: 'J1' }), file: null }),
+        ),
+      },
+    )
+    app.stream().jobProgress(
+      download({
+        parts: [
+          { kind: 'thumbnail', size: 150_000, done: 150_000, estimated: false, finished: true },
+          { kind: 'subtitles', size: 40_000, done: 40_000, estimated: false, finished: true },
+          {
+            kind: 'video',
+            size: 410_000_000,
+            done: 336_200_000,
+            estimated: false,
+            finished: false,
+          },
+          { kind: 'audio', size: 120_000_000, done: 0, estimated: true, finished: false },
+        ],
+      }),
+    )
+
+    await fireEvent.click(within(row()).getByRole('button', { name: 'Details of Video 1' }))
+
+    const list = await waitFor(() => part('[data-details-parts]'))
+    expect([...list.querySelectorAll('li')].map((item) => item.textContent?.trim())).toEqual([
+      'Thumbnail · 150 KB · done',
+      'Subtitles · 40 KB · done',
+      'Video · 410 MB · 82%',
+      'Audio · about 120 MB · waiting',
+    ])
+  })
+
   it('R-UI-08, R-UI-09: the title opens the details: status, file, description and chapters', async () => {
     await openWith({ status: 'synced' }, { [`GET /api/videos/${ID}`]: jsonResponse(details()) })
 
@@ -439,5 +479,37 @@ describe('a video whose file is gone', () => {
 
     expect(await screen.findByText(/no longer in its folder/)).toBeTruthy()
     expect(screen.queryByText(/The folder cannot be used/)).toBeNull()
+  })
+})
+
+describe('one progress for the whole Mirror', () => {
+  it('R-QU-04: sizes in MB, and no time left until the speed is stable', async () => {
+    const app = await openWith()
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'downloading', job_id: 'J1' }))
+
+    app.stream().jobProgress(
+      download({
+        fraction: 0.62,
+        downloaded_bytes: 340_000_000,
+        total_bytes: 550_000_000,
+        left_s: null,
+      }),
+    )
+
+    await waitFor(() => expect(within(row()).getByText('Downloading 62%')).toBeTruthy())
+    expect(part('[data-progress-facts]').textContent).toBe('340 of 550 MB')
+  })
+
+  it('R-QU-04, R-MD-04: a second download without subtitles says so', async () => {
+    const app = await openWith()
+    app.stream().videoUpdated(CHANNEL_ID, video(1, { status: 'downloading', job_id: 'J1' }))
+
+    app.stream().jobProgress(download({ again: true, left_s: null }))
+
+    await waitFor(() =>
+      expect(part('[data-progress-facts]').textContent).toContain(
+        'Downloading again without subtitles',
+      ),
+    )
   })
 })

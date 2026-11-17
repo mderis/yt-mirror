@@ -21,6 +21,7 @@ import datetime
 import importlib
 import json
 import logging
+import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,7 @@ from ytmirror.core.jobs import (
     SubtitleKind,
     SubtitlesFailedError,
 )
+from ytmirror.core.progress import PartKind, PlannedPart, ProgressTracker, stream_size
 from ytmirror.core.quality import format_selector
 from ytmirror.ports.clock import Clock
 
@@ -310,14 +312,23 @@ class YtDlpGateway:
             SubtitlesFailedError: When only the subtitles failed (R-MD-04).
         """
         address = f"https://www.youtube.com/watch?v={request.video_id}"
-        info = self._ask_about_video(address, {**METADATA_OPTIONS, **self._runtime()})
+        # The same format choice as the download: yt-dlp then names the streams it
+        # will fetch, with their sizes, for one progress of the whole Mirror (D-088).
+        info = self._ask_about_video(
+            address,
+            {**METADATA_OPTIONS, **self._runtime(), "format": format_selector(request.quality)},
+        )
         if info.get("live_status") == "is_upcoming":
             raise AppError(
                 ErrorCode.NOT_YET_AVAILABLE,
                 {"message": "The video is not public yet", "video": request.video_id},
             )
         subtitles, languages = _subtitles_for(info, request)
-        steps = _Steps(on_progress, is_cancelled)
+        steps = _Steps(
+            on_progress,
+            is_cancelled,
+            ProgressTracker(planned_parts(info, subtitles is not None)),
+        )
         options: dict[str, Any] = {
             **DOWNLOAD_OPTIONS,
             **self._runtime(),
@@ -597,68 +608,72 @@ class GatewayTools:
 
 
 class _Steps:
-    """Turns the hooks of yt-dlp into progress, and ends the download when it is cancelled.
+    """Turns the hooks of yt-dlp into one progress, and ends the download when it is cancelled.
 
     What the real yt-dlp reports, in order (seen with a real download in M3):
     the step that adds the tags and the conversion of the thumbnail, both
     before the download; the subtitle file; the video stream; the audio
-    stream; then the processing steps. Only the two media streams count for
-    the percentage, which is one for the whole video. Only a step after the
-    first byte of a stream is processing.
+    stream; then the processing steps. yt-dlp reports each file it downloads
+    from 0 to 100% on its own, and the information of each holds no list of
+    the others (it removes ``requested_formats``). The parts are therefore
+    known from the metadata lookup before the download, and ``ProgressTracker``
+    adds them up into one percent for the whole Mirror (R-QU-04, D-088). The
+    thumbnail is not reported: it is complete when the first file arrives.
+    Only a step after the first byte of a stream is processing.
     """
 
     def __init__(
-        self, on_progress: Callable[[DownloadProgress], None], is_cancelled: Callable[[], bool]
+        self,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        tracker: ProgressTracker,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._on_progress = on_progress
         self._is_cancelled = is_cancelled
+        self._tracker = tracker
+        self._monotonic = monotonic
         self.current: str | None = None
         self._streams_started = False
-        self._finished: dict[str, int] = {}
+        self._thumbnail_done = False
 
     def downloading(self, report: Mapping[str, Any]) -> None:
         """The progress hook: called while the bytes of a file arrive."""
         if self._is_cancelled():
             raise DownloadCancelledError("cancelled while downloading")
+        status = report.get("status")
+        if status not in ("downloading", "finished"):
+            return
+        now = self._monotonic()
+        if not self._thumbnail_done:
+            self._thumbnail_done = True
+            self._tracker.finish_kind(PartKind.THUMBNAIL, now)
         stream = _mapping(report.get("info_dict"))
-        if not _is_media(stream):
-            return  # the subtitle file
-        self._streams_started = True
-        done = _int(report.get("downloaded_bytes"))
-        own_total = _int(report.get("total_bytes") or report.get("total_bytes_estimate"))
-        format_id = str(stream.get("format_id"))
-        if report.get("status") == "finished":
-            self._finished[format_id] = own_total or done or 0
-            return
-        if report.get("status") != "downloading":
-            return
-        listed = stream.get("requested_formats")
-        streams = [
-            _mapping(item)
-            for item in (cast(list[object], listed) if isinstance(listed, list) else [])
-        ] or [stream]
-        ids = [str(item.get("format_id")) for item in streams]
-        index = ids.index(format_id) if format_id in ids else 0
-        sizes = [_int(item.get("filesize") or item.get("filesize_approx")) for item in streams]
-        sizes[index] = own_total or sizes[index]
-        for number, other in enumerate(ids):
-            if other in self._finished:
-                sizes[number] = self._finished[other]
-        before = sum(self._finished.get(other, 0) for other in ids[:index])
-        arrived = before + (done or 0)
-        total = None if None in sizes else sum(size for size in sizes if size is not None)
-        speed = report.get("speed")
         has_video = stream.get("vcodec") not in (None, "none")
+        if _is_media(stream):
+            self._streams_started = True
+            key, kind = (
+                str(stream.get("format_id")),
+                PartKind.VIDEO if has_video else PartKind.AUDIO,
+            )
+        else:
+            key, kind = PartKind.SUBTITLES.value, PartKind.SUBTITLES
+        done = _int(report.get("downloaded_bytes")) or 0
+        size = _int(report.get("total_bytes") or report.get("total_bytes_estimate"))
+        if status == "finished":
+            totals = self._tracker.finished(key, kind, size or done or None, now)
+        else:
+            totals = self._tracker.arrived(key, kind, done, size, now)
         self._on_progress(
             DownloadProgress(
-                stage=Stage.VIDEO if has_video else Stage.AUDIO,
-                fraction=min(1.0, arrived / total) if total else None,
-                speed_bps=speed,
-                left_s=round((total - arrived) / speed)
-                if total and isinstance(speed, int | float) and speed > 0
-                else _int(report.get("eta")),
+                stage=Stage.AUDIO if kind is PartKind.AUDIO else Stage.VIDEO,
+                fraction=totals.fraction,
+                speed_bps=totals.speed_bps,
+                left_s=totals.left_s,
                 height=_int(stream.get("height")) if has_video else None,
-                downloaded_bytes=arrived,
+                downloaded_bytes=totals.done_bytes,
+                total_bytes=totals.total_bytes,
+                parts=totals.parts,
             )
         )
 
@@ -675,6 +690,40 @@ class _Steps:
             raise DownloadCancelledError(f"cancelled at {step}")
         if self._streams_started and report.get("status") == "started" and step != TAGS_STEP:
             self._on_progress(DownloadProgress(stage=Stage.PROCESSING))
+
+
+def planned_parts(info: Mapping[str, Any], subtitles: bool) -> list[PlannedPart]:
+    """Return the parts a download fetches, with the sizes yt-dlp knows before it starts.
+
+    The metadata lookup is made with the format choice of the download, so
+    ``requested_formats`` names the streams that will be fetched (D-088).
+
+    Args:
+        info: The processed metadata of the video.
+        subtitles: Whether a subtitle file is fetched.
+    """
+    duration = info.get("duration")
+    listed = info.get("requested_formats")
+    streams = [
+        _mapping(item) for item in (cast(list[object], listed) if isinstance(listed, list) else [])
+    ]
+    if not streams and _is_media(info) and "+" not in str(info.get("format_id", "")):
+        # One file with video and audio together: the info is that stream.
+        streams = [dict(info)]
+    parts = [PlannedPart(PartKind.THUMBNAIL.value, PartKind.THUMBNAIL, None)]
+    if subtitles:
+        parts.append(PlannedPart(PartKind.SUBTITLES.value, PartKind.SUBTITLES, None))
+    for stream in streams:
+        kind = PartKind.VIDEO if stream.get("vcodec") not in (None, "none") else PartKind.AUDIO
+        tbr = stream.get("tbr")
+        size = stream_size(
+            _int(stream.get("filesize")),
+            _int(stream.get("filesize_approx")),
+            float(tbr) if isinstance(tbr, int | float) else None,
+            float(duration) if isinstance(duration, int | float) else None,
+        )
+        parts.append(PlannedPart(str(stream.get("format_id")), kind, size))
+    return parts
 
 
 def _is_media(stream: Mapping[str, Any]) -> bool:

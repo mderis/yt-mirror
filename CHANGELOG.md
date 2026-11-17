@@ -45,6 +45,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - The app folder can be moved or copied: the Python environment and the app bundle are rebuilt at the next start.
 
 ### Fixed
+- A download showed "Downloading x%" up to 100% twice, once for the video and once for the audio. It now has one bar and one percent for the whole Mirror, from 0 to 100% once, counting the video, the audio, the subtitles and the thumbnail by their bytes, and the percent never goes down. The row says "Downloading 62% · 340 of 550 MB · about 2 min left", the details panel lists each part, and a second download without subtitles says so.
 - A download showed a bar that did not move, without a percent, or "Processing" from its first second. The percent is now one for the whole video, its video and audio streams together, and the bar fills with it. When YouTube gives no size, the row says how much has arrived. While a video is processed, the bar shows that the step runs, without a percent.
 - A file that the Trash refuses no longer stops the removal of a channel halfway: the other files go, the channel is removed, and the app lists the files left in the folder. Removing a channel stops its checks and downloads first, so nothing is written into its folder meanwhile.
 - The library folder and a folder you chose are never moved to the Trash with a channel, even when empty. Only a folder yt-mirror created may go.

@@ -18,6 +18,7 @@ from pathlib import Path
 
 from ytmirror.core.channels import Quality, VideoView
 from ytmirror.core.errors import ErrorCode
+from ytmirror.core.progress import PartProgress
 
 JOB_LOGS_KEPT = 50
 """How many logs of jobs that ended well are kept (docs/LOGGING.md section 3)."""
@@ -99,6 +100,10 @@ class JobProgress:
         left_s: Seconds left, or None.
         height: The height that is being downloaded, or None.
         downloaded_bytes: How many bytes arrived, or None.
+        total_bytes: How many bytes the whole download has, real or estimated, or None.
+        parts: Each part of the download: video, audio, subtitles, thumbnail (R-QU-04).
+        again: Whether this is a second download of the video in the same job, without
+            its subtitles (R-MD-04).
     """
 
     job_id: str
@@ -110,6 +115,9 @@ class JobProgress:
     left_s: int | None = None
     height: int | None = None
     downloaded_bytes: int | None = None
+    total_bytes: int | None = None
+    parts: tuple[PartProgress, ...] = ()
+    again: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,8 +239,10 @@ class DownloadProgress:
         speed_bps: Bytes per second, or None.
         left_s: Seconds left of the whole download, or None.
         height: The height that is being downloaded, or None.
-        downloaded_bytes: How many bytes of the video arrived, its streams
-            together, or None. Shown when the fraction is not known.
+        downloaded_bytes: How many bytes of the download arrived, all its parts
+            together, or None.
+        total_bytes: How many bytes all its parts have, real or estimated, or None.
+        parts: Each part of the download (R-QU-04).
     """
 
     stage: Stage
@@ -241,6 +251,8 @@ class DownloadProgress:
     left_s: int | None = None
     height: int | None = None
     downloaded_bytes: int | None = None
+    total_bytes: int | None = None
+    parts: tuple[PartProgress, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

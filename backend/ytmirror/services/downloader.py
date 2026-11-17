@@ -774,14 +774,24 @@ class DownloaderService:
             self._files.remove_temp_folder(place.work)
             self._files.make_folder(place.work, inside=place.folder)
             return self._ask(
-                job, video, replace(request, manual_subtitles=False, auto_subtitles=False), place
+                job,
+                video,
+                replace(request, manual_subtitles=False, auto_subtitles=False),
+                place,
+                again=True,
             )
 
     def _ask(
-        self, job: Job, video: Video, request: DownloadRequest, place: _Place
+        self,
+        job: Job,
+        video: Video,
+        request: DownloadRequest,
+        place: _Place,
+        *,
+        again: bool = False,
     ) -> DownloadResult:
         def told(progress: DownloadProgress) -> None:
-            self._progressed(job, video, progress)
+            self._progressed(job, video, progress, again=again)
 
         try:
             return self._youtube.download(
@@ -1401,7 +1411,9 @@ class DownloaderService:
             self._videos[job.id] = video
         return video
 
-    def _progressed(self, job: Job, video: Video, progress: DownloadProgress) -> None:
+    def _progressed(
+        self, job: Job, video: Video, progress: DownloadProgress, *, again: bool = False
+    ) -> None:
         if progress.stage is Stage.PROCESSING:
             video = self._processing(job)
         previous = self._state.progress_of(video.id)
@@ -1415,6 +1427,9 @@ class DownloaderService:
             left_s=progress.left_s,
             height=progress.height,
             downloaded_bytes=progress.downloaded_bytes,
+            total_bytes=progress.total_bytes,
+            parts=progress.parts,
+            again=again,
         )
         self._state.progressed(told)
         now = self._clock.monotonic()

@@ -26,6 +26,7 @@ Status values: `Not started`, `In progress` (branch and draft pull request), `In
 
 Short facts the next session needs and cannot get from the code or the other docs: an open question that was answered, something that was deliberately postponed, a known problem. Newest first. Remove a note when it no longer matters.
 
+- **M8: the rename after a check applies only to files the app named (R-FN-06).** Adoption with "Keep as is" marks a file as named by the user (a new flag of the video), and `RepairService.rename_retitled` skips it. Every file that exists before M8 counts as named by the app. Today the rule renames any synced file whose name does not fit its title.
 - **M5: auto-mirror never downloads more than a few missing files of a channel again at once without asking (D-087).** Above that limit it pauses for the channel and asks. A whole channel folder that is gone is "Folder not found" and marks no video missing, so it never starts such downloads.
 - **M8 adds "Locate folder" to "Folder not found" (D-087).** Pick the moved folder; it is accepted only when its `.yt-mirror/channel.json` names this channel, then the files are checked again. Until then the page offers "Remove channel" and says to put the folder back.
 - **M4 took the missing-file check of R-MI-06 from M5** (see the plan). M5 keeps the automatic download again with auto-mirror.
