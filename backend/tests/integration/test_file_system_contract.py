@@ -474,3 +474,28 @@ def test_a_temp_folder_whose_name_is_no_job_id_is_refused(subject: Subject, tmp_
             subject.files.remove_temp_folder(not_a_job)
 
     assert subject.files.exists(temp / "not-a-job" / "x.part")
+
+
+def test_only_a_clear_not_found_in_a_folder_that_is_there_is_gone(
+    subject: Subject, tmp_path: Path
+) -> None:
+    """R-MI-06: a file that is there, or whose folder is gone, is not "gone"."""
+    folder = tmp_path / "Channel"
+    put_files(subject, folder, ["Video.mkv"])
+
+    assert subject.files.is_gone(folder / "Other.mkv")
+    assert not subject.files.is_gone(folder / "Video.mkv")
+    assert not subject.files.is_gone(tmp_path / "No folder" / "Video.mkv")
+
+
+def test_a_file_in_a_folder_that_cannot_be_searched_is_not_gone(tmp_path: Path) -> None:
+    """R-MI-06: without permission to look, a file is never taken for missing."""
+    folder = tmp_path / "Locked"
+    folder.mkdir()
+    (folder / "Video.mkv").write_bytes(b"x")
+    folder.chmod(0o600)
+    try:
+        assert not MacFileSystem().is_gone(folder / "Video.mkv")
+        assert not MacFileSystem().is_gone(folder / "Other.mkv")
+    finally:
+        folder.chmod(0o700)

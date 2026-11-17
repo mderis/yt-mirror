@@ -7,6 +7,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.fixtures.world import SMALL_ID, World, channel_file, log_lines
+from ytmirror.adapters.api_key_file import FILE_NAME, ApiKeyFile
 from ytmirror.core.channels import ChannelStatus
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.exact_dates import DateState, KeyStateChanged, KeyStatus
@@ -517,3 +518,29 @@ def test_no_progress_is_told_while_the_fetch_does_not_run(tmp_path: Path) -> Non
     view = world.views.of(SMALL_ID)
     assert view is not None
     assert view.exact_dates is None
+
+
+def test_removing_the_key_forgets_it_even_when_a_left_copy_cannot_be_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-DT-12, D-085: "Remove key" always takes the key out of memory (review of M4)."""
+    keys = ApiKeyFile(tmp_path / "keys")
+    world = World(tmp_path, keys=keys)
+    world.add_and_list()
+    world.dates.save_key(KEY)
+    (tmp_path / "keys" / f".{FILE_NAME}.0123456789abcdef.tmp").write_text(KEY, encoding="utf-8")
+    unlink = Path.unlink
+
+    def refused_for_copies(path: Path, missing_ok: bool = False) -> None:
+        if path.name.endswith(".tmp"):
+            raise PermissionError("Operation not permitted")
+        unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", refused_for_copies)
+    with capture_logs() as logs:
+        state = world.dates.remove_key()
+
+    assert state.status is KeyStatus.NONE
+    assert world.dates.key_state().status is KeyStatus.NONE
+    assert not keys.path.exists()
+    assert log_lines(logs, "apikey.leftover_kept")

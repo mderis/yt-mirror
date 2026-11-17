@@ -19,6 +19,7 @@ import errno
 import importlib
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from collections.abc import Callable, Sequence
@@ -223,6 +224,23 @@ class MacFileSystem:
             path: The file or folder.
         """
         return os.path.lexists(path)
+
+    def is_gone(self, path: Path) -> bool:
+        """Return whether a file is clearly not there, in a folder that is.
+
+        Args:
+            path: The file.
+        """
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            try:
+                return stat.S_ISDIR(path.parent.stat().st_mode)
+            except OSError:
+                return False
+        except OSError:
+            return False
+        return False
 
     def size_of(self, path: Path) -> int:
         """Return the size of a file, or of a folder with everything in it, in bytes.

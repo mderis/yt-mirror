@@ -121,3 +121,17 @@ def test_a_test_can_give_the_app_a_trash_of_its_own(paths: AppPaths) -> None:
         files.trash(paths.home_dir / "Video.mkv")
 
     assert sorted(path.name for path in trash.iterdir()) == ["Video.mkv", "Video.mkv 2"]
+
+
+def test_the_budget_of_lookups_is_kept_by_the_app_across_a_restart(paths: AppPaths) -> None:
+    """R-DT-06, D-084: a new start of the real app keeps the last hour's lookups."""
+    faked = dataclasses.replace(paths, fake_youtube=FAKE_YOUTUBE, fake_lookups_per_hour=1)
+    first = build_container(faked)
+    first.schema.bring_up_to_date()
+    first.youtube.exact_date("small000001")
+    assert first.youtube.exact_date_wait_s() > 0
+
+    again = build_container(faked)
+    again.schema.bring_up_to_date()
+
+    assert again.youtube.exact_date_wait_s() > 0

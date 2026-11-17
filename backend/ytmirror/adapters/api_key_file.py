@@ -87,9 +87,8 @@ class ApiKeyFile:
             raise AppError(ErrorCode.API_KEY_UNREADABLE, {"error": type(error).__name__}) from error
 
     def remove(self) -> None:
-        """Delete the file of the key, if there is one, and any copy left by a save."""
+        """Delete the file of the key, if there is one. Left copies: ``clean_leftovers``."""
         self.path.unlink(missing_ok=True)
-        self.clean_leftovers()
 
     def clean_leftovers(self) -> None:
         """Delete the hidden copies a save left when the app ended between writing and renaming.

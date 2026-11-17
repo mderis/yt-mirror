@@ -263,32 +263,37 @@ for (const theme of ['light', 'dark'] as const) {
 const HELD = 'small000009'
 const HELD_TITLE = 'Hand planes, a complete guide'
 
-for (const theme of ['light', 'dark'] as const) {
-  test(`R-TH-09, R-QU-04: a row in the middle of a download looks as recorded, in the ${theme} theme`, async ({
-    page,
-    freshApp,
-  }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    await openChannel(page, freshApp)
-    // The fake YouTube holds this video after three of its eight progress reports.
-    await row(page, HELD).getByRole('button', { name: 'Mirror' }).click()
-    await expect(row(page, HELD).getByText(/Downloading 5\d%/)).toBeVisible({ timeout: 20_000 })
-    await expect(row(page, HELD).locator('[data-progress-facts]')).toHaveText('5 of 8 MB')
-    await page.evaluate(() =>
-      Promise.all(
-        [...document.images].map((image) =>
-          image.complete ? null : new Promise((done) => image.addEventListener('load', done)),
+test.describe('a held download', () => {
+  // Only these tests ask the fake YouTube to hold: a hand run never waits for it.
+  test.use({ holdDownloads: true })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`R-TH-09, R-QU-04: a row in the middle of a download looks as recorded, in the ${theme} theme`, async ({
+      page,
+      freshApp,
+    }) => {
+      await page.emulateMedia({ colorScheme: theme })
+      await openChannel(page, freshApp)
+      // The fake YouTube holds this video after three of its eight progress reports.
+      await row(page, HELD).getByRole('button', { name: 'Mirror' }).click()
+      await expect(row(page, HELD).getByText(/Downloading 5\d%/)).toBeVisible({ timeout: 20_000 })
+      await expect(row(page, HELD).locator('[data-progress-facts]')).toHaveText('5 of 8 MB')
+      await page.evaluate(() =>
+        Promise.all(
+          [...document.images].map((image) =>
+            image.complete ? null : new Promise((done) => image.addEventListener('load', done)),
+          ),
         ),
-      ),
-    )
+      )
 
-    await expect(page).toHaveScreenshot(`download-${theme}.png`, {
-      mask: [page.locator('[data-free-space]')],
+      await expect(page).toHaveScreenshot(`download-${theme}.png`, {
+        mask: [page.locator('[data-free-space]')],
+      })
+
+      await row(page, HELD)
+        .getByRole('button', { name: `Cancel the download of ${HELD_TITLE}` })
+        .click()
+      await expect(row(page, HELD).getByText('Not downloaded')).toBeVisible({ timeout: 10_000 })
     })
-
-    await row(page, HELD)
-      .getByRole('button', { name: `Cancel the download of ${HELD_TITLE}` })
-      .click()
-    await expect(row(page, HELD).getByText('Not downloaded')).toBeVisible({ timeout: 10_000 })
-  })
-}
+  }
+})

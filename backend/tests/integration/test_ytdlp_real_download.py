@@ -15,7 +15,7 @@ import threading
 from collections.abc import Iterator, Mapping
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -34,7 +34,16 @@ pytestmark = pytest.mark.media
 
 
 class _Videos(SimpleHTTPRequestHandler):
-    """Serves the files of one folder, MKV with its media type, and logs nothing."""
+    """Serves the files of one folder, MKV with its media type, and logs nothing.
+
+    Every request is noted in ``asked``, as its method and path.
+    """
+
+    asked: ClassVar[list[str]] = []
+
+    def send_head(self) -> Any:
+        _Videos.asked.append(f"{self.command} {self.path}")
+        return super().send_head()
 
     def guess_type(self, path: str | os.PathLike[str]) -> str:
         return "video/x-matroska" if str(path).endswith(".mkv") else super().guess_type(path)
@@ -106,6 +115,18 @@ def test_a_real_download_carries_the_tags_of_the_app(
 def cancel(report: Mapping[str, Any]) -> None:
     """A hook that cancels, as the hooks of the gateway do when Cancel was pressed."""
     raise DownloadCancelledError(f"cancelled at {report.get('status')}")
+
+
+def test_a_download_asks_the_server_only_for_the_file_after_its_lookup(
+    ffmpeg: Path, address: str, tmp_path: Path
+) -> None:
+    """R-DT-06, D-088, D-089: the download is made from the lookup; the page is not asked again."""
+    info = looked_up(address)
+    _Videos.asked.clear()
+
+    download_with_ytdlp(info, options(ffmpeg, tmp_path / "work"), {})
+
+    assert _Videos.asked == ["GET /clip0000001.mkv"]
 
 
 def test_a_cancel_while_the_bytes_arrive_comes_out_of_yt_dlp_as_a_cancel(

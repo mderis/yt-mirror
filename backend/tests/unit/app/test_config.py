@@ -210,3 +210,17 @@ def test_another_pace_of_lookups_is_only_for_an_app_on_the_fake_youtube(tmp_path
         ).fake_lookups_per_hour
         is None
     )
+
+
+def test_held_downloads_are_only_for_an_app_on_the_fake_youtube(tmp_path: Path) -> None:
+    """infra: ``YTM_FAKE_HOLD_DOWNLOADS`` counts only with ``YTM_FAKE_YOUTUBE``, and only as 1."""
+    world = str(tmp_path / "world")
+
+    assert resolve_paths({"YTM_FAKE_HOLD_DOWNLOADS": "1"}).fake_hold_downloads is False
+    assert resolve_paths({"YTM_FAKE_YOUTUBE": world}).fake_hold_downloads is False
+    assert (
+        resolve_paths(
+            {"YTM_FAKE_HOLD_DOWNLOADS": "1", "YTM_FAKE_YOUTUBE": world}
+        ).fake_hold_downloads
+        is True
+    )

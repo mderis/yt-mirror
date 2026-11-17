@@ -85,7 +85,12 @@ class LookupBudget:
         return {"recent": list(self._recent), "halved_until": self._halved_until}
 
     def restore(self, saved: object, now: float) -> None:
-        """Take back what ``saved`` gave, ignoring what is old or cannot be read.
+        """Take back what ``saved`` gave, leaving out what cannot be read.
+
+        What is over is left as it is: the count forgets lookups older than an
+        hour, and a halving that ended no longer counts. A lookup that seems to
+        come after ``now``, because the Mac's clock was set back, is left out:
+        it would hold the budget until the clock caught up with it.
 
         Args:
             saved: The value ``saved`` returned before the restart.
@@ -97,9 +102,9 @@ class LookupBudget:
         recent = values.get("recent")
         if isinstance(recent, list):
             times = [at for at in cast(list[object], recent) if isinstance(at, int | float)]
-            self._recent = deque(sorted(float(at) for at in times if now - HOUR_S < at <= now))
+            self._recent = deque(sorted(float(at) for at in times if at <= now))
         halved = values.get("halved_until")
-        if isinstance(halved, int | float) and halved > now:
+        if isinstance(halved, int | float):
             self._halved_until = float(halved)
 
     def limit(self, now: float) -> int:

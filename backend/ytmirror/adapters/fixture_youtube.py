@@ -77,6 +77,8 @@ class FixtureYouTube:
         sleep: Callable[[float], None] = time.sleep,
         ffmpeg: Path | None = None,
         monotonic: Callable[[], float] = time.monotonic,
+        *,
+        hold_downloads: bool = False,
     ) -> None:
         """Read every channel file of a folder.
 
@@ -85,10 +87,14 @@ class FixtureYouTube:
             sleep: Waits a number of seconds, for the channels that answer slowly.
             ffmpeg: The ffmpeg program that writes the video files of downloads.
             monotonic: A clock that never goes back, for the speed of a download.
+            hold_downloads: Whether the videos that name a hold (``hold_after_report``)
+                wait there. Off unless a test asks (``YTM_FAKE_HOLD_DOWNLOADS``), so a
+                hand run never waits for them.
 
         Raises:
             ValueError: When a file does not describe a channel.
         """
+        self._hold_downloads = hold_downloads
         self._channels: dict[str, _FixtureChannel] = {}
         for file in sorted(folder.glob("*.json")):
             channel = _FixtureChannel(file.stem, json.loads(file.read_text(encoding="utf-8")))
@@ -317,7 +323,7 @@ class FixtureYouTube:
                 )
                 on_progress(report)
                 reports += 1
-                if reports == plan.hold_after_report:
+                if self._hold_downloads and reports == plan.hold_after_report:
                     self._hold(
                         plan.hold_ms / 1000, is_cancelled, functools.partial(on_progress, report)
                     )

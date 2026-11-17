@@ -147,6 +147,7 @@ def test_a_copy_left_by_an_interrupted_save_is_deleted(tmp_path: Path) -> None:
     second = tmp_path / f".{FILE_NAME}.fedcba9876543210.tmp"
     second.write_text(KEY, encoding="utf-8")
     store.remove()
+    store.clean_leftovers()
 
     assert not leftover.exists()
     assert not second.exists()

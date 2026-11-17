@@ -472,3 +472,23 @@ def test_a_status_changes_only_from_the_status_it_was_read_with(
     stored = repository.video(video.id)
     assert stored is not None
     assert stored.status is VideoStatus.FILE_MISSING
+
+
+def test_a_retry_is_counted_only_for_a_failed_check_of_a_channel_not_paused(
+    repository: CatalogueRepository,
+) -> None:
+    """R-CH-25, R-CH-31: the count changes only while the last check failed and no pause holds."""
+    repository.add_channel(make_channel())
+    assert repository.count_check_retry(CHANNEL_ID) is None
+
+    repository.save_channel(
+        make_channel(last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW)
+    )
+    assert repository.count_check_retry(CHANNEL_ID) == 1
+    assert repository.count_check_retry(CHANNEL_ID) == 2
+
+    repository.save_channel(
+        make_channel(paused=True, last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW)
+    )
+    assert repository.count_check_retry(CHANNEL_ID) is None
+    assert repository.count_check_retry("UCnonenonenonenonenone00") is None

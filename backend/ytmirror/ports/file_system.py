@@ -159,6 +159,17 @@ class FileSystem(Protocol):
         """
         ...
 
+    def is_gone(self, path: Path) -> bool:
+        """Return whether a file is clearly not there, in a folder that is (R-MI-06).
+
+        Only a clear "not found" in a folder that can be reached counts. A file
+        that cannot be checked (no permission, a drive that went away) is not gone.
+
+        Args:
+            path: The file.
+        """
+        ...
+
     def size_of(self, path: Path) -> int:
         """Return the size of a file, or of a folder with everything in it, in bytes.
 

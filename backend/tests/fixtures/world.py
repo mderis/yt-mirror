@@ -49,6 +49,7 @@ from ytmirror.core.jobs import (
 )
 from ytmirror.core.models import AppEvent
 from ytmirror.core.pacing import LookupBudget
+from ytmirror.ports.api_key_store import ApiKeyStore
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
@@ -309,6 +310,7 @@ class World:
         *channels: dict[str, Any],
         bus: EventBus | None = None,
         budget: LookupBudget | None = None,
+        keys: ApiKeyStore | None = None,
     ) -> None:
         """Build the services on a new database and a fake YouTube with the given channels.
 
@@ -317,6 +319,7 @@ class World:
             channels: The channels of the fake YouTube. Default: one small channel.
             bus: The event bus to publish on. Default: a new one.
             budget: The budget of lookups. Default: 300 an hour.
+            keys: Where the API key is saved. Default: in memory, as ``keys``.
         """
         world_dir = folder / "youtube"
         world_dir.mkdir()
@@ -414,7 +417,7 @@ class World:
             dates=self.date_repository,
             youtube=self.youtube,
             api=self.api,
-            keys=self.keys,
+            keys=keys if keys is not None else self.keys,
             settings=self.settings,
             downloads=self.downloads,
             state=self.date_state,

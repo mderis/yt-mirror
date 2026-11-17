@@ -639,3 +639,119 @@ def test_the_names_taken_in_a_folder_are_worked_out_once_per_check(
     assert video(world).file_name == "New five.mkv"
     assert video(world, "sm000000004").file_name == "New four.mkv"
     assert len(reads) == 1
+
+
+def test_a_download_that_finishes_while_the_folder_is_listed_is_not_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-MI-06, R-QU-11: a file placed after the listing is never taken for missing."""
+    world = synced(tmp_path)
+    world.downloader.mirror(["sm000000004"])
+    list_folder = world.files.list_folder
+
+    def listed_then_downloaded(place: Path) -> list[str]:
+        names = list_folder(place)
+        world.download_all()
+        return names
+
+    monkeypatch.setattr(world.files, "list_folder", listed_then_downloaded)
+
+    world.repair.verify_files(SMALL_ID)
+
+    assert video(world, "sm000000004").status is VideoStatus.SYNCED
+    assert (folder(world) / "Video 4.mkv") in world.files.files
+
+
+def test_a_name_left_out_of_a_listing_is_confirmed_before_it_is_marked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-MI-06: a file that is there, or cannot be checked, is never marked missing."""
+    world = synced(tmp_path)
+
+    def nothing_listed(place: Path) -> list[str]:
+        return []
+
+    monkeypatch.setattr(world.files, "list_folder", nothing_listed)
+
+    world.repair.verify_files(SMALL_ID)
+    assert video(world).status is VideoStatus.SYNCED
+
+    world.files.trash(folder(world) / "Video 5.mkv")
+    world.files.uncheckable.add(folder(world) / "Video 5.mkv")
+    world.repair.verify_files(SMALL_ID)
+    assert video(world).status is VideoStatus.SYNCED
+
+    world.files.uncheckable.clear()
+    world.repair.verify_files(SMALL_ID)
+    assert video(world).status is VideoStatus.FILE_MISSING
+
+
+def test_an_interrupted_rename_whose_new_file_cannot_be_read_once_is_settled_later(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-FN-06, R-QA-06: the marker stays until the new file can be read (review of M4)."""
+    world = synced(tmp_path, {"retitle": {NEWEST: "Moved already"}}, {}, {})
+    interrupted(world, "Moved already.mkv")
+    probe = world.media.probe
+
+    def unreadable(path: Path) -> object:
+        raise OSError("Operation not permitted")
+
+    monkeypatch.setattr(world.media, "probe", unreadable)
+    world.check(SMALL_ID)
+    assert video(world).rename_to == "Moved already.mkv"
+    assert video(world).status is VideoStatus.SYNCED
+
+    monkeypatch.setattr(world.media, "probe", probe)
+    world.check(SMALL_ID)
+
+    assert (video(world).file_name, video(world).rename_to) == ("Moved already.mkv", None)
+    assert video(world).status is VideoStatus.SYNCED
+
+
+def test_an_interrupted_rename_moves_the_apps_cover_when_it_is_finished(tmp_path: Path) -> None:
+    """R-MD-05, R-FN-06: the cover next to the video follows the settled rename too."""
+    world = synced(tmp_path, {"retitle": {NEWEST: "Moved already"}}, {})
+    world.files.add_files(folder(world), ["Video 5.jpg"], data=OWN_COVER)
+    interrupted(world, "Moved already.mkv")
+
+    world.check(SMALL_ID)
+
+    assert video(world).file_name == "Moved already.mkv"
+    assert world.files.read_bytes(folder(world) / "Moved already.jpg") == OWN_COVER
+    assert not world.files.exists(folder(world) / "Video 5.jpg")
+
+
+def test_the_cover_goes_back_with_the_file_when_the_new_name_cannot_be_stored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-FN-06, R-MD-05: a rename that cannot be stored leaves both files as they were."""
+    world = synced(tmp_path, {"retitle": {NEWEST: "New name"}})
+    world.files.add_files(folder(world), ["Video 5.jpg"], data=OWN_COVER)
+
+    def never_stored(video_id: str, old: str, new: str) -> bool:
+        return False
+
+    monkeypatch.setattr(world.repository, "finish_rename", never_stored)
+
+    world.check(SMALL_ID)
+
+    assert video(world).file_name == "Video 5.mkv"
+    assert world.files.read_bytes(folder(world) / "Video 5.jpg") == OWN_COVER
+    assert not world.files.exists(folder(world) / "New name.jpg")
+
+
+def test_two_videos_retitled_alike_in_one_check_get_two_names(tmp_path: Path) -> None:
+    """R-FN-06, R-FN-03: the name the first rename takes is taken for the second."""
+    world = synced(tmp_path, {"retitle": {NEWEST: "Same title", "sm000000004": "Same title"}})
+    world.downloader.mirror(["sm000000004"])
+    world.download_all()
+
+    world.check(SMALL_ID)
+
+    names = {video(world).file_name, video(world, "sm000000004").file_name}
+    assert len(names) == 2
+    assert all(name is not None and name.startswith("Same title") for name in names)
+    for name in names:
+        assert name is not None
+        assert world.files.exists(folder(world) / name)

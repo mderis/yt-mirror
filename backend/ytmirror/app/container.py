@@ -449,7 +449,9 @@ def _gateway(
         return given
     ffmpeg = tools.program_path(ToolName.FFMPEG, "ffmpeg")
     if paths.fake_youtube is not None:
-        return FixtureYouTube(paths.fake_youtube, ffmpeg=ffmpeg)
+        return FixtureYouTube(
+            paths.fake_youtube, ffmpeg=ffmpeg, hold_downloads=paths.fake_hold_downloads
+        )
     os.environ["DENO_DIR"] = str(paths.cache_dir / "deno")
     return YtDlpGateway(
         clock,

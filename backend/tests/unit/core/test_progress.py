@@ -175,3 +175,17 @@ def test_an_estimate_grows_as_its_bytes_arrive() -> None:
     audio = next(part for part in grown.parts if part.kind is PartKind.AUDIO)
     assert audio.size == 3 * SUBTITLES_ESTIMATE
     assert audio.estimated
+
+
+def test_a_planned_stream_that_already_brought_bytes_is_kept() -> None:
+    """R-QU-04, D-088: only a planned stream that never started gives way to another."""
+    tracker = mirror()
+    tracker.arrived("397", PartKind.VIDEO, 100 * MB, 400 * MB, 0)
+
+    totals = tracker.arrived("399", PartKind.VIDEO, 10 * MB, 300 * MB, 1)
+
+    assert [part.size for part in totals.parts if part.kind is PartKind.VIDEO] == [
+        400 * MB,
+        300 * MB,
+    ]
+    assert totals.done_bytes == 110 * MB

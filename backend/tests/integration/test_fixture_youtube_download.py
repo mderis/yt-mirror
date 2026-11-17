@@ -238,7 +238,12 @@ def test_a_download_can_be_held_in_the_middle_until_it_is_cancelled(tmp_path: Pa
         told.append(progress)
         cancelled = len(told) == 4
 
-    held = youtube(tmp_path, hold_after_report=3, hold_ms=60_000)
+    held = FixtureYouTube(
+        channel(tmp_path, hold_after_report=3, hold_ms=60_000),
+        sleep=lambda _s: None,
+        ffmpeg=ffmpeg_dir() / "ffmpeg",
+        hold_downloads=True,
+    )
 
     with pytest.raises(DownloadCancelledError, match="held"):
         held.download(request(tmp_path), told_and_cancel_on_hold, cancel_when_held)
@@ -247,3 +252,19 @@ def test_a_download_can_be_held_in_the_middle_until_it_is_cancelled(tmp_path: Pa
     assert len(told) == 4
     assert told[3] == told[2]
     assert 0.5 < (told[-1].fraction or 0) < 0.6
+
+
+def test_a_download_is_held_only_when_a_test_asks(tmp_path: Path) -> None:
+    """infra: without ``YTM_FAKE_HOLD_DOWNLOADS`` a hand run never waits for a held video."""
+    waited: list[float] = []
+    told: list[DownloadProgress] = []
+    plain = FixtureYouTube(
+        channel(tmp_path, hold_after_report=3, hold_ms=60_000),
+        sleep=waited.append,
+        ffmpeg=ffmpeg_dir() / "ffmpeg",
+    )
+
+    plain.download(request(tmp_path), told.append, never)
+
+    assert sum(waited) < 10
+    assert len(told) == len({id(progress) for progress in told})

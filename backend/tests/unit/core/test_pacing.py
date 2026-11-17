@@ -157,12 +157,22 @@ def test_the_budget_is_kept_across_a_restart() -> None:
     assert after.wait_s(START + 30) > 0
 
 
-def test_what_is_old_or_unreadable_is_not_restored() -> None:
-    """R-DT-06: lookups older than an hour, a halving that ended, or nonsense are left out."""
+def test_what_cannot_be_read_is_not_restored() -> None:
+    """R-DT-06: values that are no times, or no budget at all, are left out."""
     budget = LookupBudget()
 
-    budget.restore({"recent": [START - HOUR_S, "x", START], "halved_until": START - 1}, START)
+    budget.restore({"recent": ["x", START], "halved_until": "soon"}, START)
     budget.restore("not a budget", START)
 
     assert budget.used(START) == 1
     assert budget.limit(START) == 300
+
+
+def test_lookups_after_now_are_not_restored_when_the_clock_was_set_back() -> None:
+    """R-DT-06: a lookup time in the future would hold the budget until the clock caught up."""
+    budget = LookupBudget(per_hour=1)
+
+    budget.restore({"recent": [START + 600], "halved_until": None}, START)
+
+    assert budget.used(START) == 0
+    assert budget.wait_s(START) == 0

@@ -371,10 +371,16 @@ class DatesService:
         return self.key_state()
 
     def remove_key(self) -> KeyState:
-        """Remove the key: exact dates are looked up without it (R-DT-12)."""
-        self._keys.remove()
-        with self._lock:
-            self._key, self._key_read, self._key_failure = None, True, None
+        """Remove the key: exact dates are looked up without it (R-DT-12).
+
+        The key leaves the memory of the app whatever deleting its files does.
+        """
+        try:
+            self._keys.remove()
+        finally:
+            with self._lock:
+                self._key, self._key_read, self._key_failure = None, True, None
+            self.tidy_key_store()
         _log.info("apikey.removed", msg="The API key was removed")
         self._publish_key()
         self.wake()

@@ -244,7 +244,10 @@ _VIDEO_CODES: tuple[tuple[ErrorCode, tuple[str, ...]], ...] = (
 
 
 FRESH_INFO_S = 5 * 60
-"""Metadata older than this when its download starts is read again: its links may expire."""
+"""Metadata older than this when its download starts is read again: its links may expire.
+
+A safety net (D-089): the lookup comes right before the download, so only a very slow
+lookup makes it older today."""
 
 _LINK_REFUSED = ("http error 403", "403: forbidden", "403 forbidden")
 

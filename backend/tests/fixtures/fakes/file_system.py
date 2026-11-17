@@ -42,6 +42,7 @@ class FakeFileSystem:
         drift_dates: Files whose creation date reads back one hour off, as on a volume
             that does not keep it.
         outside: Paths that lead out of their folder through a symlink.
+        uncheckable: Files whose presence cannot be checked, as without permission.
         disk: The disk every folder is on.
     """
 
@@ -61,6 +62,7 @@ class FakeFileSystem:
         self.refuse_dates: set[Path] = set()
         self.drift_dates: set[Path] = set()
         self.outside: set[Path] = set()
+        self.uncheckable: set[Path] = set()
         self.disk = Disk(name="Macintosh HD", free_bytes=182 * 1000**3)
 
     def add_files(self, folder: Path, names: list[str], data: bytes = b"x") -> None:
@@ -124,6 +126,16 @@ class FakeFileSystem:
     def exists(self, path: Path) -> bool:
         """Return whether a file or folder is there, on a drive that is connected."""
         return (path in self.files or path in self.folders) and self.drive_connected(path)
+
+    def is_gone(self, path: Path) -> bool:
+        """Return whether a file is clearly not there, in a folder that is, and can be checked."""
+        return (
+            path not in self.files
+            and path not in self.folders
+            and path not in self.uncheckable
+            and path.parent in self.folders
+            and self.drive_connected(path)
+        )
 
     def size_of(self, path: Path) -> int:
         """Return the size of the file, or of everything in the folder, or 0."""

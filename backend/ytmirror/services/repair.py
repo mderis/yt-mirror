@@ -216,6 +216,10 @@ class RepairService:
                         folder=str(folder),
                     )
                 return 0, 0
+            # The videos are read before the folder is listed: a download that becomes
+            # synced in between is then not read as synced, so it is never taken for
+            # missing because the listing was made before its file came.
+            videos = self._repository.videos(channel_id)
             try:
                 names = {same_name_key(name) for name in self._files.list_folder(folder)}
             except (AppError, OSError) as error:
@@ -235,14 +239,18 @@ class RepairService:
                     channel_id=channel_id,
                     folder=str(folder),
                 )
-            for video in self._repository.videos(channel_id):
+            for video in videos:
                 if not video.file_name or video.placing_file or video.rename_to:
                     # A download places this file, or a rename is still to be settled.
                     continue
                 path = folder / video.file_name
                 listed = same_name_key(video.file_name) in names
                 if video.status is VideoStatus.SYNCED and not listed:
-                    missing += self._mark(video, VideoStatus.FILE_MISSING, "file_not_found", path)
+                    # Confirmed on its own: only a clear "not found" makes it missing.
+                    if self._files.is_gone(path):
+                        missing += self._mark(
+                            video, VideoStatus.FILE_MISSING, "file_not_found", path
+                        )
                 elif (
                     video.status is VideoStatus.FILE_MISSING
                     and listed
@@ -254,13 +262,17 @@ class RepairService:
         return missing, back
 
     def _is_own(self, video: Video, path: Path) -> bool:
+        return self._owner_of(video, path) is True
+
+    def _owner_of(self, video: Video, path: Path) -> bool | None:
+        """Whether a file holds this video's ID; None when it is there but cannot be read."""
         if not self._files.exists(path):
             return False
         try:
             return self._media.probe(path).tags.get("video_id") == video.id
         except AppError, OSError:
             # A file that cannot be read is skipped, never taken (R-MI-06).
-            return False
+            return None
 
     def _mark(self, video: Video, status: VideoStatus, reason: str, path: Path) -> bool:
         if not self._repository.change_status(
@@ -357,7 +369,19 @@ class RepairService:
                 if video.rename_from is None or video.rename_to is None:
                     continue
                 old, new = folder / video.rename_from, folder / video.rename_to
-                if not self._files.exists(old) and self._is_own(video, new):
+                own = None if self._files.exists(old) else self._owner_of(video, new)
+                if own is None and not self._files.exists(old) and self._files.exists(new):
+                    # The new file is there but could not be read this time: keep the
+                    # marker and try again at the next check.
+                    _log.info(
+                        "file.unchecked",
+                        msg="An interrupted rename waits: its new file could not be read",
+                        video_id=video.id,
+                        file=str(new),
+                    )
+                    continue
+                if own:
+                    self._move_cover(video, folder, video.rename_from, video.rename_to)
                     if self._repository.finish_rename(video.id, video.rename_from, video.rename_to):
                         finished += 1
                         _log.info(
@@ -438,12 +462,15 @@ class RepairService:
         if not moved:
             self._repository.clear_rename(video.id)
             return None
+        # The cover moves before the name is stored: a rename the app's end interrupts
+        # here is finished at the next check, cover included (settle_renames).
+        self._move_cover(video, folder, old, new)
         if not self._repository.finish_rename(video.id, old, new):
-            # The video changed meanwhile: put the file back where the catalogue expects it.
+            # The video changed meanwhile: put the files back where the catalogue expects them.
             self._files.move(target, source)
+            self._move_cover(video, folder, new, old)
             self._repository.clear_rename(video.id)
             return None
-        self._move_cover(video, folder, old, new)
         _log.info(
             "file.renamed",
             msg="A file was renamed after the new title of its video",

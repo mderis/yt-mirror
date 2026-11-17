@@ -19,6 +19,7 @@ from sqlalchemy import text
 from tests.fixtures.fakes.clock import FakeClock
 from tests.fixtures.fakes.native_app import FakeNativeApp
 from tests.migrations.helpers import add_a_failing_migration
+from ytmirror.adapters.api_key_file import FILE_NAME
 from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.app import main as main_module
@@ -563,3 +564,17 @@ def test_started_as_a_program_it_serves_logs_under_its_module_name_and_stops_on_
         "app.main",
     }
     assert TOKEN not in console
+
+
+def test_a_copy_of_a_key_left_by_an_interrupted_save_is_deleted_at_start(paths: AppPaths) -> None:
+    """R-DT-12, D-085: the start deletes the hidden copies a save left; the key stays."""
+    paths.data_dir.mkdir(parents=True)
+    saved = paths.data_dir / FILE_NAME
+    saved.write_text("fixture-key-saved", encoding="utf-8")
+    leftover = paths.data_dir / f".{FILE_NAME}.0123456789abcdef.tmp"
+    leftover.write_text("fixture-key-left", encoding="utf-8")
+
+    run_app(options(), paths, build_container(paths), wait=Visit(), console=None)
+
+    assert not leftover.exists()
+    assert saved.read_text(encoding="utf-8") == "fixture-key-saved"
