@@ -11,7 +11,7 @@ from ytmirror.core.channels import ChannelStatus
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.exact_dates import DateState, KeyStateChanged, KeyStatus
 from ytmirror.core.models import Settings
-from ytmirror.services.dates import IDLE_S, next_quota_reset
+from ytmirror.services.dates import IDLE_S, DatesService, next_quota_reset
 
 NEWEST, SECOND, THIRD = "sm000000005", "sm000000004", "sm000000003"
 KEY = "fixture-good-key-0001"
@@ -427,3 +427,43 @@ def test_the_app_works_without_a_google_account_or_a_key(tmp_path: Path) -> None
     assert world.api.requests == 0
     assert exact(world, NEWEST)
     assert exact(world, SECOND)
+
+
+def test_every_date_found_tells_the_interface_how_far_the_channel_is(tmp_path: Path) -> None:
+    """R-FB-01, R-FB-03: the interface hears "Exact dates 1 of 5", then "2 of 5"."""
+    world = listed(tmp_path)
+
+    world.dates.step()
+    world.clock.advance(12)
+    world.dates.step()
+
+    told = [
+        event.view.exact_dates.done
+        for event in world.updates()
+        if event.view.channel.id == SMALL_ID and event.view.exact_dates is not None
+    ]
+    assert told[-1] == 2
+    assert 1 in told
+
+
+def test_an_app_told_not_to_look_up_asks_nothing_without_a_key(tmp_path: Path) -> None:
+    """infra: the end-to-end apps on the fake YouTube can switch the lookups without a key off."""
+    world = listed(tmp_path)
+    quiet = DatesService(
+        dates=world.date_repository,
+        youtube=world.youtube,
+        api=world.api,
+        keys=world.keys,
+        settings=world.settings,
+        downloads=world.downloads,
+        state=world.date_state,
+        clock=world.clock,
+        events=world.bus,
+        register_secret=world.secrets.append,
+        tell_video=world.views.tell_video,
+        tell_channel=world.views.publish,
+        look_up=False,
+    )
+
+    assert quiet.step() is None
+    assert asked(world) == 0

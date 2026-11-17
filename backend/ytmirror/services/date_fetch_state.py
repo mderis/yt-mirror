@@ -27,6 +27,8 @@ class _Run:
     done: int = 0
     total: int = 0
     left_s: int | None = None
+    told: tuple[int, int, int | None] | None = None
+    """What the interface was last told of this run."""
 
 
 @dataclass
@@ -151,10 +153,11 @@ class DateFetchState:
                     changed.add(channel_id)
             for channel_id, count in counts.items():
                 run = runs.setdefault(channel_id, _Run())
-                before = (run.total, run.left_s)
                 run.total = run.done + count
                 run.left_s = left_s.get(channel_id)
-                if (run.total, run.left_s) != before:
+                now = (run.done, run.total, run.left_s)
+                if now != run.told:
+                    run.told = now
                     changed.add(channel_id)
         return changed
 

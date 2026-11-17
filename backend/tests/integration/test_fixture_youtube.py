@@ -46,17 +46,19 @@ def ids(youtube: FixtureYouTube, channel_id: str) -> list[str]:
 
 
 def test_the_world_has_the_channels_this_milestone_needs() -> None:
-    """infra: the channels of TESTING section 4 exist: those of M2 and those of M3."""
+    """infra: the channels of TESTING section 4 exist: those of M2, M3 and M4."""
     names = sorted(file.stem for file in WORLD.glob("*.json"))
 
     assert names == [
         "auto-subtitles-only",
+        "bot-check-dates",
         "changing",
         "empty",
         "failures",
         "large",
         "no-subtitles",
         "premieres",
+        "renaming",
         "slow",
         "slow-start",
         "small",

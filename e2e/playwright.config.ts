@@ -96,6 +96,8 @@ export default defineConfig({
         YTM_LIBRARY_DIR: resolve(SHARED_LIBRARY_DIR),
         // Files that a test deletes go here, never into the Trash of the person who runs it.
         YTM_TRASH_DIR: resolve(`${DATA_DIR}/shared-trash`),
+        // No exact-date lookups without a key: the dates stay as the tests recorded them.
+        YTM_FAKE_LOOKUPS_PER_HOUR: '0',
       },
       reuseExistingServer: false,
       // The first start downloads uv, Python and packages, and builds the interface.

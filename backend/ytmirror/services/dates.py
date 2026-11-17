@@ -109,6 +109,7 @@ class DatesService:
         tell_video: Callable[[str], None],
         tell_channel: Callable[[str], None],
         found_exact: Callable[[str], None] = lambda video_id: None,
+        look_up: bool = True,
     ) -> None:
         """Create the service.
 
@@ -127,6 +128,8 @@ class DatesService:
             tell_channel: Tells the interface how a channel is now.
             found_exact: Called with a video that just got its exact time, so that
                 the dates of its file are repaired if it has one (R-DT-09).
+            look_up: False to never look dates up without a key. Only for an app on the
+                fake YouTube whose tests ask for that (``YTM_FAKE_LOOKUPS_PER_HOUR=0``).
         """
         self._dates = dates
         self._youtube = youtube
@@ -141,6 +144,7 @@ class DatesService:
         self._tell_video = tell_video
         self._tell_channel = tell_channel
         self._found_exact = found_exact
+        self._look_up_allowed = look_up
         self._lock = threading.Lock()
         self._waker: Callable[[], None] = lambda: None
         self._key: str | None = None
@@ -256,7 +260,7 @@ class DatesService:
         return length
 
     def _look_up(self, now: int) -> float | None:
-        if not self._settings.current().fetch_exact_dates:
+        if not self._look_up_allowed or not self._settings.current().fetch_exact_dates:
             self._show_active(active=False)
             self._hold(None)
             self._refresh(now, by_api=False)

@@ -41,6 +41,7 @@ from ytmirror.adapters.ytdlp_gateway import GatewayTools, YtDlpGateway
 from ytmirror.app.config import AppPaths, detect_install_kind
 from ytmirror.core.channels import CheckKind
 from ytmirror.core.models import AppInfo, ToolName
+from ytmirror.core.pacing import LookupBudget
 from ytmirror.core.toolchain import parse_manifest
 from ytmirror.ports.child_processes import ChildProcesses
 from ytmirror.ports.clock import Clock
@@ -233,7 +234,14 @@ def build_container(
     used_children = MacChildProcesses()
     used_picker = picker if picker is not None else WebviewFolderPicker()
     used_gateway = _gateway(paths, used_clock, gateway, used_tool_box)
-    youtube = YouTubeAccess(used_gateway, used_clock, events, _later)
+    pace = paths.fake_lookups_per_hour
+    youtube = YouTubeAccess(
+        used_gateway,
+        used_clock,
+        events,
+        _later,
+        budget=LookupBudget(pace) if pace else None,
+    )
     downloads = DownloadState()
     date_repository = SqlDateRepository(engine, used_clock)
     date_state = DateFetchState()
@@ -320,6 +328,7 @@ def build_container(
         tell_video=views.tell_video,
         tell_channel=views.publish,
         found_exact=lambda video_id: repair.repair_video(video_id),
+        look_up=pace != 0,
     )
     state = StateService(
         views,

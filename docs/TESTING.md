@@ -48,7 +48,7 @@ Coverage is a floor, not the goal. The review in section 7 is what establishes t
 
 ## 4. The fake YouTube
 
-`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes, one JSON file each. The gateway that reads it is `backend/ytmirror/adapters/fixture_youtube.py`. Channels arrive with the milestone that needs them: `small`, `large`, `tricky-titles`, `changing` and `empty` in M2, the others in M3.
+`e2e/fixtures/youtube/` holds a small recorded world: several channels with different shapes, one JSON file each. The gateway that reads it is `backend/ytmirror/adapters/fixture_youtube.py`. Channels arrive with the milestone that needs them: `small`, `large`, `tricky-titles`, `changing` and `empty` in M2, `bot-check-dates` (its exact-date lookups are refused with the "not a bot" check) and `renaming` (its video gets a new title at the second listing) in M4, the others in M3. The end-to-end apps look up no exact dates without a key (`YTM_FAKE_LOOKUPS_PER_HOUR=0`), so the dates of earlier tests stay as recorded; a test of exact dates asks its app for a fast pace.
 
 | Fixture channel | Purpose |
 |---|---|
