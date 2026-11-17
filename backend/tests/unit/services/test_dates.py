@@ -412,3 +412,18 @@ def test_removing_the_key_changes_nothing_but_speed(tmp_path: Path) -> None:
     assert world.keys.key is None
     assert world.api.requests == 0
     assert asked(world) == 1
+
+
+def test_the_app_works_without_a_google_account_or_a_key(tmp_path: Path) -> None:
+    """R-PL-07: listing, exact dates and downloads, with no key saved and no account."""
+    world = listed(tmp_path)
+
+    world.dates.step()
+    world.downloader.mirror([SECOND])
+    world.download_all()
+
+    assert world.dates.key_state().status is KeyStatus.NONE
+    assert world.keys.reads == 1
+    assert world.api.requests == 0
+    assert exact(world, NEWEST)
+    assert exact(world, SECOND)

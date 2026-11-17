@@ -82,6 +82,9 @@ yt-mirror/
         status.py            Video and channel status machines
         naming.py            Title to file name rules (R-FN-*)
         dates.py             Date handling rules (R-DT-*)
+        exact_dates.py       Rules of the exact-date fetch: date states, retries, rate, time left (R-DT-13 to R-DT-15)
+        pacing.py            The budget of lookups an hour (R-DT-06, D-084)
+        schedule.py          When the app checks channels by itself (R-CH-20 to R-CH-26)
         quality.py           Quality selection rules (R-QL-*)
         jobs.py              Jobs, their states and progress, what a download asks and gives, job log retention
         media.py             What a finished file contains, and whether it passes verification
@@ -92,7 +95,9 @@ yt-mirror/
       adapters/
         ytdlp_gateway.py     Listing, metadata and downloads through yt-dlp
         fixture_youtube.py   The fake YouTube, read from files, which the app can start with (section 10)
-        youtube_api.py       Optional Data API client (exact dates)
+        youtube_api.py       Optional Data API client (exact dates, D-082)
+        fixture_youtube_api.py  The fake of the Data API, on the fake YouTube (section 10)
+        api_key_file.py      The API key in data/youtube-api-key, 0600 (D-085)
         media_tools.py       Reads a finished file with ffprobe (the MediaTools port)
         filesystem_mac.py    File dates, Trash, reveal, free space, safe moves
         child_processes_mac.py  Stops the tools the app started: all at quit, the ffmpeg of one job at Cancel (the ChildProcesses port)
@@ -113,13 +118,15 @@ yt-mirror/
         youtube_access.py    Every question to YouTube, and the pause of the whole app (R-ER-05)
         thumbnails.py        The cache of thumbnails and avatars (R-CH-16)
         state.py             The snapshot of the app for the window (section 7.6)
-        dates.py             Exact date fetching and date repair
+        dates.py             The exact-date fetch, with the key or without, and the key (R-DT-05, R-DT-12)
+        date_fetch_state.py  How the fetch stands, in memory, for the views
+        scheduler.py         The checks the app starts by itself, and the exact-date fetch (R-CH-20 to R-CH-26)
         queue.py             Queue state, ordering, parallelism, pause, limits
         downloader.py        One job from start to synced (milestone M3: one worker, Cancel, Retry, details)
         download_state.py    The downloads that wait or run, in memory: progress, jobs, "Mirroring X of Y"
         job_logs.py          Deletes the logs of jobs that are no longer kept (R-LG-01)
         adoption.py          Match and repair existing files
-        repair.py            Repair metadata, repair dates
+        repair.py            Repair dates, rename after a new title (R-DT-09, R-FN-06); repair metadata later
         exclusions.py        Manual excludes and rule engine
         toolchain.py         Install, verify and update ffmpeg, Deno, yt-dlp
         updater.py           App updates, backup, migration, rollback
@@ -287,7 +294,9 @@ User-facing log (R-AC-*): `id`, `at`, `kind`, `channel_id`, `video_id`, `job_id`
 `key`, `value`. Holds facts the app keeps about itself. From milestone M1: `setup_completed_at`, the moment every tool was in order for the first time (R-IN-03). Later milestones add `app_version`, `install_kind` (`clone`, `archive`) and `last_update_check_at`. The schema version is tracked by Alembic.
 
 ### date_fetch_queue
-`video_id`, `attempts`, `next_try_at`. Work list for R-DT-05 and R-DT-06 so it survives restarts.
+`video_id` (key, removed with its video), `priority` (1 when a decision waits for the date, R-MI-03), `attempts`, `next_try_at`, `last_error`, `api_left_out_at`, `created_at`, `updated_at`. Created by migration 0009. It holds what the exact-date fetch keeps across restarts (R-DT-06): failures and when a video is tried again (R-DT-13), and when the YouTube API last left a video out (D-083). It is not a list of all waiting videos: a video waits while it has no exact date, is not removed and its channel is not paused, and a video without a row simply waits its turn. The order of the fetch: `priority`, then the newest `published_at`, then the place on the channel (`adapters/db/date_repository.py`).
+
+Migration 0009 also adds `channels.check_retries`, the count of automatic retries of a failed check since the last successful one (R-CH-25).
 
 ## 6. Status model
 
@@ -335,11 +344,11 @@ Measured in November 2026 on four real channels: a quick check with nothing new 
 
 **Work that follows a check, quick or full (R-CH-28).** Each step is added by the milestone that builds what it needs.
 
-6. For each title that changed on a synced video: rename the file (R-FN-06) through `filesystem_mac`, then restore its dates.
+6. For each synced file whose name no longer fits its video's title: rename it (R-FN-06) through `filesystem_mac`, never over another file, then set and read back its dates (`services/repair.py`). The file is moved first and its name stored after, only if the stored one is still the old one; a rename the app's end interrupted is completed at the next check, by the video ID inside the file. Never through the `placing_file` marker, whose files a start may move to the Trash.
 7. Verify that each synced file exists. Missing ones become `file_missing` (R-MI-06), unless the channel folder itself is unavailable (R-QU-11).
 8. Run exclusion rules on new videos (R-EX-06).
-9. Queue the videos without an exact date in `date_fetch_queue`.
-10. If dates repair is on, compare file dates with `published_at` and fix differences (R-DT-09).
+9. Wake the exact-date fetch: the new videos wait for their exact dates (section 7.4).
+10. If dates repair is on, compare file dates with `published_at` and fix differences, then read them back (R-DT-09). "Repair dates" in the channel menu does the same on demand (`POST /channels/{id}/repair-dates`).
 11. If auto-mirror is on, enqueue eligible videos (R-MI-02, R-MI-03).
 12. Emit the new channel state, write activity entries, send a notification if there are new videos.
 
@@ -401,7 +410,10 @@ Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D
 - The lookup takes the release time before the upload time (`core/dates.published_time(release_timestamp, timestamp)`), as a download does. A video yt-dlp marks `is_upcoming` gets no exact date: its `release_timestamp` is only the scheduled time.
 - Measured in M4 on a channel of 1,103 videos (OPEN-QUESTIONS, facts of M4): two in parallel, 996 lookups in 25 minutes at 1.4 to 1.7 seconds per video, then YouTube's "not a bot" check, with no `RATE_LIMITED` before it. The pace without a key follows from it (D-084).
 - There is no other source without a key. The channel feed (`feeds/videos.xml`) answered "not found" for every channel from three networks during M2 and is not used. A listing, of the channel or of its uploads playlist, has approximate dates only.
-- Each exact date found updates `published_at`, sets `published_exact`, and emits an update.
+- Each exact date found updates `published_at`, sets `published_exact`, clears the precision and the fetch state, and emits `video.updated`. A synced file whose video got an exact time has its dates repaired (R-DT-10).
+- The fetch is run by the scheduler (`services/scheduler.py`): one piece of work per step, one API request or one lookup, and the step says how long to wait. It yields to downloads (it runs only while none waits or runs), and while it is held by the pause of R-ER-05 or by its own back-off its channels show "Waiting for YouTube" (R-FB-01). The time left of a channel comes from the measured time per video, waits included, over the last 20 lookups, shown after 5 (R-DT-14); above 10 minutes with no key the channel offers the key (R-DT-15).
+- The key (D-085) is read from `data/youtube-api-key` the first time the fetch needs it. A key that is refused is done without until a new key is saved or tested; a used-up quota until the next midnight Pacific time; an unreadable key until it is saved again, with one warning in the log. The key setting and a notice by the progress say so (R-DT-12).
+- The lookup budget (D-084, `core/pacing.py`): `YouTubeAccess` counts the metadata lookup of every download and every lookup of the fetch in the hour before; downloads are never held by it, the fetch waits for room and keeps its lookups an equal share of the hour apart (12 seconds at 300). After a "not a bot" check the budget is halved until midnight in the Mac's time zone. The counts of each hour are logged (`youtube.lookups.hour`).
 
 ### 7.5 File dates on macOS (`filesystem_mac.py`)
 - Modification and access time: `os.utime`.
@@ -410,7 +422,7 @@ Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D
 - Other operations in this adapter: move to Trash (so deletes are recoverable, `NSFileManager.trashItemAtURL`), reveal in Finder (`open -R`), open with the default app (`open`), free space of a volume, a rename that never overwrites (`renamex_np` with `RENAME_EXCL`), whole-file writes through a hidden temp file, the size of a folder, whether a path leaves a folder through a symlink, the delete of the temp folder of one job, and the delete of one job log. Nothing else is ever deleted for good. A cross-volume move (copy, verify, delete) arrives with the milestone that moves folders.
 
 ### 7.6 Events and live updates
-- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`.
+- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, and from M4 `apikey.changed` (how the key stands, never the key) and `checks.progress` ("Checking channels: 3 of 5", R-CH-20).
 - `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced. When the app stops, the bus is closed first: every stream ends, so an open window never holds up the shutdown.
 - On connect and after a reconnect the frontend refetches snapshots (`/api/state`, the open channel's videos), so a missed event can never leave the UI stale.
 - One store of the interface owns the stream (`stores/app.ts`) and passes every event on to the store it belongs to. What the events tell is newer than the answer of a call: the answer to "Check now" is not taken over, and the answer to adding a channel only when no event told about the channel yet (D-073).
@@ -422,6 +434,7 @@ Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D
 - Blocking work (yt-dlp, ffmpeg, file operations, database writes from workers) runs in threads. Download workers are a fixed-size pool equal to the parallel downloads setting.
 - One writer at a time per database connection. Each unit of work is a short transaction on its own connection: connections are opened when needed and closed afterwards, not pooled (D-040).
 - One lock per channel serialises check, adoption and folder moves for that channel.
+- One scheduler thread (`services/scheduler.py`, from M4) starts the checks the app makes by itself (on open, on selection, on the interval, retries, full checks) and runs the exact-date fetch. It waits on a condition until its next work is due or it is woken: by the end of the pause of R-ER-05, by the end of the last download, after a check, or when a key is saved. Nothing is put in line while the pause is in force.
 
 ### 7.8 The window (`app/window.py`)
 
@@ -534,9 +547,10 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | POST `/jobs/{id}/cancel` | Cancel a job that waits or runs (R-QU-02). From M3 |
 | GET, PUT `/channels/{id}/exclude-rules` | Rules, with `POST .../preview` (R-EX-06) |
 | POST `/channels/{id}/adopt/scan`, GET `.../adopt`, POST `.../adopt/apply` | Adoption (R-AD-*) |
-| POST `/channels/{id}/repair-dates` | |
-| GET, PATCH `/settings` | |
-| POST `/settings/api-key/test` | |
+| POST `/channels/{id}/repair-dates` | Repair the dates of a channel's synced files now (R-DT-09). From M4 |
+| GET, PATCH `/settings` | From M7 |
+| GET, PUT, DELETE `/settings/api-key` | How the API key stands (never the key), save a key, remove it (R-DT-12). From M4 |
+| POST `/settings/api-key/test` | Ask the YouTube API once with a pasted key or the saved one (R-DT-12). From M4 |
 | GET `/activity` | Paged, filterable |
 | GET `/errors/{code}` and GET `/jobs/{id}/log` | Error text and technical details |
 | GET `/tools`, POST `/tools/{name}/install`, POST `/tools/ytdlp/update` | Toolchain |
@@ -567,7 +581,9 @@ Every external dependency is behind a port, and each port has a fake in `backend
 | Port | Fake behaviour |
 |---|---|
 | YouTubeGateway | Serves channels and videos from JSON fixtures, simulates progress, failures by error code, rate limits. This one fake is part of the app: `adapters/fixture_youtube.py` (D-062) |
-| ExactDateSource | Returns dates from fixtures, simulates quota errors |
+| ExactDateSource | The fake of the YouTube API, `adapters/fixture_youtube_api.py`, answers from the videos of the fake YouTube and fails by its key: one that starts with `fixture-invalid` is refused, one with `fixture-quota` is out of quota. Part of the app like the fake YouTube, so the app started with `YTM_FAKE_YOUTUBE` takes a key without the network. The real adapter is tested against a local server that answers like the API |
+| ApiKeyStore | Keeps the key in memory and can be made unreadable. The file of the app is tested on a temp folder |
+| DateRepository | None: the services are tested on a migrated database in a temp folder |
 | MediaTools | Creates tiny real MKV files with ffmpeg in integration tests, a pure fake in unit tests |
 | FileSystem | Real temp directories on macOS runners, an in-memory fake in unit tests |
 | ChildProcesses | No fake: the downloader is given a function to call at quit, which unit tests replace. The adapter is tested with processes the test starts itself. Cancel finds the ffmpeg of a job by the job's temp folder in its arguments; a media test runs real yt-dlp through every ffmpeg step the app uses (merge, thumbnail, subtitles, metadata, cover) and checks that each call names that folder (yt-dlp passes it as `file:<path>`) |
@@ -589,7 +605,7 @@ Environment variables, all optional. Only `app/config.py` and `start` read them.
 | `YTM_FAKE_YOUTUBE` | app | A folder with a recorded world of channels (`e2e/fixtures/youtube/`). The app then never talks to the real YouTube. For tests and for reproducing a problem |
 | `YTM_LIBRARY_DIR` | app | The default of the library folder instead of `~/Movies/YouTube`. For tests, so that no test creates a folder in the user's own library |
 | `YTM_TRASH_DIR` | app | A folder that stands for the Trash of macOS: files that "Delete the files" moves to the Trash go there. For tests, so that no test fills the Trash of the person who runs it. It counts only together with `YTM_FAKE_YOUTUBE`: an app on the real YouTube always uses the Trash of macOS |
-| `YTM_YOUTUBE_API_KEY` | live tests, probes | A YouTube API key for measurements and, from M4, live tests. The app does not use it: its key is a setting (R-DT-12). Its value is a secret of the logs, so the app removes it from every line (R-LG-07). Never written to a file, a fixture or a commit |
+| `YTM_YOUTUBE_API_KEY` | live tests, probes | A YouTube API key for measurements and, from M4, live tests. The app does not use it: its key is saved through the key guide into `data/youtube-api-key` (R-DT-12, D-085). Its value is a secret of the logs, so the app removes it from every line (R-LG-07). Never written to a file, a fixture or a commit |
 | `YTM_TOOL_DIR` | app | Another folder for the downloaded tools than `tools/`. The end-to-end tests use it, so that their stand-in tools never replace real ones |
 | `YTM_TOOL_MANIFEST` | app | Another tool manifest than the one of the app. The end-to-end tests point it at small stand-ins for the tools, served from this Mac |
 | `YTM_TOOL_SOURCE` | app | Use only the tool source of this name. The automated checks install from each source on its own (D-053) |

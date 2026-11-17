@@ -124,3 +124,60 @@ def test_a_check_repairs_real_file_dates_that_were_changed(app: Container, zone:
     assert app.catalogue.work_once() is True
 
     assert dates(file) == (PUBLISHED, PUBLISHED)
+
+
+def test_finder_sorts_the_folder_by_date_in_the_order_of_the_app(
+    paths: AppPaths, tmp_path: Path, zone: str
+) -> None:
+    """R-DT-11: sorting by Date Created or Date Modified gives the app's "newest first"."""
+    world = tmp_path / "ordered"
+    world.mkdir()
+    times = ["2026-03-29T00:30:00Z", "2025-10-26T01:30:00Z", "2026-11-01T12:00:00Z"]
+    channel = {
+        "id": CHANNEL_ID,
+        "title": "Ordered",
+        "handle": "@ordered",
+        "listed_at": "2026-11-14T06:42:00Z",
+        "video_count": 3,
+        "videos": [
+            {
+                "id": f"ord0000000{number}",
+                "title": f"Video {number}",
+                "point": "2026-11-13",
+                "published_at": at,
+                "length_s": 2,
+            }
+            for number, at in enumerate(times, start=1)
+        ],
+    }
+    (world / "ordered.json").write_text(json.dumps(channel), encoding="utf-8")
+    app = build_container(
+        dataclasses.replace(paths, fake_youtube=world, tool_dir=ffmpeg_dir().parent),
+        files=MacFileSystem(trash=lambda path: None),
+    )
+    app.schema.bring_up_to_date()
+    app.channels.add(NewChannel(app.channels.lookup("@ordered").facts.channel_id))
+    assert app.catalogue.work_once() is True
+    ids = [f"ord0000000{number}" for number in (1, 2, 3)]
+    app.downloader.mirror(ids)
+    while app.downloader.work_once():
+        pass
+    view = app.views.of(CHANNEL_ID)
+    assert view is not None
+    folder = Path(view.folder)
+
+    files = [entry for entry in folder.iterdir() if entry.suffix == ".mkv"]
+    by_created = [entry.name for entry in sorted(files, key=lambda f: -f.stat().st_birthtime)]
+    by_modified = [entry.name for entry in sorted(files, key=lambda f: -f.stat().st_mtime)]
+    videos = [app.videos.video(video_id) for video_id in ids]
+    newest_first = [
+        video.file_name
+        for video in sorted(
+            (video for video in videos if video is not None),
+            key=lambda video: (-(video.published_at or 0), video.channel_position),
+        )
+    ]
+
+    assert (
+        by_created == by_modified == newest_first == ["Video 3.mkv", "Video 1.mkv", "Video 2.mkv"]
+    )
