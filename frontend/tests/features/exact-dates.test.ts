@@ -420,3 +420,20 @@ describe('a channel whose folder is gone', () => {
     expect(await screen.findByRole('dialog')).toBeTruthy()
   })
 })
+
+describe('the time of the automatic retry', () => {
+  it('R-CH-25: right after a failure it reads 5 min even when the clock of the window is a tick behind', async () => {
+    await openApp({
+      channels: [
+        channel({
+          status: 'could_not_check',
+          last_check_error: 'NETWORK_UNREACHABLE',
+          last_check_error_at: NOW + 25,
+          retry_at: NOW + 25 + 300,
+        }),
+      ],
+    })
+
+    expect(sidebarStatus()).toContain('Could not check · retrying in 5 min')
+  })
+})

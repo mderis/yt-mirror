@@ -10,7 +10,7 @@ import { useI18n } from 'vue-i18n'
 import type { Channel } from '@/api/client'
 import type { IconName } from '@/components/icons'
 import { formatNumber, formatTime, roughTime } from '@/format'
-import { clock } from '@/format/clock'
+import { clock, CLOCK_LAG_S } from '@/format/clock'
 import { useAgo } from '@/format/useAgo'
 import { useChannelsStore } from '@/stores/channels'
 
@@ -107,7 +107,9 @@ export function useStatusLine(): (channel: Channel) => StatusLine {
       if (at === null) {
         return { text: t('channelStatus.couldNotCheck'), icon: 'warning', tone: 'failed' }
       }
-      const seconds = at - clock.now
+      // The clock can be one tick behind: counted from where it may be already, the
+      // wait never reads a minute longer than it is ("retrying in 5 min" after a failure).
+      const seconds = at - clock.now - CLOCK_LAG_S
       if (seconds <= 0) {
         return {
           text: t('channelStatus.couldNotCheckRetryingSoon'),
