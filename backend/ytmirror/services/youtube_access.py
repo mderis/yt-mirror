@@ -133,6 +133,26 @@ class YouTubeAccess:
         with self._lock:
             return self._budget_now().wait_s(self._now())
 
+    def download_room(self) -> int:
+        """Return how many more lookups the budget has room for now (R-DT-06, D-090)."""
+        with self._lock:
+            return self._budget_now().room(self._now())
+
+    def paced_until(self, count: int) -> list[float | None]:
+        """Return when each of the next automatic downloads may start (R-DT-06, D-090).
+
+        Args:
+            count: How many automatic downloads wait, in their order.
+
+        Returns:
+            For each of them, None when the budget has room for it now, else the
+            time it may start.
+        """
+        with self._lock:
+            now = self._now()
+            times = self._budget_now().free_times(now, count)
+            return [None if at <= now else at for at in times]
+
     def lookups_per_hour(self) -> int:
         """Return the budget of an hour as it is now: halved after a check (R-DT-06)."""
         with self._lock:

@@ -118,6 +118,36 @@ class LookupBudget:
         self._forget_before(now - HOUR_S)
         return len(self._recent)
 
+    def room(self, now: float) -> int:
+        """Return how many more lookups the hour before ``now`` has room for (D-090)."""
+        return max(0, self.limit(now) - self.used(now))
+
+    def free_times(self, now: float, count: int) -> list[float]:
+        """Return when the budget has room for each of the next ``count`` lookups (D-090).
+
+        Room comes back as the lookups of the last hour grow older than an hour,
+        and each lookup made in that time uses room again, so the times are found
+        one after another. It is an estimate: lookups asked meanwhile, for example
+        of downloads started by hand, use room too.
+
+        Args:
+            now: The time now.
+            count: How many lookups, in their order.
+
+        Returns:
+            One time per lookup, ``now`` for those the budget has room for now.
+        """
+        limit = self.limit(now)
+        self._forget_before(now - HOUR_S)
+        lookups = list(self._recent)
+        times: list[float] = []
+        for _ in range(count):
+            oldest = len(lookups) - limit
+            at = now if oldest < 0 else max(now, lookups[oldest] + HOUR_S)
+            times.append(at)
+            lookups.append(at)
+        return times
+
     def wait_s(self, now: float) -> float:
         """Return how long the exact-date fetch waits before its next lookup.
 

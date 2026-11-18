@@ -360,6 +360,8 @@ class Video(BaseModel):
         file_size: The size of its file in bytes, or None.
         error_code: Why the last download failed (R-QU-08), or None.
         date: What an approximate date shows (R-DT-13), or None for an exact date.
+        paced_until: When an automatic download that waits for room in the lookup
+            budget may start, or None (R-DT-06, D-090).
     """
 
     id: str
@@ -379,6 +381,7 @@ class Video(BaseModel):
     file_size: int | None = None
     error_code: ErrorCode | None = None
     date: DateInfo | None = None
+    paced_until: int | None = None
 
     @classmethod
     def of(cls, view: VideoView) -> Video:
@@ -402,6 +405,7 @@ class Video(BaseModel):
             file_size=video.file_size,
             error_code=video.last_error_code,
             date=DateInfo.of(view.date),
+            paced_until=view.paced_until,
         )
 
 
@@ -678,6 +682,8 @@ class QueueItem(BaseModel):
         quality: The quality it is downloaded in.
         by_hand: Whether the user started it by hand (R-DT-06, D-090).
         download: How far it is, when it runs and reported already, else None.
+        paced_until: When it may start, while it waits for room in the lookup
+            budget (D-090), else None.
     """
 
     job_id: str
@@ -689,6 +695,7 @@ class QueueItem(BaseModel):
     quality: Quality
     by_hand: bool
     download: Download | None = None
+    paced_until: int | None = None
 
     @classmethod
     def of(cls, entry: QueueEntry) -> QueueItem:
@@ -703,6 +710,7 @@ class QueueItem(BaseModel):
             quality=entry.job.quality,
             by_hand=entry.job.by_hand,
             download=None if entry.progress is None else Download.of(entry.progress),
+            paced_until=entry.paced_until,
         )
 
 

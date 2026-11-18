@@ -13,6 +13,7 @@ from ytmirror.core.channels import VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import DownloadProgress, JobProgressed, JobState, Stage
 from ytmirror.core.models import Settings
+from ytmirror.core.pacing import LookupBudget
 from ytmirror.core.queue import QueueChanged, QueueSummary
 
 FIRST = "sm000000005"
@@ -507,3 +508,82 @@ def test_an_excluded_video_is_never_put_in_line(world: World) -> None:
 
     assert world.downloader.mirror([FIRST]) == []
     assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
+
+
+# --- automatic downloads wait for room in the lookup budget (R-DT-06, D-090)
+
+
+def paced_world(tmp_path: Path) -> tuple[World, list[str]]:
+    """A world whose budget allows one lookup an hour, with a channel of 25 videos listed."""
+    world = World(tmp_path, channel_file(videos=25), budget=LookupBudget(per_hour=1))
+    world.add_and_list()
+    return world, world.ids(SMALL_ID)
+
+
+def test_downloads_started_by_hand_never_wait_for_the_budget(tmp_path: Path) -> None:
+    """R-DT-06, D-090: the 20 jobs of one action that are started by hand run at once."""
+    world, ids = paced_world(tmp_path)
+    world.downloader.mirror(ids[:20])
+
+    world.download_all()
+
+    assert all(status_of(world, video_id) is VideoStatus.SYNCED for video_id in ids[:20])
+
+
+def test_an_automatic_download_waits_for_room_and_says_until_when(tmp_path: Path) -> None:
+    """R-DT-06, D-090: beyond the budget an automatic download waits, and its row says when."""
+    world, ids = paced_world(tmp_path)
+    world.downloader.mirror(ids[:21])  # the 21st is automatic
+
+    world.download_all()
+
+    assert status_of(world, ids[20]) is VideoStatus.QUEUED
+    view = world.views.video(ids[20])
+    assert view is not None
+    assert view.paced_until is not None
+    assert view.paced_until > world.now()
+    [paced] = world.queue.view().waiting
+    assert paced.paced_until == view.paced_until
+
+
+def test_an_automatic_download_starts_when_the_budget_has_room_again(tmp_path: Path) -> None:
+    """R-DT-06, D-090: an hour after the lookups that filled it, the paced download runs."""
+    world, ids = paced_world(tmp_path)
+    world.downloader.mirror(ids[:21])
+    world.download_all()
+    view = world.views.video(ids[20])
+    assert view is not None
+    assert view.paced_until is not None
+
+    world.clock.advance(view.paced_until - world.now() + 1)
+
+    assert world.downloader.work_once() is True
+    assert status_of(world, ids[20]) is VideoStatus.SYNCED
+
+
+def test_a_later_download_started_by_hand_goes_ahead_of_a_paced_one(tmp_path: Path) -> None:
+    """R-DT-06, D-090: a paced download never holds back one started by hand behind it."""
+    world, ids = paced_world(tmp_path)
+    world.downloader.mirror(ids[:21])
+    world.download_all()
+
+    world.downloader.mirror([ids[21]])
+    world.download_all()
+
+    assert status_of(world, ids[21]) is VideoStatus.SYNCED
+    assert status_of(world, ids[20]) is VideoStatus.QUEUED
+
+
+def test_mirror_on_a_paced_download_starts_it_without_waiting(tmp_path: Path) -> None:
+    """R-DT-06, D-090: Mirror on a waiting automatic download makes it one started by hand."""
+    world, ids = paced_world(tmp_path)
+    world.downloader.mirror(ids[:21])
+    world.download_all()
+
+    world.downloader.mirror([ids[20]])
+    world.download_all()
+
+    assert status_of(world, ids[20]) is VideoStatus.SYNCED
+    view = world.views.video(ids[20])
+    assert view is not None
+    assert view.paced_until is None

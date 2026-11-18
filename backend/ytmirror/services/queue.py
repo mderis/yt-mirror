@@ -60,6 +60,7 @@ class QueueService:
                         video=video,
                         channel_title=titles.get(video.channel_id, ""),
                         progress=progress if progress and progress.job_id == job.id else None,
+                        paced_until=self._state.paced_until(video.id),
                     )
                 )
             return tuple(found)

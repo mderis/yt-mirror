@@ -43,6 +43,7 @@ def test_the_queue_lists_waiting_downloads_in_order(client: TestClient, world: W
         "quality": "best",
         "by_hand": True,
         "download": None,
+        "paced_until": None,
     }
     assert answer["queue"] == {
         "downloading": 0,

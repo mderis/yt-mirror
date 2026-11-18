@@ -485,6 +485,8 @@ class VideoView:
         progress: How far a running download is (R-QU-04), or None.
         date: What an approximate date shows: waiting, updating or unavailable
             (R-DT-13). None for an exact date or no date.
+        paced_until: When an automatic download that waits for room in the lookup
+            budget may start, or None (R-DT-06, D-090).
     """
 
     video: Video
@@ -493,3 +495,4 @@ class VideoView:
     job_id: str | None = None
     progress: JobProgress | None = None
     date: DateShown | None = None
+    paced_until: int | None = None

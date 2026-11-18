@@ -1580,6 +1580,8 @@ export interface components {
      *         quality: The quality it is downloaded in.
      *         by_hand: Whether the user started it by hand (R-DT-06, D-090).
      *         download: How far it is, when it runs and reported already, else None.
+     *         paced_until: When it may start, while it waits for room in the lookup
+     *             budget (D-090), else None.
      */
     QueueItem: {
       /** By Hand */
@@ -1593,6 +1595,8 @@ export interface components {
       duration_s: number | null
       /** Job Id */
       job_id: string
+      /** Paced Until */
+      paced_until?: number | null
       quality: components['schemas']['Quality']
       /** Title */
       title: string
@@ -1887,6 +1891,8 @@ export interface components {
      *         file_size: The size of its file in bytes, or None.
      *         error_code: Why the last download failed (R-QU-08), or None.
      *         date: What an approximate date shows (R-DT-13), or None for an exact date.
+     *         paced_until: When an automatic download that waits for room in the lookup
+     *             budget may start, or None (R-DT-06, D-090).
      */
     Video: {
       date?: components['schemas']['DateInfo'] | null
@@ -1908,6 +1914,8 @@ export interface components {
       is_new: boolean
       /** Job Id */
       job_id?: string | null
+      /** Paced Until */
+      paced_until?: number | null
       /** Published Around */
       published_around: number | null
       /** Published At */

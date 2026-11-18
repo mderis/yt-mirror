@@ -82,6 +82,9 @@ PROGRESS_EVERY_S = 0.25
 
 MIRRORABLE = frozenset({VideoStatus.NOT_DOWNLOADED, VideoStatus.FILE_MISSING})
 
+LONGEST_WAIT_S = 60.0
+"""The longest a worker waits before it looks again whether a paced download may start."""
+
 _GONE = "removed from YouTube"
 """The reason a queued download of a video removed from YouTube ends (R-CH-14)."""
 """The statuses from which "Mirror" puts a video in line (ARCHITECTURE section 6.1)."""
@@ -325,9 +328,10 @@ class DownloaderService:
         try:
             while True:
                 with self._wake:
-                    self._wake.wait_for(
-                        lambda: self._stopped or self._too_many() or self._next_job() is not None
-                    )
+                    while not (self._stopped or self._too_many() or self._next_job() is not None):
+                        if not self._wake.wait(timeout=self._wait_for_room_s()):
+                            # Time passed: room in the budget may have come back.
+                            self._update_paced()
                     if self._stopped or self._too_many():
                         self._workers -= 1
                         return
@@ -357,8 +361,11 @@ class DownloaderService:
     def _next_job(self) -> Job | None:
         """The waiting job a worker takes next, or None when none may start now.
 
-        Nothing starts while YouTube is paused (R-ER-05) or while every place is
-        taken (R-QU-01). A job that a worker took already is never taken twice.
+        Nothing starts while YouTube is paused (R-ER-05), while all downloads are
+        paused (R-QU-02) or while every place is taken (R-QU-01). A job started by
+        hand starts in its turn; an automatic one only when the lookup budget has
+        room, and while it waits a later job started by hand goes ahead (D-090).
+        A job that a worker took already is never taken twice.
         """
         if (
             self._stopped
@@ -367,10 +374,58 @@ class DownloaderService:
             or self._busy() >= self._capacity()
         ):
             return None
-        return next(
-            (job for job in self._jobs.jobs([JobState.WAITING]) if job.id not in self._running),
-            None,
-        )
+        room: int | None = None
+        for job in self._jobs.jobs([JobState.WAITING]):
+            if job.id in self._running:
+                continue
+            if job.by_hand:
+                return job
+            if room is None:
+                room = self._youtube.download_room()
+            if room > 0:
+                return job
+        return None
+
+    def _wait_for_room_s(self) -> float | None:
+        """How long a worker waits before it looks again (D-090).
+
+        Until the budget has room when a paced download waits, else until it is woken.
+        """
+        until = self._youtube.paced_until(1)[0]
+        if until is None or not any(
+            not job.by_hand and job.id not in self._running
+            for job in self._jobs.jobs([JobState.WAITING])
+        ):
+            return None
+        return min(LONGEST_WAIT_S, max(1.0, until - self._clock.now().timestamp()))
+
+    def _update_paced(self) -> None:
+        """Note when each automatic download that waits for the budget may start (D-090).
+
+        Its row then says so, with that time, so that it never looks stuck. The
+        rows whose time changed are told again.
+        """
+        automatic = [
+            job
+            for job in self._jobs.jobs([JobState.WAITING])
+            if not job.by_hand and job.id not in self._running
+        ]
+        times = self._youtube.paced_until(len(automatic))
+        paced = {
+            job.video_id: int(until)
+            for job, until in zip(automatic, times, strict=True)
+            if until is not None
+        }
+        changed = self._state.set_paced(paced)
+        if paced and changed:
+            _log.info(
+                "queue.held",
+                msg="Automatic downloads wait for room in the lookup budget",
+                paced=len(paced),
+                next_start=min(paced.values()),
+            )
+        for video_id in changed:
+            self._views.tell_video(video_id)
 
     def work_once(self) -> bool:
         """Run the next waiting job, if there is one. Returns whether one ran."""
@@ -455,6 +510,7 @@ class DownloaderService:
             self._to_top(chosen)
         elif chosen and not queued:
             self._queue_changed()
+        self._update_paced()
         return queued
 
     def pause_all(self) -> None:
@@ -506,6 +562,7 @@ class DownloaderService:
             self._jobs.set_priorities(changes)
             self._wake.notify_all()
         _log.info("queue.reordered", msg="The waiting downloads were reordered", moved=len(changes))
+        self._update_paced()
         self._queue_changed()
 
     def queue_summary(self) -> QueueSummary:
@@ -874,6 +931,8 @@ class DownloaderService:
             if job.id in self._abandoned or self._is_cancelled(job.id):
                 raise DownloadCancelledError("cancelled before a file was written")
         self._files.make_folder(place.work, inside=place.folder)
+        # Its lookup was counted: the paced downloads may start later now (D-090).
+        self._update_paced()
 
     def _remove_work(self, place: _Place, log: FilteringBoundLogger) -> None:
         """Remove the temp folder of a job. A failure is a warning, never how the job ends.

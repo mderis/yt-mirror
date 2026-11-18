@@ -54,12 +54,15 @@ class QueueEntry:
         video: Its video.
         channel_title: The name of the video's channel.
         progress: How far it is, when it runs and reported already, else None.
+        paced_until: When it may start, while it waits for room in the lookup
+            budget (D-090), else None.
     """
 
     job: Job
     video: Video
     channel_title: str
     progress: JobProgress | None = None
+    paced_until: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

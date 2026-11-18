@@ -40,6 +40,7 @@ class DownloadState:
         self._progress: dict[str, JobProgress] = {}
         self._batches: dict[str, list[int]] = {}
         self._on_idle: list[Callable[[], None]] = []
+        self._paced: dict[str, int] = {}
 
     def queued(self, video_id: str, channel_id: str, job_id: str) -> None:
         """A download of a video was put in line.
@@ -74,6 +75,7 @@ class DownloadState:
         with self._lock:
             self._jobs.pop(video_id, None)
             self._progress.pop(video_id, None)
+            self._paced.pop(video_id, None)
             channel_id = self._channels.pop(video_id, None)
             if channel_id is None:
                 return
@@ -85,6 +87,33 @@ class DownloadState:
         if idle:
             for work in list(self._on_idle):
                 work()
+
+    def set_paced(self, paced: dict[str, int]) -> set[str]:
+        """Note which waiting downloads wait for room in the lookup budget (D-090).
+
+        Args:
+            paced: The time each of them may start, by video.
+
+        Returns:
+            The videos whose paced time changed, to be told again.
+        """
+        with self._lock:
+            changed = {
+                video_id
+                for video_id in set(paced) | set(self._paced)
+                if paced.get(video_id) != self._paced.get(video_id)
+            }
+            self._paced = dict(paced)
+            return changed
+
+    def paced_until(self, video_id: str) -> int | None:
+        """Return when a download waiting for room in the lookup budget may start, or None.
+
+        Args:
+            video_id: The video.
+        """
+        with self._lock:
+            return self._paced.get(video_id)
 
     def busy(self) -> bool:
         """Return whether any download waits or runs."""
