@@ -176,3 +176,4 @@ Manual:
 - [ ] Cmd+Q, Quit in the Dock and the red window button while a download runs each ask "Quit yt-mirror?". "Keep running" keeps the download going; "Quit" quits.
 - [ ] Every item of the File, View, Channel, Window and Help menus does what its control in the window does, and is greyed out when it does not apply: open a paused channel and see "Resume Channel" and no "Check Now".
 - [ ] Cmd+R on a channel checks it once (one check in the log, not two). Cmd+A with no text field in focus selects the shown videos.
+- [ ] With the library on a real exFAT drive: mirror a video, let a check rename it after a new title, download it again, and remove the channel with "Delete the files". Each file lands in its place with the published dates, and the old one of the re-download is in the Trash under its own name.

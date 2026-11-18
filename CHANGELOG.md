@@ -14,7 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Auto-mirror: a channel with auto-mirror on downloads every new video after each check, and the header of a channel turns it on or off. Before it starts more than 5 downloads of a channel at once, it asks: "Mirror all N videos (about X GB)", "Only new videos from now on" or "Turn auto-mirror off". Downloads that start by themselves are paced to protect your access to YouTube, and their row says until when they wait; the first 20 videos of anything you start by hand never wait.
 - A file that went missing is downloaded again by itself on an auto-mirror channel, up to 5 per channel; above that the channel page asks, with "Mirror them again" and "Leave them missing".
 - "Mirror everything missing" in the channel menu and the menu bar.
-- Re-download: a downloaded video can be downloaded again in its channel's quality. The old file stays until the new one is complete and checked, then goes to the Trash; a failed or cancelled re-download leaves it as it was. A file below the quality of its channel is marked.
+- Re-download: a downloaded video can be downloaded again in its channel's quality. The old file stays until the new one is complete and checked, then goes to the Trash under its own name; a failed or cancelled re-download leaves it as it was, and a quit or crash at any moment is undone or finished at the next start. Nothing ever deletes the old file for good. It works on drives that cannot swap two files, such as exFAT. A file below the quality of its channel is marked.
 - The channel page: tabs with counts (All, New, Not downloaded, Synced, Failed), search by title, sort (newest, oldest, title, duration, size), a grid view next to the list (remembered), a checkbox on every video with Shift-click for a range and "Select all shown", and a bar for the selected videos with Mirror, Re-download and Clear. Channels of any size scroll smoothly.
 - The menu of a video, by a right-click or its "More actions" button: Play, Show in Finder, Details, Open on YouTube, Mirror, Mirror first, Re-download, Retry.
 - Keyboard shortcuts: the arrow keys, Space, Enter, Esc, M, P, F, G, /, 1 to 9, Cmd+A and Cmd+R, and "?" or Help > Keyboard Shortcuts for the list.
@@ -65,6 +65,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A download whose channel folder cannot be reached waits instead of failing with "The folder is not available".
 
 ### Fixed
+- Downloads into a library on an exFAT drive, as many external drives and USB sticks shared with Windows are, failed at the last step with "The folder is not available": exFAT cannot rename a file in the safe way the app used. Every move into a channel folder now works there too, and on HFS+, never taking the name of another file.
+- A check no longer undoes what you changed while it ran: auto-mirror turned off, "Only new videos from now on", "Leave them missing" or a pause stay as you set them. A download that fails no longer takes back an exact date found meanwhile.
+- Selecting thousands of videos and pressing Mirror takes moments instead of minutes, and the window stays smooth; one change of a video redraws only its row.
 - Removing a channel whose downloads take a moment to stop says "Stopping 2 downloads..." instead of looking stuck.
 - A download that stalls shows its last progress, never an older percent.
 - Cancelling a download while YouTube is still asked for its details no longer holds the queue: the next download starts at once.
