@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 from structlog.testing import capture_logs
 
-from tests.fixtures.world import SMALL_ID, World, channel_file
+from tests.fixtures.world import BIG_ID, SMALL_ID, World, channel_file
 from ytmirror.core.channels import VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import DownloadProgress, JobProgressed, JobState, Stage
@@ -935,3 +935,69 @@ def test_the_count_answers_at_once_while_the_queue_waits_for_the_database(
     assert count == 0
     release.set()
     writer.join(10)
+
+
+# --- checks beside running downloads (R-CH-26, R-CH-28)
+
+DAY = 86_400
+
+
+def test_a_check_beside_two_running_downloads_notices_a_deleted_file(world: World) -> None:
+    """R-CH-28, R-MI-06: the file check of every check runs beside downloads and leaves them be."""
+    parallel(world, 2)
+    world.downloader.mirror([THIRD])
+    world.download_all()
+    synced = world.repository.video(THIRD)
+    assert synced is not None
+    assert synced.file_name is not None
+    world.files.trash(world.library / "Small Channel" / synced.file_name)
+    held = hold(world, FIRST, SECOND)
+    workers = start_workers(world)
+    world.downloader.mirror([FIRST, SECOND])
+    assert world.download.asked[FIRST].wait(10)
+    assert world.download.asked[SECOND].wait(10)
+
+    world.check(SMALL_ID)
+
+    assert status_of(world, THIRD) is VideoStatus.FILE_MISSING
+    assert status_of(world, FIRST) is VideoStatus.DOWNLOADING
+    assert status_of(world, SECOND) is VideoStatus.DOWNLOADING
+    held[FIRST].set()
+    held[SECOND].set()
+    eventually(lambda: status_of(world, FIRST) is VideoStatus.SYNCED, "the first one ended")
+    eventually(lambda: status_of(world, SECOND) is VideoStatus.SYNCED, "the second one ended")
+    stop(world, workers)
+
+
+def test_with_two_downloads_at_once_only_their_channel_waits_for_its_full_check(
+    tmp_path: Path,
+) -> None:
+    """R-CH-26: never while downloads of that channel run; another channel is checked meanwhile."""
+    world = World(
+        tmp_path, channel_file(), channel_file(BIG_ID, title="Big", handle="@big", prefix="bg")
+    )
+    world.add_and_list("@small")
+    world.add_and_list("@big")
+    world.settings_repository.save(
+        Settings(
+            check_on_open=False,
+            recheck_interval_min=0,
+            fetch_exact_dates=False,
+            parallel_downloads=2,
+        )
+    )
+    held = hold(world, FIRST, SECOND)
+    workers = start_workers(world)
+    world.downloader.mirror([FIRST, SECOND])
+    assert world.download.asked[FIRST].wait(10)
+    assert world.download.asked[SECOND].wait(10)
+    world.clock.advance(7 * DAY)
+
+    with capture_logs() as logs:
+        world.scheduler.tick()
+
+    checked = [line["channel_id"] for line in logs if line["event"] == "scheduler.full_check"]
+    assert checked == [BIG_ID]
+    held[FIRST].set()
+    held[SECOND].set()
+    stop(world, workers)
