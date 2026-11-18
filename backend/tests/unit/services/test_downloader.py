@@ -25,6 +25,7 @@ from ytmirror.core.jobs import (
     VideoUpdated,
 )
 from ytmirror.core.models import Settings
+from ytmirror.core.queue import RETRY_DELAYS_S
 
 PUBLISHED = 1_793_379_761
 FIRST = "sm000000005"
@@ -331,7 +332,7 @@ def test_a_failed_download_says_why_and_leaves_nothing_behind(world: World) -> N
 
 def test_a_failed_video_can_be_retried(world: World) -> None:
     """R-QU-08, R-ER-03: Retry puts a failed video in line again, and it can then sync."""
-    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE)
+    world.download.fail = AppError(ErrorCode.VIDEO_PRIVATE)
     world.downloader.mirror([FIRST])
     world.download_all()
     world.download.fail = None
@@ -352,14 +353,17 @@ def test_only_a_failed_video_can_be_retried(world: World) -> None:
 
 
 def test_a_file_that_fails_verification_is_never_put_in_place(world: World) -> None:
-    """R-QA-06: a file without audio fails verification and never looks finished."""
+    """R-QA-06, R-QU-07: a file without audio fails verification and never looks finished.
+
+    The failure can pass, so the download waits to be tried again.
+    """
     work = folder_of(world) / ".yt-mirror" / "tmp" / JOB1 / f"{FIRST}.mkv"
     world.media.facts[work] = dataclasses.replace(GOOD, acodec=None)
     world.downloader.mirror([FIRST])
 
     world.download_all()
 
-    assert status_of(world, FIRST) is VideoStatus.FAILED
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
     assert world.repository.video(FIRST).last_error_code is ErrorCode.VERIFY_FAILED  # pyright: ignore[reportOptionalMemberAccess]
     assert visible(world) == []
 
@@ -375,7 +379,7 @@ def test_a_file_whose_dates_cannot_be_set_never_reaches_the_folder(world: World)
     video = world.repository.video(FIRST)
     assert video is not None
     assert (video.last_error_code, video.file_name) == (ErrorCode.DATES_NOT_APPLIED, None)
-    assert everything(world) == []
+    assert visible(world) == []
 
 
 def test_dates_that_read_back_different_fail_the_job(world: World) -> None:
@@ -611,7 +615,7 @@ def test_two_jobs_for_one_video_do_not_stop_the_queue(world: World) -> None:
 
 def test_a_second_press_of_mirror_or_retry_gives_no_second_job(world: World) -> None:
     """R-MI-01, R-QU-08: a job per video, however often it is pressed."""
-    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE)
+    world.download.fail = AppError(ErrorCode.VIDEO_PRIVATE)
     world.downloader.mirror([FIRST])
     world.download_all()
 
@@ -708,7 +712,7 @@ def test_dates_that_cannot_even_be_read_take_the_file_out_again(world: World) ->
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.FAILED, None, None)
+    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.QUEUED, None, None)
     assert video.last_error_code is ErrorCode.DATES_NOT_APPLIED
     assert visible(world) == []
 
@@ -1471,6 +1475,7 @@ def test_a_file_that_cannot_be_moved_back_keeps_its_marker(world: World) -> None
             raise AppError(ErrorCode.PERMISSION_DENIED, {"file": str(source)})
         return move(source, target)
 
+    read_dates = world.files.read_dates
     world.files.move = stuck_on_the_way_back  # type: ignore[method-assign]
     world.files.read_dates = lambda path: (_ for _ in ()).throw(OSError("unreadable"))  # type: ignore[method-assign]
 
@@ -1478,13 +1483,18 @@ def test_a_file_that_cannot_be_moved_back_keeps_its_marker(world: World) -> None
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.placing_file) == (VideoStatus.FAILED, name)
+    assert (video.status, video.placing_file) == (VideoStatus.QUEUED, name)
     assert world.files.exists(folder / name)
 
-    world.downloader.start()
+    world.files.move = move  # type: ignore[method-assign]
+    world.files.read_dates = read_dates  # type: ignore[method-assign]
+    world.clock.advance(RETRY_DELAYS_S[0] + 1)
+    world.download_all()
 
-    assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
     assert world.files.trashed == [folder / name]
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.placing_file, video.file_name) == (VideoStatus.SYNCED, None, name)
 
 
 def test_a_name_another_video_is_being_placed_under_stays_taken(world: World) -> None:

@@ -1,9 +1,11 @@
 """Tests of the order of the queue: reorder and "Mirror first"."""
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from ytmirror.core.queue import priorities_first, priorities_in_order
+from ytmirror.core.errors import ErrorCode
+from ytmirror.core.queue import priorities_first, priorities_in_order, retry_delay
 
 WAITING = [("a", 3), ("b", 4), ("c", 7)]
 
@@ -64,3 +66,38 @@ def test_any_reorder_gives_the_exact_order_asked_for(
     changes = priorities_in_order(waiting, wanted)
 
     assert order_after(waiting, changes) == wanted
+
+
+def test_a_transient_failure_is_retried_three_times_with_longer_waits() -> None:
+    """R-QU-07: network and server failures are retried up to 3 times, each after longer."""
+    delays = [retry_delay(ErrorCode.NETWORK_UNREACHABLE, attempts) for attempts in range(4)]
+
+    assert delays == [60, 300, 900, None]
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        ErrorCode.MEMBERS_ONLY,
+        ErrorCode.VIDEO_PRIVATE,
+        ErrorCode.AGE_RESTRICTED,
+        ErrorCode.VIDEO_REMOVED,
+        ErrorCode.GEO_BLOCKED,
+        ErrorCode.NO_FORMATS,
+    ],
+)
+def test_a_permanent_failure_is_never_retried(code: ErrorCode) -> None:
+    """R-QU-07: members-only, private, age-restricted, removed, geo-blocked: no retry."""
+    assert retry_delay(code, 0) is None
+
+
+def test_failures_that_pause_or_need_the_user_are_not_retried_by_this_rule() -> None:
+    """R-QU-07, R-ER-05, R-QU-10, R-QU-11: these pause the queue or wait for the user."""
+    for code in (
+        ErrorCode.BOT_CHECK,
+        ErrorCode.DISK_FULL,
+        ErrorCode.FOLDER_UNAVAILABLE,
+        ErrorCode.TOOL_MISSING,
+        ErrorCode.INTERNAL,
+    ):
+        assert retry_delay(code, 0) is None

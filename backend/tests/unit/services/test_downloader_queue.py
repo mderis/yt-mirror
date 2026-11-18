@@ -15,7 +15,7 @@ from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import DownloadProgress, JobProgressed, JobState, Stage
 from ytmirror.core.models import Settings
 from ytmirror.core.pacing import LookupBudget
-from ytmirror.core.queue import QueueChanged, QueueSummary
+from ytmirror.core.queue import RETRY_DELAYS_S, QueueChanged, QueueSummary
 
 FIRST = "sm000000005"
 SECOND = "sm000000004"
@@ -672,3 +672,81 @@ def test_a_drive_that_comes_back_is_cleaned_up_without_a_restart(world: World) -
 
     assert world.files.exists(temp_of(world, ended)) is False
     assert world.files.exists(temp_of(world, waiting.id) / f"{FIRST}.f399.mp4.part")
+
+
+# --- automatic retries (R-QU-07)
+
+
+def test_a_network_failure_is_tried_again_later_by_itself(world: World) -> None:
+    """R-QU-07: a failure that passes puts the download back in line, to run after a wait."""
+    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE, {})
+    world.downloader.mirror([FIRST])
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    view = world.views.video(FIRST)
+    assert view is not None
+    assert view.retry_at == world.now() + RETRY_DELAYS_S[0]
+    assert view.video.last_error_code is ErrorCode.NETWORK_UNREACHABLE
+    [job] = world.jobs.jobs([JobState.WAITING])
+    assert job.by_hand is False, "a retry is automatic and waits for the budget (D-090)"
+    assert world.downloader.work_once() is False, "not before its time"
+
+    world.download.fail = None
+    world.clock.advance(RETRY_DELAYS_S[0])
+    world.download_all()
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+    view = world.views.video(FIRST)
+    assert view is not None
+    assert (view.retry_at, view.video.attempts) == (None, 0)
+
+
+def test_after_three_retries_the_download_fails(world: World) -> None:
+    """R-QU-07: up to 3 retries, each after a longer wait; then the video is Failed."""
+    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE, {})
+    world.downloader.mirror([FIRST])
+    waits: list[int] = []
+
+    world.download_all()
+    for _retry in range(3):
+        view = world.views.video(FIRST)
+        assert view is not None
+        assert view.retry_at is not None
+        waits.append(view.retry_at - world.now())
+        world.clock.advance(waits[-1])
+        world.download_all()
+
+    assert waits == list(RETRY_DELAYS_S)
+    assert status_of(world, FIRST) is VideoStatus.FAILED
+    assert len(world.download.calls) == 4
+
+
+def test_a_permanent_failure_fails_at_once(world: World) -> None:
+    """R-QU-07: a members-only video is not retried by itself."""
+    world.download.fail = AppError(ErrorCode.MEMBERS_ONLY, {})
+    world.downloader.mirror([FIRST])
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.FAILED
+    assert world.jobs.jobs([JobState.WAITING]) == ()
+
+
+def test_retry_by_hand_starts_the_automatic_retries_afresh(world: World) -> None:
+    """R-QU-07, R-QU-08: after Retry, a failure that passes is again tried 3 times by itself."""
+    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE, {})
+    world.downloader.mirror([FIRST])
+    world.download_all()
+    for delay in RETRY_DELAYS_S:
+        world.clock.advance(delay)
+        world.download_all()
+    assert status_of(world, FIRST) is VideoStatus.FAILED
+
+    world.downloader.retry(FIRST)
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    view = world.views.video(FIRST)
+    assert view is not None
+    assert view.video.attempts == 1

@@ -14,12 +14,50 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ytmirror.core.channels import Video
+from ytmirror.core.errors import ErrorCode
 from ytmirror.core.jobs import Job, JobProgress
 
 HAND_JOBS_PER_ACTION = 20
 """How many jobs of one action of the user count as started by hand (R-DT-06, D-090).
 
 The jobs beyond them wait for room in the lookup budget like automatic ones."""
+
+
+RETRY_DELAYS_S = (60, 5 * 60, 15 * 60)
+"""How long a download waits before each automatic retry after a transient failure (R-QU-07).
+
+Three retries, each after a longer wait."""
+
+RETRIED = frozenset(
+    {
+        ErrorCode.NETWORK_UNREACHABLE,
+        ErrorCode.RATE_LIMITED,
+        ErrorCode.YOUTUBE_CHANGED,
+        ErrorCode.FFMPEG_FAILED,
+        ErrorCode.VERIFY_FAILED,
+        ErrorCode.DATES_NOT_APPLIED,
+    }
+)
+"""The failures a download is retried after by itself (R-QU-07): the network, YouTube's
+servers and a step of the processing. Permanent ones are never retried; YouTube's check,
+a full disk and a folder that cannot be reached pause instead of failing (R-ER-05,
+R-QU-10, R-QU-11); a missing tool and an unexpected error wait for the user."""
+
+
+def retry_delay(code: ErrorCode, attempts: int) -> int | None:
+    """Return how long a failed download waits before it is tried again, or None (R-QU-07).
+
+    Args:
+        code: Why it failed.
+        attempts: How many automatic attempts were made since it last succeeded.
+
+    Returns:
+        Seconds, or None when it is not retried: the failure is not one that passes,
+        or every retry was made.
+    """
+    if code not in RETRIED or attempts >= len(RETRY_DELAYS_S):
+        return None
+    return RETRY_DELAYS_S[attempts]
 
 
 @dataclass(frozen=True, slots=True)

@@ -1893,6 +1893,8 @@ export interface components {
      *         date: What an approximate date shows (R-DT-13), or None for an exact date.
      *         paced_until: When an automatic download that waits for room in the lookup
      *             budget may start, or None (R-DT-06, D-090).
+     *         retry_at: When a download that failed in a way that passes is tried again by
+     *             itself, or None (R-QU-07).
      */
     Video: {
       date?: components['schemas']['DateInfo'] | null
@@ -1921,6 +1923,8 @@ export interface components {
       /** Published At */
       published_at: number | null
       published_precision: components['schemas']['DatePrecision'] | null
+      /** Retry At */
+      retry_at?: number | null
       status: components['schemas']['VideoStatus']
       /** Title */
       title: string

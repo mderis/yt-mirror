@@ -487,6 +487,8 @@ class VideoView:
             (R-DT-13). None for an exact date or no date.
         paced_until: When an automatic download that waits for room in the lookup
             budget may start, or None (R-DT-06, D-090).
+        retry_at: When a download that failed in a way that passes is tried again by
+            itself, or None (R-QU-07).
     """
 
     video: Video
@@ -496,3 +498,4 @@ class VideoView:
     progress: JobProgress | None = None
     date: DateShown | None = None
     paced_until: int | None = None
+    retry_at: int | None = None

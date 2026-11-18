@@ -64,6 +64,7 @@ from ytmirror.core.queue import (
     QueueSummary,
     priorities_first,
     priorities_in_order,
+    retry_delay,
 )
 from ytmirror.core.status import InvalidTransitionError, StatusChange, change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
@@ -278,6 +279,9 @@ class DownloaderService:
                     exc_info=True,
                 )
         self._retry_side_files_quietly()
+        for job in self._jobs.jobs([JobState.WAITING]):
+            if job.not_before is not None and job.not_before > self._now():
+                self._state.set_retry(job.video_id, job.not_before)
         self._youtube.when_asking_again(self._wake_up)
         with self._wake:
             self._started = True
@@ -384,8 +388,9 @@ class DownloaderService:
         ):
             return None
         room: int | None = None
+        now = self._now()
         for job in self._jobs.jobs([JobState.WAITING]):
-            if job.id in self._running:
+            if job.id in self._running or (job.not_before is not None and job.not_before > now):
                 continue
             if job.by_hand:
                 return job
@@ -400,13 +405,20 @@ class DownloaderService:
 
         Until the budget has room when a paced download waits, else until it is woken.
         """
-        until = self._youtube.paced_until(1)[0]
-        if until is None or not any(
-            not job.by_hand and job.id not in self._running
-            for job in self._jobs.jobs([JobState.WAITING])
-        ):
+        waiting = [
+            job for job in self._jobs.jobs([JobState.WAITING]) if job.id not in self._running
+        ]
+        now = self._clock.now().timestamp()
+        moments: list[float] = [
+            job.not_before for job in waiting if job.not_before and job.not_before > now
+        ]
+        if any(not job.by_hand for job in waiting):
+            until = self._youtube.paced_until(1)[0]
+            if until is not None:
+                moments.append(until)
+        if not moments:
             return None
-        return min(LONGEST_WAIT_S, max(1.0, until - self._clock.now().timestamp()))
+        return min(LONGEST_WAIT_S, max(1.0, min(moments) - now))
 
     def _update_paced(self) -> None:
         """Note when each automatic download that waits for the budget may start (D-090).
@@ -900,6 +912,7 @@ class DownloaderService:
         running = replace(job, state=JobState.RUNNING, stage=Stage.VIDEO, started_at=self._now())
         try:
             video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
+            self._state.set_retry(video.id, None)
             self._videos[job.id] = video
             self._queue_changed()
             video = self._clean_marker_first(running, video, place)
@@ -917,6 +930,16 @@ class DownloaderService:
             # A file of the job that could not leave the channel folder keeps its marker.
             keep_marker = job.id not in self._nothing_placed
             stopped = isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id)
+            delay = (
+                retry_delay(error.code, video.attempts)
+                if isinstance(error, AppError) and not stopped
+                else None
+            )
+            if delay is not None and isinstance(error, AppError):
+                # A failure that passes: tried again later, from its partial files (R-QU-07).
+                keep_work = True
+                self._retry_later(running, video, error.code, delay, log, keep_marker=keep_marker)
+                return
             if (stopped and self._resumes(job.id)) or (
                 isinstance(error, AppError) and error.code is ErrorCode.BOT_CHECK
             ):
@@ -1424,6 +1447,44 @@ class DownloaderService:
                 **details,
             )
 
+    def _retry_later(
+        self,
+        job: Job,
+        video: Video,
+        code: ErrorCode,
+        delay: int,
+        log: FilteringBoundLogger,
+        *,
+        keep_marker: bool,
+    ) -> None:
+        """Put a download that failed in a way that passes back in line, to try later (R-QU-07).
+
+        It waits ``delay`` seconds, keeps its temp folder, and is an automatic job
+        from now on: it waits for room in the lookup budget too (D-090). Its row
+        says when it is tried again.
+        """
+        now = self._now()
+        attempt = video.attempts + 1
+        waiting = replace(job, by_hand=False, not_before=now + delay, error_code=code)
+        failed = replace(video, attempts=attempt, last_error_code=code, last_error_at=now)
+        self._store_end(
+            waiting, failed, JobState.WAITING, VideoStatus.QUEUED, "retry", keep_marker=keep_marker
+        )
+        self._state.restarted(video.id)
+        self._state.set_retry(video.id, now + delay)
+        self._views.tell_video(video.id)
+        self._views.publish(video.channel_id)
+        self._queue_changed()
+        self._wake_up()
+        log.warning(
+            "download.retry",
+            msg="The download failed in a way that passes. It is tried again later",
+            reason="transient",
+            error_code=code.value,
+            attempt=attempt,
+            delay_s=delay,
+        )
+
     def _back_in_line(
         self,
         job: Job,
@@ -1740,6 +1801,9 @@ class DownloaderService:
             created_at=self._now(),
             by_hand=by_hand,
         )
+        if by_hand:
+            # An action of the user starts the retries of R-QU-07 afresh.
+            video = replace(video, attempts=0)
         queued = self._change(job, video, VideoStatus.QUEUED, reason)
         self._state.queued(video.id, channel.id, job.id)
         _log.info(

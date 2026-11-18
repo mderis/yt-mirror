@@ -41,6 +41,7 @@ class DownloadState:
         self._batches: dict[str, list[int]] = {}
         self._on_idle: list[Callable[[], None]] = []
         self._paced: dict[str, int] = {}
+        self._retries: dict[str, int] = {}
 
     def queued(self, video_id: str, channel_id: str, job_id: str) -> None:
         """A download of a video was put in line.
@@ -85,6 +86,7 @@ class DownloadState:
             self._jobs.pop(video_id, None)
             self._progress.pop(video_id, None)
             self._paced.pop(video_id, None)
+            self._retries.pop(video_id, None)
             channel_id = self._channels.pop(video_id, None)
             if channel_id is None:
                 return
@@ -114,6 +116,28 @@ class DownloadState:
             }
             self._paced = dict(paced)
             return changed
+
+    def set_retry(self, video_id: str, at: int | None) -> None:
+        """Note when a download that failed in a way that passes is tried again (R-QU-07).
+
+        Args:
+            video_id: The video.
+            at: When, or None when it is no longer waiting for a retry.
+        """
+        with self._lock:
+            if at is None:
+                self._retries.pop(video_id, None)
+            else:
+                self._retries[video_id] = at
+
+    def retry_at(self, video_id: str) -> int | None:
+        """Return when a failed download is tried again by itself, or None (R-QU-07).
+
+        Args:
+            video_id: The video.
+        """
+        with self._lock:
+            return self._retries.get(video_id)
 
     def paced_until(self, video_id: str) -> int | None:
         """Return when a download waiting for room in the lookup budget may start, or None.

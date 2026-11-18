@@ -179,6 +179,7 @@ class ChannelViews:
             progress=self._downloads.progress_of(video.id),
             date=self._date_of(video, now, state),
             paced_until=self._downloads.paced_until(video.id),
+            retry_at=self._downloads.retry_at(video.id),
         )
 
     def _date_of(self, video: Video, now: int, state: FetchState | None) -> DateShown | None:

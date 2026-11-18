@@ -362,6 +362,8 @@ class Video(BaseModel):
         date: What an approximate date shows (R-DT-13), or None for an exact date.
         paced_until: When an automatic download that waits for room in the lookup
             budget may start, or None (R-DT-06, D-090).
+        retry_at: When a download that failed in a way that passes is tried again by
+            itself, or None (R-QU-07).
     """
 
     id: str
@@ -382,6 +384,7 @@ class Video(BaseModel):
     error_code: ErrorCode | None = None
     date: DateInfo | None = None
     paced_until: int | None = None
+    retry_at: int | None = None
 
     @classmethod
     def of(cls, view: VideoView) -> Video:
@@ -406,6 +409,7 @@ class Video(BaseModel):
             error_code=video.last_error_code,
             date=DateInfo.of(view.date),
             paced_until=view.paced_until,
+            retry_at=view.retry_at,
         )
 
 
