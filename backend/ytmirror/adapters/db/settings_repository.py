@@ -16,7 +16,16 @@ from sqlalchemy.orm import Session
 from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.tables import SettingRow
 from ytmirror.core.channels import Quality
-from ytmirror.core.models import FULL_CHECK_DAYS, RECHECK_INTERVALS_MIN, LogDetail, Settings
+from ytmirror.core.models import (
+    DISK_GUARD_GB,
+    FULL_CHECK_DAYS,
+    PARALLEL_DOWNLOADS,
+    RECHECK_INTERVALS_MIN,
+    SPEED_LIMITS_MBPS,
+    LogDetail,
+    Settings,
+    ViewKind,
+)
 from ytmirror.ports.clock import Clock
 
 
@@ -72,6 +81,11 @@ def _values_of(settings: Settings) -> dict[str, str]:
         "full_check_days": json.dumps(settings.full_check_days),
         "fetch_exact_dates": json.dumps(settings.fetch_exact_dates),
         "repair_dates": json.dumps(settings.repair_dates),
+        "parallel_downloads": json.dumps(settings.parallel_downloads),
+        "speed_limit_mbps": json.dumps(settings.speed_limit_mbps),
+        "disk_guard_gb": json.dumps(settings.disk_guard_gb),
+        "downloads_paused": json.dumps(settings.downloads_paused),
+        "default_view": json.dumps(settings.default_view.value),
     }
 
 
@@ -102,6 +116,15 @@ def _settings_from(stored: Mapping[str, object]) -> Settings:
         ),
         fetch_exact_dates=_flag(stored.get("fetch_exact_dates"), defaults.fetch_exact_dates),
         repair_dates=_flag(stored.get("repair_dates"), defaults.repair_dates),
+        parallel_downloads=_choice(
+            stored.get("parallel_downloads"), PARALLEL_DOWNLOADS, defaults.parallel_downloads
+        ),
+        speed_limit_mbps=_choice(
+            stored.get("speed_limit_mbps"), SPEED_LIMITS_MBPS, defaults.speed_limit_mbps
+        ),
+        disk_guard_gb=_choice(stored.get("disk_guard_gb"), DISK_GUARD_GB, defaults.disk_guard_gb),
+        downloads_paused=_flag(stored.get("downloads_paused"), defaults.downloads_paused),
+        default_view=_view(stored.get("default_view"), defaults.default_view),
     )
 
 
@@ -109,6 +132,14 @@ def _quality(value: object, default: Quality) -> Quality:
     """Return a stored quality, or the default when it cannot be read (R-SE-04)."""
     try:
         return Quality(value) if isinstance(value, str) else default
+    except ValueError:
+        return default
+
+
+def _view(value: object, default: ViewKind) -> ViewKind:
+    """Return a stored view, or the default when it cannot be read (R-SE-04)."""
+    try:
+        return ViewKind(value) if isinstance(value, str) else default
     except ValueError:
         return default
 

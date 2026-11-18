@@ -376,6 +376,8 @@ def _channel_of(row: ChannelRow) -> Channel:
         position=row.position,
         folder_created=row.folder_created,
         check_retries=row.check_retries,
+        missing_left=row.missing_left,
+        auto_mirror_asked=row.auto_mirror_asked,
     )
 
 
@@ -415,4 +417,5 @@ def _video_of(row: VideoRow) -> Video:
         placing_file=row.placing_file,
         rename_from=row.rename_from,
         rename_to=row.rename_to,
+        replacing=row.replacing,
     )

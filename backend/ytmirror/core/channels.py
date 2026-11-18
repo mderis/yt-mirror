@@ -223,6 +223,11 @@ class Channel:
             may go to the Trash when a removal leaves it empty (R-CH-32).
         check_retries: How many automatic retries of a failed check were made since
             the last successful one (R-CH-25).
+        missing_left: How many missing files the user chose to leave missing, or None.
+            Auto-mirror downloads none of them again until more are missing (R-MI-06,
+            D-092).
+        auto_mirror_asked: Whether auto-mirror may start the downloads of the channel.
+            False until the user answered the question of R-MI-02 (D-095).
     """
 
     id: str
@@ -244,6 +249,8 @@ class Channel:
     position: int = 0
     folder_created: bool = False
     check_retries: int = 0
+    missing_left: int | None = None
+    auto_mirror_asked: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +292,8 @@ class Video:
         rename_from: The name of a file being renamed after a new title, or None.
         rename_to: The name it is being renamed to, or None. Both are set before the
             move and cleared when the new name is stored (R-FN-06).
+        replacing: The marker of a re-download that swaps its new file in, or None.
+            Set before the swap, cleared when the new file is stored (R-QL-06, D-093).
     """
 
     id: str
@@ -319,6 +328,7 @@ class Video:
     placing_file: str | None = None
     rename_from: str | None = None
     rename_to: str | None = None
+    replacing: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

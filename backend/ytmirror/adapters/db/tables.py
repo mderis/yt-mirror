@@ -7,7 +7,7 @@ in ``backend/ytmirror/migrations/versions/`` in the same commit.
 Tests: backend/tests/migrations/test_schema_matches_tables.py
 """
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, false
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, false, true
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -61,6 +61,8 @@ class ChannelRow(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     folder_created: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     check_retries: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    missing_left: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    auto_mirror_asked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -110,6 +112,7 @@ class VideoRow(Base):
     placing_file: Mapped[str | None] = mapped_column(Text, nullable=True)
     rename_from: Mapped[str | None] = mapped_column(Text, nullable=True)
     rename_to: Mapped[str | None] = mapped_column(Text, nullable=True)
+    replacing: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -136,6 +139,9 @@ class JobRow(Base):
     error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     finished_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    by_hand: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
+    not_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    formats: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 

@@ -12,7 +12,7 @@ from ytmirror.adapters.db.engine import create_db_engine
 from ytmirror.adapters.db.schema import AlembicSchema
 from ytmirror.adapters.db.settings_repository import SqlSettingsRepository
 from ytmirror.core.channels import Quality
-from ytmirror.core.models import LogDetail, Settings
+from ytmirror.core.models import LogDetail, Settings, ViewKind
 from ytmirror.ports.settings_repository import SettingsRepository
 
 
@@ -231,6 +231,13 @@ def test_the_settings_of_checks_and_dates_are_stored(repository: SettingsReposit
         ("full_check_days", "0"),
         ("full_check_days", '"7"'),
         ("check_on_open", "1"),
+        ("parallel_downloads", "0"),
+        ("parallel_downloads", "6"),
+        ("speed_limit_mbps", "3"),
+        ("disk_guard_gb", "-1"),
+        ("downloads_paused", "0"),
+        ("default_view", '"table"'),
+        ("default_view", "1"),
     ],
 )
 def test_a_value_that_is_not_one_of_the_choices_has_the_default(
@@ -247,3 +254,31 @@ def test_a_value_that_is_not_one_of_the_choices_has_the_default(
         )
 
     assert SqlSettingsRepository(engine, clock).load() == Settings()
+
+
+def test_the_settings_of_the_queue_have_the_defaults_of_the_spec(
+    repository: SettingsRepository,
+) -> None:
+    """R-SE-04, R-QU-01, R-QU-03, R-QU-10, R-QU-02, R-UI-03: the defaults of section 10."""
+    settings = repository.load()
+
+    assert settings.parallel_downloads == 2
+    assert settings.speed_limit_mbps == 0
+    assert settings.disk_guard_gb == 10
+    assert settings.downloads_paused is False
+    assert settings.default_view is ViewKind.LIST
+
+
+def test_the_settings_of_the_queue_are_stored(repository: SettingsRepository) -> None:
+    """R-SE-03, R-QU-01, R-QU-03, R-QU-10, R-QU-02, R-UI-03: each comes back as it was saved."""
+    chosen = Settings(
+        parallel_downloads=5,
+        speed_limit_mbps=1,
+        disk_guard_gb=25,
+        downloads_paused=True,
+        default_view=ViewKind.GRID,
+    )
+
+    repository.save(chosen)
+
+    assert repository.load() == chosen

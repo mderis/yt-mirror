@@ -71,6 +71,12 @@ class Job:
         error_code: Why a failed job failed, or None.
         started_at: When a worker took it, or None.
         finished_at: When it ended, or None.
+        by_hand: Whether the user started the job by hand. Such a job is never held
+            back by the lookup budget; an automatic one waits for room (R-DT-06, D-090).
+        not_before: The earliest time the job may start, or None. Set for an
+            automatic retry (R-QU-07).
+        formats: The formats the download chose, as yt-dlp names them (for example
+            ``"399+251"``), asked for again when it continues (R-QU-05, D-091).
     """
 
     id: str
@@ -84,6 +90,9 @@ class Job:
     error_code: ErrorCode | None = None
     started_at: int | None = None
     finished_at: int | None = None
+    by_hand: bool = True
+    not_before: int | None = None
+    formats: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

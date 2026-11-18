@@ -43,6 +43,13 @@ class LogDetail(StrEnum):
     VERBOSE = "verbose"
 
 
+class ViewKind(StrEnum):
+    """How a channel's videos are shown: as a list or as a grid (R-UI-03)."""
+
+    LIST = "list"
+    GRID = "grid"
+
+
 class InstallKind(StrEnum):
     """How this copy of the app was installed (docs/GLOSSARY.md)."""
 
@@ -75,6 +82,16 @@ class Settings:
         fetch_exact_dates: Whether exact dates are looked up in the background
             without a key (R-DT-05).
         repair_dates: Whether every check repairs the dates of synced files (R-DT-09).
+        parallel_downloads: How many downloads run at the same time, one of
+            ``PARALLEL_DOWNLOADS`` (R-QU-01).
+        speed_limit_mbps: The limit of all downloads together in MB/s, one of
+            ``SPEED_LIMITS_MBPS``; 0 means unlimited (R-QU-03).
+        disk_guard_gb: The queue pauses when the free space of a channel folder's
+            volume falls below this many GB (R-QU-10).
+        downloads_paused: Whether the user paused all downloads (R-QU-02, spec
+            section 10 "Pause all downloads").
+        default_view: Whether a channel shows its videos as a list or a grid. The
+            choice of the toggle is stored here, for the whole app (R-UI-03).
     """
 
     log_detail: LogDetail = LogDetail.NORMAL
@@ -88,6 +105,21 @@ class Settings:
     full_check_days: int = 7
     fetch_exact_dates: bool = True
     repair_dates: bool = True
+    parallel_downloads: int = 2
+    speed_limit_mbps: int = 0
+    disk_guard_gb: int = 10
+    downloads_paused: bool = False
+    default_view: ViewKind = ViewKind.LIST
+
+
+PARALLEL_DOWNLOADS = range(1, 6)
+"""How many downloads may run at the same time: 1 to 5 (R-QU-01)."""
+
+SPEED_LIMITS_MBPS = (0, 5, 2, 1)
+"""The speed limits the downloads panel offers, in MB/s; 0 is unlimited (R-QU-03)."""
+
+DISK_GUARD_GB = range(0, 10_001)
+"""The free space, in GB, below which the queue pauses (R-QU-10)."""
 
 
 RECHECK_INTERVALS_MIN = (30, 60, 180, 0)

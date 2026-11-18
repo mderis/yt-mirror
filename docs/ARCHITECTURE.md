@@ -223,6 +223,8 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | last_check_error | text, null | Error code of the last failed check |
 | last_check_error_at | int, null | When that check failed (R-CH-25) |
 | position | int | Sidebar order |
+| missing_left | int, null | How many missing files the user chose to leave missing; auto-mirror downloads none of them again until more are missing (R-MI-06, D-092). Migration 0011 |
+| auto_mirror_asked | bool | false until the user answered whether auto-mirror may start the downloads of the channel (R-MI-02, D-095). Migration 0011 sets it to false for every channel stored with auto-mirror on |
 
 ### videos
 | Column | Type | Notes |
@@ -248,6 +250,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | seen_in_first_listing | bool | false means it can be "new" (R-CH-15) |
 | file_name | text, null | Relative to the channel folder. Stored only when the video is recorded as synced |
 | placing_file | text, null | The marker of a file being moved into the channel folder: set before the move, cleared in the same write that records the video as synced, or once the file is known to be out of the folder (R-QA-06). Migration 0007 |
+| replacing | text, null | The marker of a re-download that swaps its new file in: set before the swap, cleared in the write that stores the new file (R-QL-06, D-093). Migration 0011 |
 | rename_from, rename_to | text, null | The marker of a rename after a new title (R-FN-06): set before the move, cleared in the same write that stores the new name. A rename the app's end interrupted is finished (the file is under the new name with this video's ID inside) or undone at the next check, whatever the title is by then. A check never writes these columns. Migration 0010 |
 | file_size | int, null | |
 | height | int, null | Downloaded height |
@@ -275,6 +278,9 @@ One row per queued or running piece of work on a video. Created by migration 000
 | stage | text, null | `video`, `audio`, `processing` |
 | error_code | text, null | |
 | started_at, finished_at | int, null | |
+| by_hand | bool | Whether the user started the job by hand: such a job is never held back by the lookup budget, an automatic one waits for room (R-DT-06, D-090). Migration 0011; earlier jobs count as started by hand |
+| not_before | int, null | The earliest time an automatic retry may start (R-QU-07). Migration 0011 |
+| formats | text, null | The formats the download chose (`399+251`), asked for again when it continues after a quit (R-QU-05, D-091). Migration 0011 |
 
 ### video_events
 Append-only history required by R-LG-03: `id`, `video_id`, `at`, `from_status`, `to_status`, `reason`, `job_id`. Created by migration 0006. A status change is written in the same transaction as the job and the video (the JobRepository port). The JobRepository writes only the columns of a video that a download owns (status, file, exact date, last failure), and a check writes only the others, so that a check that runs during a download never undoes it.

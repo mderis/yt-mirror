@@ -46,6 +46,7 @@ DOWNLOAD_FIELDS = (
     "published_exact",
     "published_precision",
     "placing_file",
+    "replacing",
 )
 """The columns of a video that a download writes. A check writes the others."""
 
@@ -266,6 +267,9 @@ def _job_values(job: Job) -> dict[str, Any]:
         "error_code": None if job.error_code is None else job.error_code.value,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
+        "by_hand": job.by_hand,
+        "not_before": job.not_before,
+        "formats": job.formats,
     }
 
 
@@ -290,4 +294,7 @@ def _job_of(row: JobRow) -> Job:
         error_code=None if row.error_code is None else ErrorCode(row.error_code),
         started_at=row.started_at,
         finished_at=row.finished_at,
+        by_hand=row.by_hand,
+        not_before=row.not_before,
+        formats=row.formats,
     )
