@@ -17,6 +17,8 @@ import IconButton from '@/components/IconButton.vue'
 import AddChannelDialog from '@/features/channel/AddChannelDialog.vue'
 import AutoMirrorQuestionDialog from '@/features/channel/AutoMirrorQuestionDialog.vue'
 import ChannelMenu from '@/features/channel/ChannelMenu.vue'
+import DownloadsPanel from '@/features/queue/DownloadsPanel.vue'
+import QueueBanners from '@/features/queue/QueueBanners.vue'
 import FilesLeftDialog from '@/features/channel/FilesLeftDialog.vue'
 import RemoveChannelDialog from '@/features/channel/RemoveChannelDialog.vue'
 import ApiKeyDialog from '@/features/settings/ApiKeyDialog.vue'
@@ -24,6 +26,7 @@ import ToolBanners from '@/features/tools/ToolBanners.vue'
 import { useErrorTexts } from '@/i18n/errors'
 import { channelRoute } from '@/router'
 import { useChannelsStore } from '@/stores/channels'
+import { useQueueStore } from '@/stores/queue'
 import { useToolsStore } from '@/stores/tools'
 import { useUiStore } from '@/stores/ui'
 
@@ -36,6 +39,7 @@ const router = useRouter()
 const channels = useChannelsStore()
 const tools = useToolsStore()
 const ui = useUiStore()
+const queue = useQueueStore()
 const textsOf = useErrorTexts()
 
 const menuChannel = computed(() => (ui.menu ? channels.byId.get(ui.menu.channelId) : undefined))
@@ -48,6 +52,8 @@ const hasBanners = computed(
     tools.troubled.length > 0 ||
     tools.installing ||
     channels.youtubePause !== null ||
+    queue.summary.disk_guard != null ||
+    queue.summary.folders_away.length > 0 ||
     ui.actionError !== null,
 )
 
@@ -85,6 +91,7 @@ function onAdded(channelId: string, existing: boolean): void {
       <div v-if="hasBanners" class="flex flex-col gap-3 px-7 pt-4" data-banners>
         <ToolBanners />
         <YouTubePauseBanner />
+        <QueueBanners />
         <AppBanner v-if="actionError" tone="error" data-banner="action-failed">
           <p class="font-medium">{{ actionError.happened }}</p>
           <p v-if="actionError.action" class="text-meta">
@@ -101,7 +108,10 @@ function onAdded(channelId: string, existing: boolean): void {
         </AppBanner>
       </div>
       <!-- While "home" is about to become the page of a channel, the welcome screen is not drawn. -->
-      <RouterView v-if="!leavingHome" class="min-h-0 flex-1" />
+      <div class="flex min-h-0 flex-1">
+        <RouterView v-if="!leavingHome" class="min-h-0 flex-1" />
+        <DownloadsPanel v-if="queue.panelOpen" />
+      </div>
     </div>
 
     <ChannelMenu

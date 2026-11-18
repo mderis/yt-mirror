@@ -20,6 +20,8 @@ import { useUiStore } from '@/stores/ui'
 import { useVideosStore } from '@/stores/videos'
 import { useViewStore } from '@/stores/view'
 
+import QueueBar from '@/features/queue/QueueBar.vue'
+
 import BulkBar from './BulkBar.vue'
 import ChannelHeader from './ChannelHeader.vue'
 import ChannelToolbar from './ChannelToolbar.vue'
@@ -250,5 +252,6 @@ watch(
       <VideoDetails v-if="videos.openVideoId !== null" />
     </div>
     <BulkBar v-if="selected.length > 0" :videos="selected" />
+    <QueueBar />
   </main>
 </template>

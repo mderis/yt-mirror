@@ -188,6 +188,54 @@ export const en = {
     failed:
       'Dates checked: {failed} files of {channel} could not be set. They are tried again at the next check.',
   },
+  /** The queue bar and the downloads panel (R-QU-01 to R-QU-04, design: Downloads.html). */
+  queue: {
+    bar: 'Downloads',
+    downloading: '{count} downloading',
+    waiting: '{count} waiting',
+    failed: '{count} failed',
+    paused: 'All downloads paused',
+    left: 'about {time} left',
+    speed: '{size}/s',
+    pauseAll: 'Pause all',
+    resumeAll: 'Resume all',
+    show: 'Show queue',
+    title: 'Downloads',
+    close: 'Close downloads',
+    speedLimit: 'Speed limit',
+    speeds: {
+      0: 'Unlimited speed',
+      5: 'Limit to 5 MB/s',
+      2: 'Limit to 2 MB/s',
+      1: 'Limit to 1 MB/s',
+    },
+    free: '{size} free',
+    now: 'Downloading now ({count} at a time)',
+    waitingTitle: 'Waiting ({count}) · drag to reorder',
+    failedTitle: 'Failed ({count})',
+    clearWaiting: 'Clear waiting',
+    remove: 'Remove {title} from queue',
+    moveHint: 'Alt and the arrow keys move a waiting download up or down.',
+    cancel: 'Cancel',
+    retry: 'Retry',
+    tried: 'Tried {count} times.',
+    processing: 'Processing: adding metadata, thumbnail and subtitles',
+    empty: 'Nothing is downloading or waiting.',
+    footer:
+      'Unfinished downloads continue from where they stopped the next time you open yt-mirror.',
+    clearTitle: 'Clear the waiting downloads?',
+    clearText:
+      '{count} waiting downloads leave the queue. Their videos stay listed and can be mirrored again.',
+    clearConfirm: 'Clear waiting',
+    clearCancel: 'Keep them',
+    /** The banner of the disk space guard (R-QU-10, States.html). */
+    diskGuard:
+      'Queue paused: only {free} free on {disk}. Downloads wait until more than {limit} is free.',
+    resumeAnyway: 'Resume anyway',
+    /** The banner of a channel folder that cannot be reached (R-QU-11). */
+    folderAway: 'The folder of {channel} cannot be reached. Its downloads wait.',
+    tryAgain: 'Try again',
+  },
   /** The guide of the optional YouTube API key (R-DT-12, design: ApiKeyGuide.html). */
   apiKey: {
     title: 'Get exact dates faster (optional)',
