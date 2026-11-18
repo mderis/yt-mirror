@@ -15,6 +15,8 @@ import { useI18n } from 'vue-i18n'
 
 import type { Video, ViewKind } from '@/api/client'
 
+import { useViewStore } from '@/stores/view'
+
 import VideoListItem from './VideoListItem.vue'
 import { useVideoRows } from './videoRows'
 
@@ -113,6 +115,26 @@ function attach(scroller: HTMLElement | null, old?: HTMLElement | null): void {
 }
 
 watch(() => props.scroller, attach)
+
+// The arrow keys move the current video: it is scrolled into view, drawn or not (R-UI-13).
+const viewStore = useViewStore()
+watch(
+  () => viewStore.cursor,
+  (videoId) => {
+    const index = videoId === null ? -1 : shown.value.indexOf(videoId)
+    const scroller = props.scroller
+    if (index < 0 || scroller === null) {
+      return
+    }
+    const offset = box.value ? box.value.offsetTop : 0
+    const lineTop = offset + Math.floor(index / columns.value) * lineHeight.value
+    if (lineTop < scroller.scrollTop) {
+      scroller.scrollTop = lineTop
+    } else if (lineTop + lineHeight.value > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = lineTop + lineHeight.value - scroller.clientHeight
+    }
+  },
+)
 watch(
   () => props.view,
   () => {

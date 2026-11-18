@@ -188,6 +188,32 @@ export const en = {
     failed:
       'Dates checked: {failed} files of {channel} could not be set. They are tried again at the next check.',
   },
+  /** The list of keyboard shortcuts (R-UI-13, docs/DESIGN.md section 7.3, design: Shortcuts.html). */
+  shortcuts: {
+    title: 'Keyboard shortcuts',
+    close: 'Close',
+    navigation: 'Navigation',
+    actions: 'Actions',
+    app: 'App',
+    note: 'Single keys work while no text field has the focus.',
+    move: 'Move between videos',
+    switchChannel: 'Switch channel',
+    filter: 'Filter by title',
+    toggleView: 'Toggle list and grid',
+    details: 'Open details',
+    closePanel: 'Close panel or clear selection',
+    select: 'Select video',
+    range: 'Select a range',
+    selectAll: 'Select all shown',
+    mirror: 'Mirror selected',
+    play: 'Play',
+    reveal: 'Show in Finder',
+    checkNow: 'Check channel now',
+    addChannel: 'Add channel',
+    closeWindow: 'Close window',
+    quit: 'Quit yt-mirror',
+    list: 'Show this list',
+  },
   /** The queue bar and the downloads panel (R-QU-01 to R-QU-04, design: Downloads.html). */
   queue: {
     bar: 'Downloads',

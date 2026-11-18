@@ -42,6 +42,8 @@ export const useUiStore = defineStore('ui', () => {
   const removeChannelId = ref<string | null>(null)
   /** The channel whose menu is open, and where. */
   const menu = ref<MenuPlace | null>(null)
+  /** Whether the list of keyboard shortcuts is open (R-UI-13, design: Shortcuts.html). */
+  const shortcutsOpen = ref(false)
   /** The channel that was added before and was opened instead of added again (R-CH-04). */
   const existingChannelId = ref<string | null>(null)
   /** The code of the last action that failed, until the user dismisses it (R-ER-02). */
@@ -137,6 +139,7 @@ export const useUiStore = defineStore('ui', () => {
     addChannelText,
     removeChannelId,
     menu,
+    shortcutsOpen,
     existingChannelId,
     actionError,
     filesLeft,

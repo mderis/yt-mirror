@@ -71,6 +71,8 @@ const dateOf = useDateOf()
 /** The menu of the video, while it is open: at the pointer, or under its button. */
 const menu = ref<{ at?: { x: number; y: number } } | null>(null)
 const selected = computed(() => view.selected.has(props.row.video.id))
+/** Whether the arrow keys are on this video (R-UI-13). */
+const current = computed(() => view.cursor === props.row.video.id)
 
 /** The waiting download is paced by the lookup budget, until this time (D-090). */
 const pacedText = computed(() =>
@@ -195,7 +197,8 @@ function cancel(): void {
     :new-tag="video.is_new ? t('channel.list.newTag') : undefined"
     :details-label="t('channel.list.details', { title: video.title })"
     :open="isOpen"
-    :selected="selected"
+    :selected="selected || current"
+    :data-current="current || undefined"
     :data-video="video.id"
     :data-status="video.status"
     @picture-missing="onPictureMissing"

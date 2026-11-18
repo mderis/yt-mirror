@@ -29,6 +29,7 @@ import ExactDatesNotice from './ExactDatesNotice.vue'
 import CheckFailedBanner from './CheckFailedBanner.vue'
 import FullCheckProgress from './FullCheckProgress.vue'
 import { shownVideos } from './shown'
+import { useShortcuts } from './useShortcuts'
 import { isBeingListed } from './status'
 import VideoDetails from './VideoDetails.vue'
 import VideoList from './VideoList.vue'
@@ -55,6 +56,8 @@ const shown = computed(() => shownVideos(current.value, view.tab, view.search, v
 const shownIds = computed(() => shown.value.map((video) => video.id))
 /** The selected videos, in the order they are shown (R-MI-07). */
 const selected = computed(() => shown.value.filter((video) => view.selected.has(video.id)))
+useShortcuts(() => props.id, shown)
+
 const ready = computed(
   () =>
     channel.value !== undefined &&

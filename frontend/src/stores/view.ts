@@ -23,6 +23,8 @@ export const useViewStore = defineStore('view', () => {
   const selected = reactive(new Set<string>())
   /** The video last clicked, where a Shift-click range starts. */
   const anchor = ref<string | null>(null)
+  /** The video the arrow keys are on, or null (R-UI-13). */
+  const cursor = ref<string | null>(null)
 
   /** Take over the view the backend remembers. */
   function setView(kind: ViewKind): void {
@@ -40,7 +42,22 @@ export const useViewStore = defineStore('view', () => {
     tab.value = 'all'
     search.value = ''
     sort.value = 'newest'
+    cursor.value = null
     clearSelection()
+  }
+
+  /**
+   * Move the current video up or down the shown ones, as the arrow keys do (R-UI-13).
+   * Without one, the first or the last shown video becomes current.
+   */
+  function moveCursor(by: -1 | 1, shown: readonly string[]): void {
+    if (shown.length === 0) {
+      cursor.value = null
+      return
+    }
+    const at = cursor.value === null ? -1 : shown.indexOf(cursor.value)
+    const next = at < 0 ? (by > 0 ? 0 : shown.length - 1) : at + by
+    cursor.value = shown[Math.max(0, Math.min(shown.length - 1, next))] ?? null
   }
 
   function clearSelection(): void {
@@ -94,6 +111,8 @@ export const useViewStore = defineStore('view', () => {
     sort,
     selected,
     anchor,
+    cursor,
+    moveCursor,
     setView,
     chooseView,
     reset,
