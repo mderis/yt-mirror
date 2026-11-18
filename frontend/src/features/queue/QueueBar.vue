@@ -62,7 +62,7 @@ const facts = computed(() => {
     data-queue-bar
   >
     <span class="font-medium">{{ t('queue.bar') }}</span>
-    <span class="min-w-0 flex-1 text-text-muted" role="status">{{ facts }}</span>
+    <span class="min-w-0 flex-1 text-text-muted" role="status" data-queue-facts>{{ facts }}</span>
     <AppButton
       variant="ghost"
       :icon="summary.paused ? 'resume' : 'pause'"

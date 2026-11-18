@@ -287,7 +287,8 @@ test.describe('a held download', () => {
       )
 
       await expect(page).toHaveScreenshot(`download-${theme}.png`, {
-        mask: [page.locator('[data-free-space]')],
+        // The speed in the queue bar differs from run to run.
+        mask: [page.locator('[data-free-space]'), page.locator('[data-queue-facts]')],
       })
 
       await row(page, HELD)

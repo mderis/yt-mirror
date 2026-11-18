@@ -14,3 +14,9 @@
   overflow: hidden;
   white-space: nowrap;
 }
+
+/* The speed and the time left of the queue bar change from run to run: one line, masked. */
+[data-queue-facts] {
+  overflow: hidden;
+  white-space: nowrap;
+}
