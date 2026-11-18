@@ -3,8 +3,9 @@
 A local HTTP server, started and stopped by each test, serves a small real
 MKV; yt-dlp downloads it as a direct link, so nothing leaves this Mac. These
 show what the stand-in of ``test_ytdlp_download.py`` assumes: the tags of the
-app reach the file, and a cancel from either hook of yt-dlp comes out as a
-cancel, not as a failure.
+app reach the file, a cancel from either hook of yt-dlp comes out as a
+cancel, not as a failure, and a download stopped half way continues from its
+partial file with the options of the app (R-QU-05).
 """
 
 import functools
@@ -290,3 +291,80 @@ def test_every_ffmpeg_step_of_a_real_download_names_the_job_folder(
     assert all(names_folder(call[1:], work) for call in working), working
     # What does not name the folder only asks ffmpeg what it is: it ends at once.
     assert all(set(call[1:]) <= {"-version", "-bsfs", "-hide_banner"} for call in asking), asking
+
+
+class _RangeVideos(_Videos):
+    """Serves files as ``_Videos`` does, and answers a request for a part of a file (Range).
+
+    Each request is noted with the part it asked for, as ``GET /path bytes=N-``.
+    """
+
+    def send_head(self) -> Any:
+        wanted = self.headers.get("Range")
+        if not wanted or not wanted.startswith("bytes="):
+            return super().send_head()
+        _Videos.asked.append(f"{self.command} {self.path} {wanted}")
+        path = Path(self.translate_path(self.path))
+        start = int(wanted.removeprefix("bytes=").split("-")[0])
+        size = path.stat().st_size
+        file = path.open("rb")
+        file.seek(start)
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Range", f"bytes {start}-{size - 1}/{size}")
+        self.send_header("Content-Length", str(size - start))
+        self.send_header("Accept-Ranges", "bytes")
+        self.end_headers()
+        return file
+
+
+@pytest.fixture
+def ranged(ffmpeg: Path, tmp_path: Path) -> Iterator[str]:
+    """The address of a real MKV of a few hundred KB on a server that serves parts of files."""
+    served = tmp_path / "served"
+    served.mkdir()
+    make_media(ffmpeg / "ffmpeg", served / "clip0000002.mkv", seconds=20)
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0), functools.partial(_RangeVideos, directory=str(served))
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/clip0000002.mkv"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+
+def stop_after(size: int) -> Any:
+    """A progress hook that stops the download once ``size`` bytes arrived, as a quit does."""
+
+    def hook(report: Mapping[str, Any]) -> None:
+        if report.get("status") == "downloading" and (report.get("downloaded_bytes") or 0) >= size:
+            raise DownloadCancelledError("stopped by a quit")
+
+    return hook
+
+
+def test_a_stopped_download_continues_from_its_partial_file(
+    ffmpeg: Path, ranged: str, tmp_path: Path
+) -> None:
+    """R-QU-05, D-091: a download stopped half way asks only for the rest when it runs again."""
+    work = tmp_path / "work"
+    info = looked_up(ranged)
+    total = (tmp_path / "served" / "clip0000002.mkv").stat().st_size
+    stopping = options(ffmpeg, work, progress_hooks=[stop_after(total // 3)])
+    with pytest.raises(DownloadCancelledError):
+        download_with_ytdlp(info, stopping, {})
+    parts = list(work.glob("*.part"))
+    assert len(parts) == 1, sorted(path.name for path in work.iterdir())
+    kept = parts[0].stat().st_size
+    assert 0 < kept < total
+    again = looked_up(ranged)  # a resume after a quit reads the metadata again (D-089)
+    _Videos.asked.clear()
+
+    download_with_ytdlp(again, options(ffmpeg, work), {})
+
+    assert _Videos.asked == [f"GET /clip0000002.mkv bytes={kept}-"]
+    assert (work / "clip0000002.mkv").stat().st_size >= total

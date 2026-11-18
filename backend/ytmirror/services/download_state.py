@@ -66,6 +66,15 @@ class DownloadState:
             if self._jobs.get(progress.video_id) == progress.job_id:
                 self._progress[progress.video_id] = progress
 
+    def restarted(self, video_id: str) -> None:
+        """A running download stopped and waits in line again: its progress is over (D-091).
+
+        Args:
+            video_id: The video.
+        """
+        with self._lock:
+            self._progress.pop(video_id, None)
+
     def ended(self, video_id: str) -> None:
         """The download of a video ended: done, failed or cancelled.
 

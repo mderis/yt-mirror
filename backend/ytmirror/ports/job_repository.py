@@ -83,6 +83,18 @@ class JobRepository(Protocol):
         """
         ...
 
+    def set_formats(self, job_id: str, formats: str) -> None:
+        """Keep the formats a running download chose, for when it continues (D-091).
+
+        ``record`` never writes them: only this does, so no other write of the job
+        can lose them.
+
+        Args:
+            job_id: The job.
+            formats: The formats, as yt-dlp names them.
+        """
+        ...
+
     def mark_by_hand(self, job_id: str) -> None:
         """Count a waiting job as started by hand from now on (R-DT-06, D-090).
 

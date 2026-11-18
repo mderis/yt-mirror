@@ -278,6 +278,8 @@ def build_container(
         channels.write_channel_file(channel_id)
         # Renames and date repair need no listing (R-CH-28, R-FN-06, R-DT-09).
         repair.after_check(channel_id)
+        # A drive that came back: what earlier runs left there is cleaned up (R-QA-06).
+        downloader.tidy(channel_id)
         # New videos wait for their exact dates (ARCHITECTURE 7.1 step 9).
         dates.wake()
 
@@ -350,7 +352,13 @@ def build_container(
     def _channel_opened(channel_id: str) -> None:
         # A check when the last is old (R-CH-21), and the files looked for (R-MI-06).
         scheduler.channel_selected(channel_id)
-        _in_a_thread(lambda: repair.channel_opened(channel_id))
+
+        def look_at_files() -> None:
+            repair.channel_opened(channel_id)
+            # A drive that came back: what earlier runs left there is cleaned up (R-QA-06).
+            downloader.tidy(channel_id)
+
+        _in_a_thread(look_at_files)
 
     scheduler = Scheduler(
         catalogue=catalogue,

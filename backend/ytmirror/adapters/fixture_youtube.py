@@ -68,6 +68,10 @@ _PAGE = 30
 """A slow channel waits once per this many videos, as YouTube answers page by page."""
 
 
+FIXTURE_FORMATS = "fixture-video+fixture-audio"
+"""The formats a download of the fake YouTube says it fetches (D-091)."""
+
+
 class FixtureYouTube:
     """Serves channels, listings, counts and pictures from a folder of JSON files."""
 
@@ -242,6 +246,7 @@ class FixtureYouTube:
         *,
         start_writing: Callable[[], None] = lambda: None,
         on_lookup_again: Callable[[], None] = lambda: None,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Write a few seconds of real MKV for a fixture video, as yt-dlp would.
 
@@ -258,6 +263,7 @@ class FixtureYouTube:
             start_writing: Called after the metadata lookup (which a fixture video
                 can make slow with ``metadata_delay_ms``), before anything is written.
             on_lookup_again: Not called: the fake never reads its metadata twice.
+            on_formats: Told the formats of the fake, ``FIXTURE_FORMATS``.
 
         Raises:
             AppError: ``VIDEO_REMOVED`` for an unknown video, the code the
@@ -277,6 +283,7 @@ class FixtureYouTube:
         if plan.metadata_delay_s:
             # The metadata lookup of yt-dlp: it reads only, and is not interrupted by a cancel.
             self._sleep(plan.metadata_delay_s)
+        on_formats(FIXTURE_FORMATS)
         start_writing()
         request.log_file.parent.mkdir(parents=True, exist_ok=True)
         with request.log_file.open("a", encoding="utf-8") as log:

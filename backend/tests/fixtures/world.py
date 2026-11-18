@@ -11,7 +11,7 @@ import json
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from tests.fixtures.database import migrated_engine
 from tests.fixtures.fakes.api_key_store import InMemoryApiKeyStore
@@ -68,17 +68,27 @@ from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.youtube_access import YouTubeAccess
 
 LISTED_AT = "2026-11-14T06:42:00Z"
-type Download = Callable[
-    [
-        DownloadRequest,
-        Callable[[DownloadProgress], None],
-        Callable[[], bool],
-        Callable[[], None],
-    ],
-    DownloadResult,
-]
-"""Downloads a video like the gateway: the request, where progress goes, whether to stop, and
-what to call before the first file is written."""
+
+
+class Download(Protocol):
+    """Downloads a video like the gateway.
+
+    It takes the request, where progress goes, whether to stop, what to call before
+    the first file is written, and who hears the formats.
+    """
+
+    def __call__(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        start_writing: Callable[[], None],
+        *,
+        on_formats: Callable[[str], None],
+    ) -> DownloadResult:
+        """Download one video."""
+        ...
+
 
 SMALL_ID = "UCsmallsmallsmallsmall01"
 
@@ -204,13 +214,16 @@ class RefusingGateway:
         *,
         start_writing: Callable[[], None] = lambda: None,
         on_lookup_again: Callable[[], None] = lambda: None,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Download, unless downloads are refused, with the stand-in when there is one."""
         self._maybe_refuse("download")
         if self.download_with is not None:
-            return self.download_with(request, on_progress, is_cancelled, start_writing)
+            return self.download_with(
+                request, on_progress, is_cancelled, start_writing, on_formats=on_formats
+            )
         return self._youtube.download(
-            request, on_progress, is_cancelled, start_writing=start_writing
+            request, on_progress, is_cancelled, start_writing=start_writing, on_formats=on_formats
         )
 
 
@@ -247,6 +260,8 @@ class FakeDownload:
         self.info_json: str | None = None
         self.asking: Callable[[], object] = lambda: None
         """What the metadata lookup does before the first file is written."""
+        self.formats = "399+251"
+        """The formats the download says it fetches (D-091)."""
         self.held: dict[str, threading.Event] = {}
         """Videos whose lookup waits until their event is set."""
         self.asked: dict[str, threading.Event] = {}
@@ -263,6 +278,8 @@ class FakeDownload:
         on_progress: Callable[[DownloadProgress], None],
         is_cancelled: Callable[[], bool],
         start_writing: Callable[[], None] = lambda: None,
+        *,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Download like the gateway, into the temp folder of the job."""
         self.calls.append(request)
@@ -273,7 +290,10 @@ class FakeDownload:
         self.asking()
         if self.fail is not None:
             raise self.fail
+        on_formats(self.formats)
         start_writing()
+        # As yt-dlp does: the video stream arrives in a partial file of its own.
+        self._files.add_files(request.work_folder, [f"{request.video_id}.f399.mp4.part"])
         for stage in (Stage.VIDEO, Stage.AUDIO, Stage.PROCESSING):
             if stage is self.cancel_at:
                 self.on_cancel()
@@ -507,11 +527,13 @@ class World:
         self.thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
         self.channels.write_channel_file(channel_id)
         self.repair.after_check(channel_id)
+        self.downloader.tidy(channel_id)
 
     def _channel_opened(self, channel_id: str) -> None:
         """What the container does when a channel is opened: a check if old, files looked for."""
         self.scheduler.channel_selected(channel_id)
         self.background.append(lambda: self.repair.channel_opened(channel_id))
+        self.background.append(lambda: self.downloader.tidy(channel_id))
 
     def _found_exact(self, video_id: str) -> None:
         """What the container does when the fetch found an exact time: repair the file."""

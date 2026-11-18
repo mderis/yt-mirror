@@ -14,8 +14,11 @@ its worker is replaced at once, and ends when YouTube's answer comes (R-QU-02).
 
 Cancel ends a download at its next step. A download is past the point of no
 return once its file is moved into the channel folder: then it ends synced.
-After a cancel, a failure or a quit, nothing of the job is left but its log:
-its temp folder is deleted, and no file of another video is touched.
+After a cancel or a failure, nothing of the job is left but its log: its temp
+folder is deleted, and no file of another video is touched. A quit, a crash,
+"Pause all" and YouTube's "not a bot" check stop a download instead: it goes
+back in line with its temp folder, and continues from its partial files the
+next time it runs (R-QU-05, R-QU-06, D-091).
 
 Tests: backend/tests/unit/services/test_downloader.py,
 backend/tests/unit/services/test_downloader_queue.py,
@@ -221,6 +224,8 @@ class DownloaderService:
         self._videos: dict[str, Video] = {}
         """The video of each running job, as it is now."""
         self._cancelled: set[str] = set()
+        self._stopping: set[str] = set()
+        """Running jobs that stop and go back in line, keeping their temp folder (D-091)."""
         self._asking: set[str] = set()
         """The running jobs that wait for YouTube and have written no file yet."""
         self._abandoned: set[str] = set()
@@ -243,16 +248,17 @@ class DownloaderService:
     # --- the life of the app
 
     def start(self) -> None:
-        """Clean up what a quit left, and start the workers.
+        """Take up what the last run left, and start the workers.
 
-        A job that waited or ran when the app ended is cancelled, its temp
-        folder deleted and its video back to "not downloaded": nothing half
-        written stays (R-QA-06). Milestone M5 resumes these instead (R-QU-05,
-        R-QU-06).
+        Jobs that waited stay in line, in their order (R-QU-06). A job that a
+        crash left running goes back in line with its temp folder, so that it
+        continues from its partial files (R-QU-05, D-091). A file it was moving
+        into the channel folder goes to the Trash when it is that download
+        (R-QA-06).
         """
-        for job in self._jobs.jobs(ACTIVE_STATES):
+        for job in self._jobs.jobs([JobState.RUNNING]):
             try:
-                self._end_left_over(job)
+                self._take_back(job)
             except Exception:  # noqa: BLE001  (one broken job must not stop the start)
                 _log.error(
                     "download.failed",
@@ -263,7 +269,7 @@ class DownloaderService:
                 )
         for cleanup in (self._clean_markers, self._sweep_temp_folders):
             try:
-                cleanup()
+                cleanup(None)
             except Exception:  # noqa: BLE001  (a cleanup never stops the start)
                 _log.error(
                     "download.failed",
@@ -304,22 +310,25 @@ class DownloaderService:
         return sum(1 for job_id in self._running if job_id not in self._abandoned)
 
     def stop(self, wait_s: float = 2.0) -> None:
-        """Stop: a running download is cancelled and cleaned up before this returns.
+        """Stop: every running download stops and goes back in line, to continue later.
+
+        A quit is not a cancel (R-QU-02, D-091): each job keeps its temp folder
+        and continues from its partial files at the next start (R-QU-05).
 
         Args:
-            wait_s: How long to wait for a running download to end. The ffmpeg
-                and the other tools the app started are stopped first, so that
-                the job ends at once. The wait is short, so a logout is
-                never held (D-052); a job that has not ended by then is cleaned up
-                at the next start.
+            wait_s: How long to wait, for all of them together. The ffmpeg and the
+                other tools the app started are stopped first, so that the jobs
+                end at once. The wait is short, so a logout is never held (D-052);
+                a job that has not ended by then is taken back at the next start.
+                A job abandoned while it asked YouTube is not waited for.
         """
         with self._wake:
             self._stopped = True
             self._wake.notify_all()
-        # A running ffmpeg step is stopped, so that its job ends and cleans up now.
+        # The running ffmpeg steps are stopped, so that their jobs end now.
         self._stop_tools()
         with self._wake:
-            self._wake.wait_for(lambda: not self._running, timeout=wait_s)
+            self._wake.wait_for(lambda: self._busy() == 0, timeout=wait_s)
 
     def _work_until_stopped(self) -> None:
         me = threading.get_ident()
@@ -458,6 +467,7 @@ class DownloaderService:
                 self._last_told.pop(job.id, None)
                 self._thread_of.pop(job.id, None)
                 self._cancelled.discard(job.id)
+                self._stopping.discard(job.id)
                 self._nothing_placed.discard(job.id)
                 self._asking.discard(job.id)
                 self._abandoned.discard(job.id)
@@ -520,7 +530,28 @@ class DownloaderService:
         """
         self._settings.change(downloads_paused=True)
         _log.info("queue.paused", msg="All downloads paused", reason="user")
+        self._stop_running("paused")
         self._queue_changed()
+
+    def _stop_running(self, reason: str) -> None:
+        """Stop every running download; each goes back in line with its partial files (D-091).
+
+        Args:
+            reason: Why, for the log.
+        """
+        works: list[Path] = []
+        with self._wake:
+            for job_id in self._running:
+                if job_id in self._abandoned or job_id in self._cancelled:
+                    continue
+                self._stopping.add(job_id)
+                work = self._work_of.get(job_id)
+                if work is not None:
+                    works.append(work)
+        for work in works:
+            self._stop_job_tools(work)
+        if works:
+            _log.info("download.stopped", msg="Running downloads stop", reason=reason)
 
     def resume_all(self) -> None:
         """Resume all downloads (R-QU-02)."""
@@ -864,6 +895,7 @@ class DownloaderService:
         with self._wake:
             self._work_of[job.id] = place.work
         started = self._clock.monotonic()
+        keep_work = False
         log.info("download.started", msg="Download started", quality=job.quality.value)
         running = replace(job, state=JobState.RUNNING, stage=Stage.VIDEO, started_at=self._now())
         try:
@@ -884,12 +916,21 @@ class DownloaderService:
                 return
             # A file of the job that could not leave the channel folder keeps its marker.
             keep_marker = job.id not in self._nothing_placed
+            stopped = isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id)
+            if (stopped and self._resumes(job.id)) or (
+                isinstance(error, AppError) and error.code is ErrorCode.BOT_CHECK
+            ):
+                # A quit, "Pause all" or YouTube's check: the job goes back in line with
+                # its temp folder, to continue from its partial files (D-091).
+                keep_work = True
+                self._back_in_line(running, video, log, keep_marker=keep_marker, error=error)
+                return
             # The temp folder goes before the end is stored and told: a video shown as
             # ended has nothing of its download left (R-QU-02, R-QA-06).
             self._remove_work(place, log)
-            # A job that was cancelled, or an app that quits, stopped the tools: the error
-            # that follows is the cancel, never a failure nor a retry (R-QU-02, R-PL-13).
-            if isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id):
+            # A job that was cancelled stopped its tools: the error that follows is the
+            # cancel, never a failure nor a retry (R-QU-02, R-PL-13).
+            if stopped:
                 self._end(
                     running,
                     video,
@@ -910,7 +951,8 @@ class DownloaderService:
             else:
                 self._failed_unexpectedly(running, video, log, started, keep_marker=keep_marker)
         finally:
-            self._remove_work(place, log)
+            if not keep_work:
+                self._remove_work(place, log)
 
     def _was_abandoned(self, job_id: str) -> bool:
         with self._wake:
@@ -998,6 +1040,7 @@ class DownloaderService:
     ) -> DownloadResult:
         """Step 3 and 4: yt-dlp downloads, merges and embeds. Subtitles fail only once."""
         settings = self._settings.current()
+        self._prepare_to_continue(job, video, place, log)
         request = DownloadRequest(
             video_id=video.id,
             quality=job.quality,
@@ -1005,6 +1048,7 @@ class DownloaderService:
             log_file=self._job_logs / f"{job.id}.log",
             manual_subtitles=settings.embed_subtitles,
             auto_subtitles=settings.auto_subtitles,
+            formats=job.formats,
         )
         try:
             return self._ask(job, video, request, place)
@@ -1024,6 +1068,32 @@ class DownloaderService:
                 again=True,
             )
 
+    def _prepare_to_continue(
+        self, job: Job, video: Video, place: _Place, log: FilteringBoundLogger
+    ) -> None:
+        """Keep what an earlier run of the job left in its temp folder, to continue it (D-091).
+
+        Partial and finished streams stay, and yt-dlp continues them (R-QU-05). A
+        finished file means the run stopped while the file was processed: then the
+        job starts over, so that no step of the processing runs twice on it.
+        """
+        if not self._files.folder_exists(place.work):
+            return
+        if self._files.exists(place.work / f"{video.id}.mkv"):
+            self._files.remove_temp_folder(place.work)
+            log.info("download.resumed", msg="A download stopped while processed starts over")
+            return
+        log.info(
+            "download.resumed",
+            msg="A stopped download continues from its partial files",
+            formats=job.formats,
+        )
+
+    def _chosen(self, job: Job, formats: str) -> None:
+        """Keep the formats a download fetches, for when it continues after a stop (D-091)."""
+        if formats != job.formats:
+            self._jobs.set_formats(job.id, formats)
+
     def _ask(
         self,
         job: Job,
@@ -1041,8 +1111,9 @@ class DownloaderService:
                 request,
                 told,
                 lambda: self._is_cancelled(job.id),
-                by_user=True,
+                by_user=job.by_hand,
                 start_writing=lambda: self._start_writing(job, place),
+                on_formats=lambda formats: self._chosen(job, formats),
             )
         except DownloadCancelledError:
             raise
@@ -1330,25 +1401,6 @@ class DownloaderService:
         *,
         keep_marker: bool = True,
     ) -> None:
-        if code is ErrorCode.BOT_CHECK:
-            # One condition of the whole app, never one error per video (R-ER-05): the job
-            # waits in line until YouTube is asked again.
-            self._end(
-                job,
-                video,
-                JobState.WAITING,
-                VideoStatus.QUEUED,
-                "youtube paused",
-                keep_marker=keep_marker,
-            )
-            self._tell(replace(video, status=VideoStatus.QUEUED))
-            if log is not None:
-                log.warning(
-                    "download.retry",
-                    msg="YouTube asked to confirm that the app is not a bot. The download waits",
-                    error_code=code.value,
-                )
-            return
         failed = replace(
             video, last_error_code=code, last_error_at=self._now(), attempts=video.attempts
         )
@@ -1370,6 +1422,44 @@ class DownloaderService:
                 error_code=code.value,
                 duration_ms=self._ms_since(started),
                 **details,
+            )
+
+    def _back_in_line(
+        self,
+        job: Job,
+        video: Video,
+        log: FilteringBoundLogger,
+        *,
+        keep_marker: bool,
+        error: Exception,
+    ) -> None:
+        """Put a stopped job back in line, with its place and its temp folder (D-091).
+
+        A quit, "Pause all" and YouTube's "not a bot" check stop a download: it
+        continues from its partial files the next time it runs (R-QU-05). The "not
+        a bot" check is one condition of the whole app, never one error per video
+        (R-ER-05): the job waits until YouTube is asked again.
+        """
+        bot_check = isinstance(error, AppError) and error.code is ErrorCode.BOT_CHECK
+        reason = "youtube paused" if bot_check else "stopped"
+        self._store_end(
+            job, video, JobState.WAITING, VideoStatus.QUEUED, reason, keep_marker=keep_marker
+        )
+        self._state.restarted(video.id)
+        self._tell(replace(video, status=VideoStatus.QUEUED))
+        self._views.publish(video.channel_id)
+        self._queue_changed()
+        if bot_check:
+            log.warning(
+                "download.retry",
+                msg="YouTube asked to confirm that the app is not a bot. The download waits",
+                error_code=ErrorCode.BOT_CHECK.value,
+            )
+        else:
+            log.info(
+                "download.stopped",
+                msg="The download stopped. It continues from its partial files later",
+                reason="quit" if self._stopped else "paused",
             )
 
     def _end(
@@ -1459,39 +1549,30 @@ class DownloaderService:
                 exc_info=True,
             )
 
-    def _end_left_over(self, job: Job) -> None:
-        """Clean up a job that a quit or a crash left waiting or running (R-QA-06).
+    def _take_back(self, job: Job) -> None:
+        """Put back in line a job that a crash or a quit left running (R-QU-05, R-QU-06, D-091).
 
-        Its temp folder goes. A file it was moving into the channel folder (its
-        marker) goes to the Trash, but only when the video ID inside the file
-        shows it is this download: a file of the user's is never touched. A
-        failure is logged, and the job ends anyway: the start goes on. When the
-        folder could not be reached, the marker stays, and a later start cleans
-        up once it can (``_clean_markers``).
+        It keeps its place in the line and its temp folder, so that it continues
+        from its partial files. A file it was moving into the channel folder (its
+        marker) goes to the Trash when the video ID inside it shows it is this
+        download; while its folder cannot be reached, the marker stays, and a
+        later cleanup takes it once it can (``_clean_markers``).
         """
         video = self._repository.video(job.video_id)
         channel = None if video is None else self._repository.channel(video.channel_id)
         cleaned = True
         if channel is not None and video is not None:
             place = self._place_of(channel, job)
-            try:
-                self._files.remove_temp_folder(place.work)
-            except (AppError, OSError, ValueError) as error:
-                self._cleanup_failed(job.video_id, error, job_id=job.id)
             cleaned = self._clean_placed(video, place.folder, job_id=job.id) is None
-        self._end(
-            job,
-            video,
-            JobState.CANCELLED,
-            VideoStatus.NOT_DOWNLOADED,
-            "app quit",
-            keep_marker=not cleaned,
+        self._store_end(
+            job, video, JobState.WAITING, VideoStatus.QUEUED, "interrupted", keep_marker=not cleaned
         )
         _log.info(
-            "download.cancelled",
-            msg="A download that the last quit interrupted was cleaned up",
+            "download.stopped",
+            msg="A download that the last run left running goes back in line",
             job_id=job.id,
             video_id=job.video_id,
+            reason="interrupted",
         )
 
     def _clean_placed(
@@ -1529,9 +1610,36 @@ class DownloaderService:
             error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
         )
 
-    def _clean_markers(self) -> None:
+    def tidy(self, channel_id: str) -> None:
+        """Clean up what earlier runs left in a channel folder that can be reached now.
+
+        At start a drive that is not connected keeps its left-overs: the files of
+        markers and the temp folders of jobs that ended. This takes them up as
+        soon as the folder is there again, after a check or when the channel is
+        opened, without waiting for the next start. The temp folder of a job that
+        waits stays: it continues from it (D-091). A failure is logged.
+
+        Args:
+            channel_id: The channel.
+        """
+        channel = self._repository.channel(channel_id)
+        if channel is None or not self._files.folder_exists(self._views.folder_of(channel)):
+            return
+        for cleanup in (self._clean_markers, self._sweep_temp_folders):
+            try:
+                cleanup([channel])
+            except Exception:  # noqa: BLE001  (a cleanup never fails a check)
+                _log.error(
+                    "download.failed",
+                    msg="A cleanup of a channel folder failed",
+                    channel_id=channel_id,
+                    error_code=ErrorCode.INTERNAL.value,
+                    exc_info=True,
+                )
+
+    def _clean_markers(self, channels: Sequence[Channel] | None = None) -> None:
         """Clean up the files that marked videos left, once their folder is there again."""
-        for channel in self._repository.channels():
+        for channel in self._repository.channels() if channels is None else channels:
             folder = self._views.folder_of(channel)
             for video in self._repository.videos(channel.id):
                 if not video.placing_file or self._jobs.active_job_of(video.id) is not None:
@@ -1539,7 +1647,7 @@ class DownloaderService:
                 if self._clean_placed(video, folder) is None:
                     self._jobs.clear_placing_file(video.id)
 
-    def _sweep_temp_folders(self) -> None:
+    def _sweep_temp_folders(self, channels: Sequence[Channel] | None = None) -> None:
         """Remove the temp folders of jobs that are no longer active (R-FI-03, R-QA-06).
 
         A quit can end a job before its temp folder went. Only a folder named
@@ -1547,7 +1655,7 @@ class DownloaderService:
         anything else in the temp folder stays.
         """
         active = {job.id for job in self._jobs.jobs(ACTIVE_STATES)}
-        for channel in self._repository.channels():
+        for channel in self._repository.channels() if channels is None else channels:
             temp = self._views.folder_of(channel) / HIDDEN_DIR / TEMP_DIR
             if not self._files.folder_exists(temp):
                 continue
@@ -1730,8 +1838,14 @@ class DownloaderService:
             self._events.publish(VideoUpdated(view))
 
     def _is_cancelled(self, job_id: str) -> bool:
+        """Whether a running job must end at its next step: cancelled, or stopped (D-091)."""
         with self._wake:
-            return self._stopped or job_id in self._cancelled
+            return self._stopped or job_id in self._cancelled or job_id in self._stopping
+
+    def _resumes(self, job_id: str) -> bool:
+        """Whether a job that ends now goes back in line rather than being cancelled (D-091)."""
+        with self._wake:
+            return (self._stopped or job_id in self._stopping) and job_id not in self._cancelled
 
     def _place_of(self, channel: Channel, job: Job) -> _Place:
         folder = self._views.folder_of(channel)

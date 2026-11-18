@@ -227,6 +227,9 @@ class DownloadRequest:
         manual_subtitles: Whether English creator subtitles are embedded (R-MD-03).
         auto_subtitles: Whether auto-generated English subtitles are embedded
             when there are no creator ones (R-MD-03).
+        formats: The formats an earlier run of the same job chose, as yt-dlp names
+            them (``"399+251"``), or None. They are asked for first, so that the
+            download continues from what that run left (R-QU-05, D-091).
     """
 
     video_id: str
@@ -235,6 +238,7 @@ class DownloadRequest:
     log_file: Path
     manual_subtitles: bool = True
     auto_subtitles: bool = True
+    formats: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

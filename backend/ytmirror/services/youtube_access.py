@@ -254,6 +254,7 @@ class YouTubeAccess:
         *,
         by_user: bool,
         start_writing: Callable[[], None] = lambda: None,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Download one video. Unless the user started it, a pause holds it up (D-071).
 
@@ -263,6 +264,7 @@ class YouTubeAccess:
             is_cancelled: Asked while the download runs.
             by_user: Whether the user started this download by hand.
             start_writing: Called right before the first file is written.
+            on_formats: Told the formats the download fetches (D-091).
 
         Raises:
             AppError: ``BOT_CHECK`` without asking while the app pauses, or as the
@@ -278,6 +280,7 @@ class YouTubeAccess:
                 is_cancelled,
                 start_writing=start_writing,
                 on_lookup_again=self._count_again,
+                on_formats=on_formats,
             ),
             by_user=by_user,
             counted=LookupKind.DOWNLOAD,

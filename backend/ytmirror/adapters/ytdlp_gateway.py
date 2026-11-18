@@ -144,7 +144,9 @@ DOWNLOAD_OPTIONS: Mapping[str, Any] = {
     "extractor_retries": 2,
     "merge_output_format": "mkv",
     "writethumbnail": True,
-    "overwrites": True,
+    # The temp folder belongs to one job: a file in it is this job's own. A stream
+    # that a quit left complete is kept, and a partial one is continued (D-091).
+    "overwrites": False,
     "postprocessors": [
         {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"},
         {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
@@ -311,6 +313,7 @@ class YtDlpGateway:
         *,
         start_writing: Callable[[], None] = lambda: None,
         on_lookup_again: Callable[[], None] = lambda: None,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Download one video into the temp folder of its job (ARCHITECTURE section 7.3).
 
@@ -330,6 +333,8 @@ class YtDlpGateway:
             start_writing: Called after the metadata lookup, which only reads,
                 and before yt-dlp writes anything (R-QU-02).
             on_lookup_again: Told of each lookup made again, for the budget.
+            on_formats: Told the formats the download fetches, before it writes, so that
+                a download stopped by a quit asks for the same ones again (D-091).
 
         Raises:
             AppError: With the code of what went wrong.
@@ -339,10 +344,15 @@ class YtDlpGateway:
         address = f"https://www.youtube.com/watch?v={request.video_id}"
         # The same format choice as the download: yt-dlp then names the streams it
         # will fetch, with their sizes, for one progress of the whole Mirror (D-088).
+        # A download that continues asks for the formats it chose before, while
+        # they are offered, so that its partial files fit (R-QU-05, D-091).
+        selector = format_selector(request.quality)
+        if request.formats:
+            selector = f"{request.formats}/{selector}"
         metadata_options = {
             **METADATA_OPTIONS,
             **self._runtime(),
-            "format": format_selector(request.quality),
+            "format": selector,
         }
         looked_up_at = self._clock.monotonic()
         info = self._ask_about_video(address, metadata_options)
@@ -360,7 +370,7 @@ class YtDlpGateway:
         options: dict[str, Any] = {
             **DOWNLOAD_OPTIONS,
             **self._runtime(),
-            "format": format_selector(request.quality),
+            "format": selector,
             "outtmpl": {"default": str(request.work_folder / "%(id)s.%(ext)s")},
             "writesubtitles": subtitles is SubtitleKind.MANUAL,
             "writeautomaticsub": subtitles is SubtitleKind.AUTO,
@@ -379,6 +389,9 @@ class YtDlpGateway:
         tags = {"video_id": request.video_id}
         if published is not None:
             tags["published_at"] = _iso(published)
+        chosen = _chosen_formats(info)
+        if chosen is not None:
+            on_formats(chosen)
         # Until here only YouTube was asked; from here yt-dlp writes into the temp folder.
         start_writing()
         if self._clock.monotonic() - looked_up_at > FRESH_INFO_S:
@@ -797,6 +810,27 @@ def _english(tracks: object) -> list[str]:
 
 def _mapping(value: object) -> dict[str, Any]:
     return cast(dict[str, Any], value) if isinstance(value, dict) else {}
+
+
+def _chosen_formats(info: Mapping[str, Any]) -> str | None:
+    """Return the formats a download fetches, as yt-dlp names them (``"397+251"``), or None.
+
+    yt-dlp gives them as ``format_id``; the streams it merges are also in
+    ``requested_formats``.
+    """
+    chosen = info.get("format_id")
+    if isinstance(chosen, str) and chosen:
+        return chosen
+    streams = info.get("requested_formats")
+    if isinstance(streams, list):
+        ids = [
+            str(stream.get("format_id"))
+            for stream in cast(list[Mapping[str, Any]], streams)
+            if stream.get("format_id")
+        ]
+        if ids:
+            return "+".join(ids)
+    return None
 
 
 def _json_text(answer: Mapping[str, Any]) -> str:

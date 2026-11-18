@@ -190,6 +190,20 @@ class SqlJobRepository:
                     .values(priority=priority, updated_at=now)
                 )
 
+    def set_formats(self, job_id: str, formats: str) -> None:
+        """Keep the formats a running download chose, for when it continues (D-091).
+
+        Args:
+            job_id: The job.
+            formats: The formats, as yt-dlp names them.
+        """
+        with Session(self._engine) as session, session.begin():
+            session.execute(
+                update(JobRow)
+                .where(JobRow.id == job_id)
+                .values(formats=formats, updated_at=self._now())
+            )
+
     def mark_by_hand(self, job_id: str) -> None:
         """Count a waiting job as started by hand from now on (R-DT-06, D-090).
 
@@ -309,6 +323,11 @@ class SqlJobRepository:
 
 
 def _job_values(job: Job) -> dict[str, Any]:
+    """Return the columns ``record`` writes.
+
+    The formats are left out: only ``set_formats`` writes them, so no other write
+    of the job loses them (D-091).
+    """
     return {
         "id": job.id,
         "video_id": job.video_id,
@@ -322,7 +341,6 @@ def _job_values(job: Job) -> dict[str, Any]:
         "finished_at": job.finished_at,
         "by_hand": job.by_hand,
         "not_before": job.not_before,
-        "formats": job.formats,
     }
 
 

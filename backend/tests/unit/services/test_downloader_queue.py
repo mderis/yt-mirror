@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import text
+from structlog.testing import capture_logs
 
 from tests.fixtures.world import SMALL_ID, World, channel_file
 from ytmirror.core.channels import VideoStatus
@@ -587,3 +588,87 @@ def test_mirror_on_a_paced_download_starts_it_without_waiting(tmp_path: Path) ->
     view = world.views.video(ids[20])
     assert view is not None
     assert view.paced_until is None
+
+
+# --- a stopped download continues from its partial files (R-QU-05, D-091)
+
+
+def temp_of(world: World, job_id: str) -> Path:
+    """The temp folder of a job in the folder of the small channel."""
+    channel = world.repository.channel(SMALL_ID)
+    assert channel is not None
+    return world.views.folder_of(channel) / ".yt-mirror" / "tmp" / job_id
+
+
+def test_pause_all_stops_a_running_download_and_keeps_its_partial_file(world: World) -> None:
+    """R-QU-02, R-QU-05, D-091: a paused download goes back in line and continues on resume."""
+    [job] = world.downloader.mirror([FIRST])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = world.downloader.pause_all
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    assert world.jobs.job(job.id).state is JobState.WAITING  # type: ignore[union-attr]
+    assert world.files.exists(temp_of(world, job.id) / f"{FIRST}.f399.mp4.part")
+    world.download.cancel_at = None
+    world.downloader.resume_all()
+    world.download_all()
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+    assert world.download.calls[-1].formats == "399+251"
+    assert world.files.exists(temp_of(world, job.id)) is False
+
+
+def test_the_not_a_bot_check_keeps_the_partial_file_of_a_download(world: World) -> None:
+    """R-ER-05, R-QU-05, D-091: a download held back by YouTube's check continues later."""
+    [job] = world.downloader.mirror([FIRST])
+
+    def refused(_tell: Callable[[DownloadProgress], None]) -> None:
+        raise AppError(ErrorCode.BOT_CHECK, {})
+
+    world.download.during_video = refused
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    assert world.jobs.job(job.id).state is JobState.WAITING  # type: ignore[union-attr]
+    assert world.files.exists(temp_of(world, job.id) / f"{FIRST}.f399.mp4.part")
+
+
+def test_a_user_cancel_still_deletes_what_was_downloaded(world: World) -> None:
+    """R-QU-02, D-091: only a quit, a pause or YouTube's check keep files; Cancel never does."""
+    [job] = world.downloader.mirror([FIRST])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = lambda: world.downloader.cancel(job.id)
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
+    assert world.files.exists(temp_of(world, job.id)) is False
+
+
+def test_a_download_stopped_while_its_file_was_processed_starts_over(world: World) -> None:
+    """R-QU-05, D-091: a finished file in the temp folder means processing was cut off."""
+    [job] = world.downloader.mirror([FIRST])
+    work = temp_of(world, job.id)
+    world.files.add_files(work, [f"{FIRST}.mkv", f"{FIRST}.f399.mp4"])
+
+    with capture_logs() as logs:
+        world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+    [line] = [line for line in logs if line["event"] == "download.resumed"]
+    assert "starts over" in str(line["msg"])
+
+
+def test_a_drive_that_comes_back_is_cleaned_up_without_a_restart(world: World) -> None:
+    """R-QA-06, R-FI-03: left-overs of an ended job go; the temp folder of a waiting one stays."""
+    [waiting] = world.downloader.mirror([FIRST])
+    ended = "01JD0000000000000000000099"
+    world.files.add_files(temp_of(world, ended), ["old.part"])
+    world.files.add_files(temp_of(world, waiting.id), [f"{FIRST}.f399.mp4.part"])
+
+    world.check(SMALL_ID)
+
+    assert world.files.exists(temp_of(world, ended)) is False
+    assert world.files.exists(temp_of(world, waiting.id) / f"{FIRST}.f399.mp4.part")
