@@ -1754,6 +1754,17 @@ class DownloaderService:
             return folder / marker.hidden
         return folder / HIDDEN_DIR / TEMP_DIR / marker.job / f"{video_id}.mkv"
 
+    def _find_old(self, video: Video, marker: Replacing, folder: Path) -> Path | None:
+        """Find the old file of a re-download wherever a step, or a crash, left it."""
+        work = folder / HIDDEN_DIR / TEMP_DIR / marker.job
+        places = [self._old_place(marker, folder, video.id), work / f"{video.id}.mkv"]
+        if video.file_name is not None:
+            places.append(work / video.file_name)
+        for place in places:
+            if self._files.exists(place) and self._files.file_id(place) == marker.old:
+                return place
+        return None
+
     def _undo_replacing(self, video_id: str, marker: Replacing, folder: Path, name: str) -> None:
         """Put the old file of a re-download back under its name, and clear the marker.
 
@@ -1801,9 +1812,18 @@ class DownloaderService:
         marker = Replacing.of(video.replacing)
         if marker is None:
             return True
-        old = self._old_place(marker, folder, video.id)
-        if not self._files.exists(old):
+        old = self._find_old(video, marker, folder)
+        if old is None:
             return True
+        if video.file_name is not None and old.name != video.file_name:
+            # It reaches the Trash under the name the user knew, never a hidden one.
+            named = folder / HIDDEN_DIR / TEMP_DIR / marker.job / video.file_name
+            try:
+                self._files.make_folder(named.parent, inside=folder)
+                if self._files.move(old, named):
+                    old = named
+            except AppError, OSError:
+                pass
         try:
             self._files.trash(old)
         except (AppError, OSError) as error:
