@@ -59,6 +59,7 @@ from ytmirror.services.dates import DatesService
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.queue import QueueService
 from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.settings import SettingsService
@@ -362,6 +363,8 @@ class World:
         self.meta = InMemoryAppMetaRepository()
         self.settings_repository = InMemorySettingsRepository()
         engine = migrated_engine(folder)
+        self.engine = engine
+        """The database, for tests that set a value no service writes yet."""
         self.repository = SqlCatalogueRepository(engine, self.clock)
         self.jobs = SqlJobRepository(engine, self.clock)
         self.settings = SettingsService(self.settings_repository, self.library)
@@ -453,6 +456,7 @@ class World:
             self.youtube,
             api_key=self.dates.key_state,
             channel_opened=self._channel_opened,
+            queue=lambda: self.downloader.queue_summary(),
         )
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
@@ -476,6 +480,9 @@ class World:
             call_later=lambda delay, work: self.later.append((delay, work)),
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
+        )
+        self.queue = QueueService(
+            self.repository, self.jobs, self.downloads, self.downloader.queue_summary
         )
         self.repair = RepairService(
             repository=self.repository,

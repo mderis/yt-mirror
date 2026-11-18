@@ -126,6 +126,52 @@ class SqlCatalogueRepository:
             row = session.get(VideoRow, video_id)
             return None if row is None else _video_of(row)
 
+    def videos_by_id(self, video_ids: Sequence[str]) -> Mapping[str, Video]:
+        """Return the videos with these IDs, by ID. An unknown ID is left out.
+
+        Args:
+            video_ids: The video IDs.
+        """
+        found: dict[str, Video] = {}
+        ids = list(video_ids)
+        with Session(self._reader) as session:
+            for start in range(0, len(ids), _CHUNK):
+                rows = session.scalars(
+                    select(VideoRow).where(VideoRow.id.in_(ids[start : start + _CHUNK]))
+                )
+                found.update((row.id, _video_of(row)) for row in rows)
+        return found
+
+    def videos_with_status(self, status: VideoStatus) -> tuple[Video, ...]:
+        """Return the videos of every channel that have a status, newest failure first.
+
+        Args:
+            status: The status.
+        """
+        with Session(self._reader) as session:
+            rows = session.scalars(
+                select(VideoRow)
+                .where(VideoRow.status == status.value)
+                .order_by(VideoRow.last_error_at.desc(), VideoRow.id)
+            )
+            return tuple(_video_of(row) for row in rows)
+
+    def count_with_status(self, status: VideoStatus) -> int:
+        """Return how many videos of every channel have a status.
+
+        Args:
+            status: The status.
+        """
+        with Session(self._reader) as session:
+            return (
+                session.scalar(
+                    select(func.count())
+                    .select_from(VideoRow)
+                    .where(VideoRow.status == status.value)
+                )
+                or 0
+            )
+
     def owners_of(self, video_ids: Sequence[str], *, other_than: str) -> Mapping[str, str]:
         """Return which of the videos belong to another channel, with that channel (R-CH-17).
 

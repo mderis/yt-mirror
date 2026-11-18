@@ -33,6 +33,13 @@ from ytmirror.core.exact_dates import (
 )
 from ytmirror.core.jobs import JobProgress, Stage
 from ytmirror.core.progress import PartKind, PartProgress
+from ytmirror.core.queue import (
+    NO_QUEUE,
+    FailedEntry,
+    QueueEntry,
+    QueueSummary,
+    QueueView,
+)
 from ytmirror.services.channels import ChannelLookup, ChosenFolder, KeptFile, KeptReason
 from ytmirror.services.downloader import VideoDetails
 from ytmirror.services.state import AppState
@@ -403,9 +410,11 @@ class MirrorRequest(BaseModel):
 
     Attributes:
         ids: The videos to put in line, in this order.
+        first: Whether they go to the top of the line ("Mirror first", R-QU-02).
     """
 
     ids: list[str]
+    first: bool = False
 
 
 class QueuedJob(BaseModel):
@@ -583,6 +592,35 @@ class DiskSpace(BaseModel):
     free_bytes: int
 
 
+class Queue(BaseModel):
+    """How the queue stands, for the queue bar (R-QU-01, R-QU-02).
+
+    Attributes:
+        downloading: How many downloads run now.
+        waiting: How many wait in line.
+        failed: How many videos failed (R-QU-08).
+        paused: Whether the user paused all downloads.
+        places: How many downloads may run at once.
+    """
+
+    downloading: int
+    waiting: int
+    failed: int
+    paused: bool
+    places: int
+
+    @classmethod
+    def of(cls, summary: QueueSummary) -> Queue:
+        """Return the wire form of a summary of the queue."""
+        return cls(
+            downloading=summary.downloading,
+            waiting=summary.waiting,
+            failed=summary.failed,
+            paused=summary.paused,
+            places=summary.places,
+        )
+
+
 class StateResponse(BaseModel):
     """The answer of ``GET /api/state``: the app as the window draws it.
 
@@ -596,6 +634,7 @@ class StateResponse(BaseModel):
         api_key: How the optional API key stands (R-DT-12).
         checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
             or None (R-CH-20).
+        queue: How the queue of downloads stands (R-QU-02).
     """
 
     channels: list[Channel]
@@ -606,6 +645,7 @@ class StateResponse(BaseModel):
     youtube_pause: Pause | None
     api_key: ApiKey
     checking_all: Mirroring | None = None
+    queue: Queue = Queue.of(NO_QUEUE)
 
     @classmethod
     def of(cls, state: AppState) -> StateResponse:
@@ -621,7 +661,140 @@ class StateResponse(BaseModel):
             checking_all=None
             if state.checking_all is None
             else Mirroring(done=state.checking_all[0], total=state.checking_all[1]),
+            queue=Queue.of(state.queue),
         )
+
+
+class QueueItem(BaseModel):
+    """One download that waits or runs, as the downloads panel shows it (R-QU-02).
+
+    Attributes:
+        job_id: The job.
+        video_id: The video.
+        channel_id: Its channel.
+        channel_title: The name of the channel.
+        title: The title of the video.
+        duration_s: Its length in seconds, or None.
+        quality: The quality it is downloaded in.
+        by_hand: Whether the user started it by hand (R-DT-06, D-090).
+        download: How far it is, when it runs and reported already, else None.
+    """
+
+    job_id: str
+    video_id: str
+    channel_id: str
+    channel_title: str
+    title: str
+    duration_s: int | None
+    quality: Quality
+    by_hand: bool
+    download: Download | None = None
+
+    @classmethod
+    def of(cls, entry: QueueEntry) -> QueueItem:
+        """Return the wire form of a queue entry."""
+        return cls(
+            job_id=entry.job.id,
+            video_id=entry.video.id,
+            channel_id=entry.video.channel_id,
+            channel_title=entry.channel_title,
+            title=entry.video.title,
+            duration_s=entry.video.duration_s,
+            quality=entry.job.quality,
+            by_hand=entry.job.by_hand,
+            download=None if entry.progress is None else Download.of(entry.progress),
+        )
+
+
+class FailedItem(BaseModel):
+    """One failed video, as the downloads panel shows it (R-QU-08).
+
+    Attributes:
+        video_id: The video.
+        channel_id: Its channel.
+        channel_title: The name of the channel.
+        title: The title of the video.
+        error_code: Why it failed, or None.
+        attempts: How many automatic attempts were made since it last succeeded.
+        gone: Whether YouTube no longer has it: then it offers no Retry (R-CH-14).
+    """
+
+    video_id: str
+    channel_id: str
+    channel_title: str
+    title: str
+    error_code: ErrorCode | None
+    attempts: int
+    gone: bool
+
+    @classmethod
+    def of(cls, entry: FailedEntry) -> FailedItem:
+        """Return the wire form of a failed video."""
+        return cls(
+            video_id=entry.video.id,
+            channel_id=entry.video.channel_id,
+            channel_title=entry.channel_title,
+            title=entry.video.title,
+            error_code=entry.video.last_error_code,
+            attempts=entry.video.attempts,
+            gone=entry.video.gone,
+        )
+
+
+class QueueResponse(BaseModel):
+    """The answer of ``GET /api/queue``: the whole queue (R-QU-02).
+
+    Attributes:
+        queue: How it stands.
+        running: The downloads that run.
+        waiting: The downloads that wait, in their order.
+        failed: The failed videos, newest failure first.
+    """
+
+    queue: Queue
+    running: list[QueueItem]
+    waiting: list[QueueItem]
+    failed: list[FailedItem]
+
+    @classmethod
+    def of(cls, view: QueueView) -> QueueResponse:
+        """Return the wire form of the queue."""
+        return cls(
+            queue=Queue.of(view.summary),
+            running=[QueueItem.of(entry) for entry in view.running],
+            waiting=[QueueItem.of(entry) for entry in view.waiting],
+            failed=[FailedItem.of(entry) for entry in view.failed],
+        )
+
+
+class ReorderRequest(BaseModel):
+    """The body of ``POST /api/queue/reorder`` (R-QU-02).
+
+    Attributes:
+        job_ids: The waiting jobs in the order the user wants.
+    """
+
+    job_ids: list[str]
+
+
+class ClearWaitingResponse(BaseModel):
+    """The answer of ``POST /api/queue/clear-waiting`` (R-QU-02).
+
+    Attributes:
+        removed: How many waiting downloads were removed.
+    """
+
+    removed: int
+
+
+class QueueUpdatedEvent(BaseModel):
+    """The data of the event ``queue.updated``: the queue changed (R-FB-03).
+
+    Attributes:
+        queue: How it stands now.
+    """
+
+    queue: Queue
 
 
 class OpenChannelRequest(BaseModel):

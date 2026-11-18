@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from ytmirror.core.channels import ChannelView, YouTubePause
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.exact_dates import NO_KEY, KeyState
+from ytmirror.core.queue import NO_QUEUE, QueueSummary
 from ytmirror.ports.app_meta_repository import AppMetaRepository
 from ytmirror.ports.file_system import Disk, FileSystem
 from ytmirror.ports.folder_picker import FolderPicker
@@ -40,6 +41,7 @@ class AppState:
         api_key: How the optional API key stands (R-DT-12).
         checking_all: How many checks of a check of all channels ended, and how many there
             are, or None (R-CH-20: "Checking channels: 3 of 5").
+        queue: How the queue of downloads stands (R-QU-02).
     """
 
     channels: tuple[ChannelView, ...]
@@ -50,6 +52,7 @@ class AppState:
     youtube_pause: YouTubePause | None
     api_key: KeyState = NO_KEY
     checking_all: tuple[int, int] | None = None
+    queue: QueueSummary = NO_QUEUE
 
 
 class StateService:
@@ -65,6 +68,7 @@ class StateService:
         youtube: YouTubeAccess,
         api_key: Callable[[], KeyState] = lambda: NO_KEY,
         channel_opened: Callable[[str], None] = lambda channel_id: None,
+        queue: Callable[[], QueueSummary] = lambda: NO_QUEUE,
     ) -> None:
         """Create the service.
 
@@ -78,6 +82,7 @@ class StateService:
             api_key: Says how the API key stands.
             channel_opened: Told when the user opens a channel, to check it when its
                 last check is older than 5 minutes (R-CH-21).
+            queue: Says how the queue of downloads stands.
         """
         self._views = views
         self._settings = settings
@@ -87,6 +92,7 @@ class StateService:
         self._youtube = youtube
         self._api_key = api_key
         self._channel_opened = channel_opened
+        self._queue = queue
 
     def snapshot(self) -> AppState:
         """Return the app as it is right now."""
@@ -103,6 +109,7 @@ class StateService:
             youtube_pause=self._youtube.pause(),
             api_key=self._api_key(),
             checking_all=self._views.checking_all(),
+            queue=self._queue(),
         )
 
     def open_channel(self, channel_id: str | None) -> None:

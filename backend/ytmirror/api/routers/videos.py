@@ -55,7 +55,7 @@ def build_router(
 
     def mirror(body: MirrorRequest) -> MirrorResponse:
         """Put videos in line to be downloaded, in the order given (R-MI-01)."""
-        jobs = downloader.mirror(body.ids)
+        jobs = downloader.mirror(body.ids, first=body.first)
         return MirrorResponse(
             jobs=[QueuedJob(job_id=job.id, video_id=job.video_id) for job in jobs]
         )

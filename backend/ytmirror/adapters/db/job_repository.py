@@ -8,7 +8,7 @@ section 7.7).
 Tests: backend/tests/integration/db/test_job_repository.py
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import Engine, delete, func, select, update
@@ -165,6 +165,59 @@ class SqlJobRepository:
                 )
             )
             return 1 if highest is None else highest + 1
+
+    def lowest_priority(self) -> int | None:
+        """Return the lowest priority of a job that waits or runs, or None when there is none."""
+        with Session(self._reader) as session:
+            return session.scalar(
+                select(func.min(JobRow.priority)).where(
+                    JobRow.state.in_([state.value for state in ACTIVE_STATES])
+                )
+            )
+
+    def set_priorities(self, priorities: Mapping[str, int]) -> None:
+        """Give waiting jobs new priorities, in one transaction (R-QU-02).
+
+        Args:
+            priorities: The new priority of each job. A job that no longer waits keeps its own.
+        """
+        now = self._now()
+        with Session(self._engine) as session, session.begin():
+            for job_id, priority in priorities.items():
+                session.execute(
+                    update(JobRow)
+                    .where(JobRow.id == job_id, JobRow.state == JobState.WAITING.value)
+                    .values(priority=priority, updated_at=now)
+                )
+
+    def mark_by_hand(self, job_id: str) -> None:
+        """Count a waiting job as started by hand from now on (R-DT-06, D-090).
+
+        Args:
+            job_id: The job. One that no longer waits is left as it is.
+        """
+        with Session(self._engine) as session, session.begin():
+            session.execute(
+                update(JobRow)
+                .where(JobRow.id == job_id, JobRow.state == JobState.WAITING.value)
+                .values(by_hand=True, updated_at=self._now())
+            )
+
+    def count(self, states: Collection[JobState]) -> int:
+        """Return how many jobs are in some states.
+
+        Args:
+            states: The states.
+        """
+        with Session(self._reader) as session:
+            return (
+                session.scalar(
+                    select(func.count())
+                    .select_from(JobRow)
+                    .where(JobRow.state.in_([state.value for state in states]))
+                )
+                or 0
+            )
 
     def events(self, video_id: str) -> tuple[VideoEvent, ...]:
         """Return the status history of a video, oldest first (R-LG-03).

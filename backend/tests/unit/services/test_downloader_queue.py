@@ -6,11 +6,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
 
-from tests.fixtures.world import World
+from tests.fixtures.world import SMALL_ID, World, channel_file
 from ytmirror.core.channels import VideoStatus
+from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import DownloadProgress, JobProgressed, JobState, Stage
 from ytmirror.core.models import Settings
+from ytmirror.core.queue import QueueChanged, QueueSummary
 
 FIRST = "sm000000005"
 SECOND = "sm000000004"
@@ -334,3 +337,173 @@ def test_a_kept_back_report_is_not_told_after_its_download_ended(world: World) -
         send()
 
     assert told(world) == before
+
+
+# --- the order of the line, pause all, clear waiting (R-QU-02)
+
+
+def waiting_order(world: World) -> list[str]:
+    """Return the videos of the waiting jobs, in the order they will run."""
+    return [job.video_id for job in world.jobs.jobs([JobState.WAITING])]
+
+
+def test_mirror_first_puts_videos_at_the_top_of_the_line_in_their_order(world: World) -> None:
+    """R-QU-02: "Mirror first" puts the videos ahead of every waiting one, in the order given."""
+    world.downloader.mirror([FIRST, SECOND])
+
+    world.downloader.mirror([THIRD, "sm000000002"], first=True)
+
+    assert waiting_order(world) == [THIRD, "sm000000002", FIRST, SECOND]
+
+
+def test_mirror_first_on_a_waiting_video_moves_it_to_the_top(world: World) -> None:
+    """R-QU-02: "Mirror first" on a video that waits already moves it, without a second job."""
+    world.downloader.mirror([FIRST, SECOND, THIRD])
+
+    queued = world.downloader.mirror([THIRD], first=True)
+
+    assert queued == []
+    assert waiting_order(world) == [THIRD, FIRST, SECOND]
+    world.download_all()
+    assert [request.video_id for request in world.download.calls] == [THIRD, FIRST, SECOND]
+
+
+def test_reorder_runs_the_waiting_downloads_in_the_new_order(world: World) -> None:
+    """R-QU-02: after a drag and drop the downloads run in the order the user chose."""
+    jobs = world.downloader.mirror([FIRST, SECOND, THIRD])
+
+    world.downloader.reorder([jobs[2].id, jobs[0].id, jobs[1].id])
+
+    assert waiting_order(world) == [THIRD, FIRST, SECOND]
+    world.download_all()
+    assert [request.video_id for request in world.download.calls] == [THIRD, FIRST, SECOND]
+
+
+def test_a_job_put_in_line_later_stays_behind_a_reordered_line(world: World) -> None:
+    """R-QU-02: a reorder that does not name a newer job keeps it at the end."""
+    jobs = world.downloader.mirror([FIRST, SECOND])
+    world.downloader.mirror([THIRD])
+
+    world.downloader.reorder([jobs[1].id, jobs[0].id])
+
+    assert waiting_order(world) == [SECOND, FIRST, THIRD]
+
+
+def test_pause_all_holds_every_download_until_resume(world: World) -> None:
+    """R-QU-02: nothing starts while all downloads are paused; resume all starts them again."""
+    world.downloader.mirror([FIRST])
+
+    world.downloader.pause_all()
+
+    assert world.downloader.work_once() is False
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    world.downloader.resume_all()
+    assert world.downloader.work_once() is True
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+
+
+def test_pause_all_is_kept_across_a_restart(world: World) -> None:
+    """R-QU-02, spec section 10: "Pause all downloads" is a stored setting."""
+    world.downloader.pause_all()
+
+    assert world.settings.current().downloads_paused is True
+    world.downloader.resume_all()
+    assert world.settings.current().downloads_paused is False
+
+
+def test_clear_waiting_removes_every_waiting_download(world: World) -> None:
+    """R-QU-02: "Clear waiting" removes the waiting items; their videos are not downloaded."""
+    world.downloader.mirror([FIRST, SECOND])
+
+    assert world.downloader.clear_waiting() == 2
+
+    assert world.jobs.jobs([JobState.WAITING, JobState.RUNNING]) == ()
+    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
+    assert status_of(world, SECOND) is VideoStatus.NOT_DOWNLOADED
+
+
+def test_clear_waiting_leaves_a_running_download_alone(world: World) -> None:
+    """R-QU-02: only waiting items are cleared; the running one goes on."""
+    held = hold(world, FIRST)
+    world.downloader.mirror([FIRST, SECOND])
+    worker = threading.Thread(target=world.downloader.work_once, daemon=True)
+    worker.start()
+    assert world.download.asked[FIRST].wait(10)
+
+    assert world.downloader.clear_waiting() == 1
+
+    held[FIRST].set()
+    worker.join(10)
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+    assert status_of(world, SECOND) is VideoStatus.NOT_DOWNLOADED
+
+
+# --- the summary of the queue
+
+
+def summaries(world: World) -> list[QueueSummary]:
+    """Return every summary of the queue that was told, in order."""
+    return [event.summary for event in world.events if isinstance(event, QueueChanged)]
+
+
+def test_the_queue_is_told_when_it_changes(world: World) -> None:
+    """R-FB-03, R-QU-02: the queue bar hears of every job put in line, started and ended."""
+    world.events.clear()
+
+    world.downloader.mirror([FIRST, SECOND])
+    world.download_all()
+
+    told = [(summary.downloading, summary.waiting) for summary in summaries(world)]
+    assert told[:2] == [(0, 1), (0, 2)]
+    assert (1, 1) in told
+    assert told[-1] == (0, 0)
+
+
+def test_the_summary_counts_failed_videos_and_says_when_paused(world: World) -> None:
+    """R-QU-08, R-QU-02: the summary has the failed videos and the pause of all downloads."""
+    world.download.fail = AppError(ErrorCode.VIDEO_PRIVATE, {})
+    world.downloader.mirror([FIRST])
+    world.download_all()
+
+    world.downloader.pause_all()
+
+    assert world.downloader.queue_summary() == QueueSummary(
+        downloading=0, waiting=0, failed=1, paused=True, places=2
+    )
+
+
+# --- jobs started by hand (R-DT-06, D-090) and excluded videos (R-MI-05)
+
+
+def test_the_first_20_jobs_of_one_action_are_started_by_hand(tmp_path: Path) -> None:
+    """R-DT-06, D-090: one action's first 20 jobs pass the budget, the rest are automatic."""
+    world = World(tmp_path, channel_file(videos=25))
+    world.add_and_list()
+
+    jobs = world.downloader.mirror(world.ids(SMALL_ID))
+
+    assert [job.by_hand for job in jobs] == [True] * 20 + [False] * 5
+    assert [job.by_hand for job in world.jobs.jobs([JobState.WAITING])] == [True] * 20 + [False] * 5
+
+
+def test_mirror_on_a_waiting_automatic_job_makes_it_one_started_by_hand(tmp_path: Path) -> None:
+    """R-DT-06, D-090: pressing Mirror on a paced job lets it pass the budget."""
+    world = World(tmp_path, channel_file(videos=25))
+    world.add_and_list()
+    ids = world.ids(SMALL_ID)
+    jobs = world.downloader.mirror(ids)
+    last = jobs[-1]
+    assert last.by_hand is False
+
+    assert world.downloader.mirror([ids[-1]]) == []
+
+    assert world.jobs.job(last.id).by_hand is True  # type: ignore[union-attr]
+
+
+def test_an_excluded_video_is_never_put_in_line(world: World) -> None:
+    """R-MI-05: Mirror and Retry refuse an excluded video."""
+    with world.engine.begin() as connection:
+        connection.execute(text("UPDATE videos SET excluded = 1 WHERE id = :id"), {"id": FIRST})
+
+    assert world.downloader.mirror([FIRST]) == []
+    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED

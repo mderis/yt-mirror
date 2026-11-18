@@ -21,6 +21,7 @@ from ytmirror.core.channels import (
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.exact_dates import KeyStateChanged
 from ytmirror.core.jobs import JobProgressed, VideoUpdated
+from ytmirror.core.queue import QueueChanged
 
 APP_NAME = "yt-mirror"
 """The name of the app everywhere a user reads it (R-NA-01)."""
@@ -416,5 +417,6 @@ type AppEvent = (
     | JobProgressed
     | KeyStateChanged
     | ChecksProgressed
+    | QueueChanged
 )
 """Every event the services publish for the interface. Each milestone adds its own."""

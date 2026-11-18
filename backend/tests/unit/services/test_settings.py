@@ -42,3 +42,17 @@ def test_a_chosen_library_folder_is_used_as_it_is() -> None:
     assert SettingsService(repository, HOME_LIBRARY).library_folder() == Path(
         "/Volumes/Media/YouTube"
     )
+
+
+def test_a_change_stores_the_new_values_and_keeps_the_others() -> None:
+    """R-SE-01, R-QU-02, R-QU-03: a setting changed in the interface is saved at once."""
+    repository = InMemorySettingsRepository()
+    repository.save(Settings(log_detail=LogDetail.VERBOSE))
+    service = SettingsService(repository, Path("/Users/someone/Movies/YouTube"))
+
+    changed = service.change(downloads_paused=True, speed_limit_mbps=2)
+
+    assert changed == Settings(
+        log_detail=LogDetail.VERBOSE, downloads_paused=True, speed_limit_mbps=2
+    )
+    assert repository.load() == changed

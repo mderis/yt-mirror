@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from ytmirror.core.catalogue import CheckChanges
-from ytmirror.core.channels import Channel, ChannelTotals, Video
+from ytmirror.core.channels import Channel, ChannelTotals, Video, VideoStatus
 from ytmirror.core.status import StatusChange
 
 
@@ -78,6 +78,30 @@ class CatalogueRepository(Protocol):
 
         Args:
             video_id: The video ID.
+        """
+        ...
+
+    def videos_by_id(self, video_ids: Sequence[str]) -> Mapping[str, Video]:
+        """Return the videos with these IDs, by ID. An unknown ID is left out.
+
+        Args:
+            video_ids: The video IDs.
+        """
+        ...
+
+    def videos_with_status(self, status: VideoStatus) -> tuple[Video, ...]:
+        """Return the videos of every channel that have a status, newest failure first.
+
+        Args:
+            status: The status.
+        """
+        ...
+
+    def count_with_status(self, status: VideoStatus) -> int:
+        """Return how many videos of every channel have a status.
+
+        Args:
+            status: The status.
         """
         ...
 

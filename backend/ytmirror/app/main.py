@@ -415,6 +415,7 @@ def api_services(container: Container) -> ApiServices:
         downloader=container.downloader,
         dates=container.dates,
         repair=container.repair,
+        queue=container.queue,
     )
 
 

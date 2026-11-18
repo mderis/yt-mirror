@@ -55,6 +55,13 @@ from ytmirror.core.jobs import (
 from ytmirror.core.media import MediaFacts, verification_problem
 from ytmirror.core.naming import HIDDEN_DIR, TEMP_DIR, video_file_name
 from ytmirror.core.quality import effective_quality
+from ytmirror.core.queue import (
+    HAND_JOBS_PER_ACTION,
+    QueueChanged,
+    QueueSummary,
+    priorities_first,
+    priorities_in_order,
+)
 from ytmirror.core.status import InvalidTransitionError, StatusChange, change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
@@ -353,7 +360,12 @@ class DownloaderService:
         Nothing starts while YouTube is paused (R-ER-05) or while every place is
         taken (R-QU-01). A job that a worker took already is never taken twice.
         """
-        if self._stopped or self._youtube.pause() is not None or self._busy() >= self._capacity():
+        if (
+            self._stopped
+            or self._youtube.pause() is not None
+            or self._settings.current().downloads_paused
+            or self._busy() >= self._capacity()
+        ):
             return None
         return next(
             (job for job in self._jobs.jobs([JobState.WAITING]) if job.id not in self._running),
@@ -399,13 +411,20 @@ class DownloaderService:
 
     # --- what the user asks for
 
-    def mirror(self, video_ids: list[str]) -> list[Job]:
+    def mirror(self, video_ids: Sequence[str], *, first: bool = False) -> list[Job]:
         """Put videos in line to be downloaded, in the order given (R-MI-01).
 
-        A video that waits or runs already, or is synced, is left as it is.
+        This is an action of the user: the first 20 jobs it puts in line are
+        started by hand and never wait for the lookup budget, the others are
+        automatic (R-DT-06, D-090). A video that waits already becomes a job
+        started by hand. A video that runs, is synced, excluded (R-MI-05) or
+        removed from YouTube is left as it is. With ``first`` the videos go to
+        the top of the line, in the order given ("Mirror first", R-QU-02), also
+        the ones that waited already.
 
         Args:
             video_ids: The videos.
+            first: Whether they go to the top of the line.
 
         Returns:
             The jobs that were put in line.
@@ -414,18 +433,104 @@ class DownloaderService:
             AppError: ``NOT_FOUND`` for a video no catalogue has.
         """
         queued: list[Job] = []
+        chosen: list[str] = []
         for video_id in video_ids:
             # Two presses that arrive together must not give two jobs for one video.
             with self._wake:
                 video = self._known(video_id)
-                if (
-                    video.status not in MIRRORABLE
-                    or video.gone  # YouTube no longer has it (R-CH-14)
-                    or self._jobs.active_job_of(video_id) is not None
-                ):
+                active = self._jobs.active_job_of(video_id)
+                if active is not None:
+                    if active.state is JobState.WAITING and active.id not in self._running:
+                        if not active.by_hand:
+                            self._jobs.mark_by_hand(active.id)
+                        chosen.append(active.id)
                     continue
-                queued.append(self._put_in_line(video, "mirror"))
+                if video.status not in MIRRORABLE or video.gone or video.excluded:
+                    continue
+                by_hand = len(queued) < HAND_JOBS_PER_ACTION
+                job = self._put_in_line(video, "mirror", by_hand=by_hand)
+                queued.append(job)
+                chosen.append(job.id)
+        if first and chosen:
+            self._to_top(chosen)
+        elif chosen and not queued:
+            self._queue_changed()
         return queued
+
+    def pause_all(self) -> None:
+        """Pause all downloads: no download starts until they are resumed (R-QU-02).
+
+        The choice is stored, so a restart keeps it (spec section 10).
+        """
+        self._settings.change(downloads_paused=True)
+        _log.info("queue.paused", msg="All downloads paused", reason="user")
+        self._queue_changed()
+
+    def resume_all(self) -> None:
+        """Resume all downloads (R-QU-02)."""
+        self._settings.change(downloads_paused=False)
+        _log.info("queue.resumed", msg="All downloads resumed", reason="user")
+        self._wake_up()
+        self._add_workers()
+        self._queue_changed()
+
+    def clear_waiting(self) -> int:
+        """Remove every download that waits from the line (R-QU-02). Running ones go on.
+
+        Returns:
+            How many were removed.
+        """
+        removed = 0
+        for job in self._jobs.jobs([JobState.WAITING]):
+            with self._wake:
+                if job.id in self._running:
+                    continue
+            if self.cancel(job.id):
+                removed += 1
+        return removed
+
+    def reorder(self, job_ids: Sequence[str]) -> None:
+        """Put the waiting downloads in the given order (R-QU-02, drag and drop).
+
+        Args:
+            job_ids: Waiting jobs in the order the user wants. One that no longer
+                waits is ignored; a waiting one that is not named stays behind them.
+        """
+        with self._wake:
+            waiting = [
+                (job.id, job.priority)
+                for job in self._jobs.jobs([JobState.WAITING])
+                if job.id not in self._running
+            ]
+            changes = priorities_in_order(waiting, job_ids)
+            self._jobs.set_priorities(changes)
+            self._wake.notify_all()
+        _log.info("queue.reordered", msg="The waiting downloads were reordered", moved=len(changes))
+        self._queue_changed()
+
+    def queue_summary(self) -> QueueSummary:
+        """Return how the queue stands (R-QU-01, R-QU-02)."""
+        settings = self._settings.current()
+        return QueueSummary(
+            downloading=self._jobs.count([JobState.RUNNING]),
+            waiting=self._jobs.count([JobState.WAITING]),
+            failed=self._repository.count_with_status(VideoStatus.FAILED),
+            paused=settings.downloads_paused,
+            places=settings.parallel_downloads,
+        )
+
+    def _to_top(self, job_ids: Sequence[str]) -> None:
+        """Put waiting jobs at the top of the line, in the order given (R-QU-02)."""
+        with self._wake:
+            priorities = priorities_first(len(job_ids), self._jobs.lowest_priority())
+            self._jobs.set_priorities(dict(zip(job_ids, priorities, strict=True)))
+            self._wake.notify_all()
+        _log.info("queue.reordered", msg="Videos put at the top of the line", moved=len(job_ids))
+        self._queue_changed()
+
+    def _queue_changed(self) -> None:
+        """Tell the interface how the queue stands now (R-FB-03)."""
+        self._events.publish(QueueChanged(self.queue_summary()))
 
     def retry(self, video_id: str) -> Job:
         """Put a failed video in line again (R-QU-08, R-ER-03).
@@ -442,6 +547,7 @@ class DownloaderService:
             if (
                 video.status is not VideoStatus.FAILED
                 or video.gone  # YouTube no longer has it (R-CH-14)
+                or video.excluded  # never queued by any path (R-MI-05)
                 or self._jobs.active_job_of(video_id) is not None
             ):
                 raise AppError(
@@ -706,6 +812,7 @@ class DownloaderService:
         try:
             video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
             self._videos[job.id] = video
+            self._queue_changed()
             video = self._clean_marker_first(running, video, place)
             with self._wake:
                 if self._is_cancelled(job.id):
@@ -1223,6 +1330,7 @@ class DownloaderService:
         cleanup (R-QA-06).
         """
         self._announce(self._store_end(job, video, state, status, reason, keep_marker=keep_marker))
+        self._queue_changed()
 
     def _store_end(
         self,
@@ -1282,6 +1390,7 @@ class DownloaderService:
         """Tell the interface after the synced commit. A failure is logged, nothing more."""
         try:
             self._announce(video)
+            self._queue_changed()
         except Exception:  # noqa: BLE001  (the file is stored: nothing may undo it)
             _log.error(
                 "download.tell_failed",
@@ -1450,7 +1559,7 @@ class DownloaderService:
 
     # --- helpers
 
-    def _put_in_line(self, video: Video, reason: str) -> Job:
+    def _put_in_line(self, video: Video, reason: str, *, by_hand: bool = True) -> Job:
         channel = self._repository.channel(video.channel_id)
         if channel is None or channel.id in self._closed:
             raise AppError(ErrorCode.NOT_FOUND, {"video": video.id})
@@ -1462,6 +1571,7 @@ class DownloaderService:
             priority=self._jobs.next_priority(),
             quality=effective_quality(channel.quality, self._settings.current().default_quality),
             created_at=self._now(),
+            by_hand=by_hand,
         )
         queued = self._change(job, video, VideoStatus.QUEUED, reason)
         self._state.queued(video.id, channel.id, job.id)
@@ -1473,6 +1583,7 @@ class DownloaderService:
             channel_id=channel.id,
             quality=job.quality.value,
             reason=reason,
+            by_hand=by_hand,
         )
         self._tell(queued)
         self._views.publish(channel.id)
@@ -1480,6 +1591,7 @@ class DownloaderService:
             self._wake.notify_all()
         # The setting may allow more downloads now than when the workers started.
         self._add_workers()
+        self._queue_changed()
         return job
 
     def _change(self, job: Job, video: Video, status: VideoStatus, reason: str) -> Video:

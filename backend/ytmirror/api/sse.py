@@ -32,6 +32,8 @@ from ytmirror.api.catalogue_schemas import (
     Mirroring,
     Pause,
     Progress,
+    Queue,
+    QueueUpdatedEvent,
     TaskProgressEvent,
     Video,
     VideoUpdatedEvent,
@@ -41,6 +43,7 @@ from ytmirror.core.channels import ChannelUpdated, ChecksProgressed, TaskProgres
 from ytmirror.core.exact_dates import KeyStateChanged
 from ytmirror.core.jobs import JobProgressed, VideoUpdated
 from ytmirror.core.models import AppEvent, ToolUpdated
+from ytmirror.core.queue import QueueChanged
 from ytmirror.services.events import EventBus
 
 KEEP_ALIVE_S = 15.0
@@ -54,6 +57,7 @@ JOB_PROGRESS = "job.progress"
 BANNER_CHANGED = "banner.changed"
 API_KEY_CHANGED = "apikey.changed"
 CHECKS_PROGRESS = "checks.progress"
+QUEUE_UPDATED = "queue.updated"
 
 type EventData = (
     ToolUpdatedEvent
@@ -64,6 +68,7 @@ type EventData = (
     | JobProgressEvent
     | ApiKeyChangedEvent
     | ChecksProgressEvent
+    | QueueUpdatedEvent
 )
 """The data of every event of the stream. It is named as the answer of the endpoint,
 so that the generated frontend types know all of them."""
@@ -114,6 +119,8 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
                 else Mirroring(done=progress[0], total=progress[1])
             )
             return encode(CHECKS_PROGRESS, data)
+        if isinstance(event, QueueChanged):
+            return encode(QUEUE_UPDATED, QueueUpdatedEvent(queue=Queue.of(event.summary)))
         if isinstance(event, KeyStateChanged):
             return encode(API_KEY_CHANGED, ApiKeyChangedEvent(api_key=ApiKey.of(event.key)))
         return encode(BANNER_CHANGED, BannerChangedEvent(youtube_pause=Pause.of(event.pause)))

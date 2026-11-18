@@ -354,6 +354,106 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/queue': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Get Queue
+     * @description Return every download that runs or waits, in its order, and the failed videos.
+     */
+    get: operations['getQueue']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/clear-waiting': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Clear Waiting
+     * @description Remove every download that waits from the line (R-QU-02).
+     */
+    post: operations['clearWaiting']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/pause': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Pause
+     * @description Pause all downloads (R-QU-02).
+     */
+    post: operations['pauseQueue']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/reorder': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Reorder
+     * @description Put the waiting downloads in the given order (R-QU-02).
+     */
+    post: operations['reorderQueue']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/resume': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Resume
+     * @description Resume all downloads (R-QU-02).
+     */
+    post: operations['resumeQueue']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/settings/api-key': {
     parameters: {
       query?: never
@@ -942,6 +1042,17 @@ export interface components {
       video_files: number
     }
     /**
+     * ClearWaitingResponse
+     * @description The answer of ``POST /api/queue/clear-waiting`` (R-QU-02).
+     *
+     *     Attributes:
+     *         removed: How many waiting downloads were removed.
+     */
+    ClearWaitingResponse: {
+      /** Removed */
+      removed: number
+    }
+    /**
      * DateInfo
      * @description What an approximate date shows (R-DT-13).
      *
@@ -1129,6 +1240,7 @@ export interface components {
       | components['schemas']['JobProgressEvent']
       | components['schemas']['ApiKeyChangedEvent']
       | components['schemas']['ChecksProgressEvent']
+      | components['schemas']['QueueUpdatedEvent']
     /**
      * ExactDates
      * @description How far the exact dates of a channel are (R-FB-01, R-DT-14, R-DT-15).
@@ -1148,6 +1260,34 @@ export interface components {
       offer_key: boolean
       /** Total */
       total: number
+    }
+    /**
+     * FailedItem
+     * @description One failed video, as the downloads panel shows it (R-QU-08).
+     *
+     *     Attributes:
+     *         video_id: The video.
+     *         channel_id: Its channel.
+     *         channel_title: The name of the channel.
+     *         title: The title of the video.
+     *         error_code: Why it failed, or None.
+     *         attempts: How many automatic attempts were made since it last succeeded.
+     *         gone: Whether YouTube no longer has it: then it offers no Retry (R-CH-14).
+     */
+    FailedItem: {
+      /** Attempts */
+      attempts: number
+      /** Channel Id */
+      channel_id: string
+      /** Channel Title */
+      channel_title: string
+      error_code: components['schemas']['ErrorCode'] | null
+      /** Gone */
+      gone: boolean
+      /** Title */
+      title: string
+      /** Video Id */
+      video_id: string
     }
     /**
      * FileFacts
@@ -1311,8 +1451,14 @@ export interface components {
      *
      *     Attributes:
      *         ids: The videos to put in line, in this order.
+     *         first: Whether they go to the top of the line ("Mirror first", R-QU-02).
      */
     MirrorRequest: {
+      /**
+       * First
+       * @default false
+       */
+      first: boolean
       /** Ids */
       ids: string[]
     }
@@ -1398,6 +1544,91 @@ export interface components {
      */
     Quality: 'best' | '2160' | '1440' | '1080' | '720' | '480'
     /**
+     * Queue
+     * @description How the queue stands, for the queue bar (R-QU-01, R-QU-02).
+     *
+     *     Attributes:
+     *         downloading: How many downloads run now.
+     *         waiting: How many wait in line.
+     *         failed: How many videos failed (R-QU-08).
+     *         paused: Whether the user paused all downloads.
+     *         places: How many downloads may run at once.
+     */
+    Queue: {
+      /** Downloading */
+      downloading: number
+      /** Failed */
+      failed: number
+      /** Paused */
+      paused: boolean
+      /** Places */
+      places: number
+      /** Waiting */
+      waiting: number
+    }
+    /**
+     * QueueItem
+     * @description One download that waits or runs, as the downloads panel shows it (R-QU-02).
+     *
+     *     Attributes:
+     *         job_id: The job.
+     *         video_id: The video.
+     *         channel_id: Its channel.
+     *         channel_title: The name of the channel.
+     *         title: The title of the video.
+     *         duration_s: Its length in seconds, or None.
+     *         quality: The quality it is downloaded in.
+     *         by_hand: Whether the user started it by hand (R-DT-06, D-090).
+     *         download: How far it is, when it runs and reported already, else None.
+     */
+    QueueItem: {
+      /** By Hand */
+      by_hand: boolean
+      /** Channel Id */
+      channel_id: string
+      /** Channel Title */
+      channel_title: string
+      download?: components['schemas']['Download'] | null
+      /** Duration S */
+      duration_s: number | null
+      /** Job Id */
+      job_id: string
+      quality: components['schemas']['Quality']
+      /** Title */
+      title: string
+      /** Video Id */
+      video_id: string
+    }
+    /**
+     * QueueResponse
+     * @description The answer of ``GET /api/queue``: the whole queue (R-QU-02).
+     *
+     *     Attributes:
+     *         queue: How it stands.
+     *         running: The downloads that run.
+     *         waiting: The downloads that wait, in their order.
+     *         failed: The failed videos, newest failure first.
+     */
+    QueueResponse: {
+      /** Failed */
+      failed: components['schemas']['FailedItem'][]
+      queue: components['schemas']['Queue']
+      /** Running */
+      running: components['schemas']['QueueItem'][]
+      /** Waiting */
+      waiting: components['schemas']['QueueItem'][]
+    }
+    /**
+     * QueueUpdatedEvent
+     * @description The data of the event ``queue.updated``: the queue changed (R-FB-03).
+     *
+     *     Attributes:
+     *         queue: How it stands now.
+     */
+    QueueUpdatedEvent: {
+      queue: components['schemas']['Queue']
+    }
+    /**
      * QueuedJob
      * @description A download that was put in line.
      *
@@ -1428,6 +1659,17 @@ export interface components {
       folder: string
       /** Left */
       left: components['schemas']['KeptFileResponse'][]
+    }
+    /**
+     * ReorderRequest
+     * @description The body of ``POST /api/queue/reorder`` (R-QU-02).
+     *
+     *     Attributes:
+     *         job_ids: The waiting jobs in the order the user wants.
+     */
+    ReorderRequest: {
+      /** Job Ids */
+      job_ids: string[]
     }
     /**
      * RepairDatesResponse
@@ -1477,6 +1719,7 @@ export interface components {
      *         api_key: How the optional API key stands (R-DT-12).
      *         checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
      *             or None (R-CH-20).
+     *         queue: How the queue of downloads stands (R-QU-02).
      */
     StateResponse: {
       api_key: components['schemas']['ApiKey']
@@ -1490,6 +1733,16 @@ export interface components {
       library_folder: string
       /** Open Channel Id */
       open_channel_id: string | null
+      /**
+       * @default {
+       *       "downloading": 0,
+       *       "failed": 0,
+       *       "paused": false,
+       *       "places": 2,
+       *       "waiting": 0
+       *     }
+       */
+      queue: components['schemas']['Queue']
       youtube_pause: components['schemas']['Pause'] | null
     }
     /**
@@ -2810,6 +3063,252 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  getQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['QueueResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  clearWaiting: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ClearWaitingResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  pauseQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  reorderQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReorderRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  resumeQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
         }
       }
       /** @description Internal Server Error */

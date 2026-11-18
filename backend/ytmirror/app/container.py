@@ -63,6 +63,7 @@ from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.job_logs import JobLogsService
+from ytmirror.services.queue import QueueService
 from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.schema import SchemaService
@@ -95,7 +96,8 @@ class Container:
         channels: Looks channels up, adds, pauses and removes them.
         state: The snapshot of the app for the window.
         videos: Reads the catalogue of a channel.
-        downloader: Downloads videos, one job after another (milestone M3).
+        downloader: Downloads videos, as many at once as the setting allows (R-QU-01).
+        queue: The queue as the downloads panel shows it (R-QU-02).
         job_logs: Deletes the logs of jobs that are no longer kept.
         dates: Looks up exact dates in the background, and keeps the API key.
         scheduler: Starts checks by themselves and runs the exact-date fetch.
@@ -121,6 +123,7 @@ class Container:
     state: StateService
     videos: SqlCatalogueRepository
     downloader: DownloaderService
+    queue: QueueService
     job_logs: JobLogsService
     dates: DatesService
     scheduler: Scheduler
@@ -341,6 +344,7 @@ def build_container(
         youtube,
         api_key=dates.key_state,
         channel_opened=lambda channel_id: _channel_opened(channel_id),
+        queue=downloader.queue_summary,
     )
 
     def _channel_opened(channel_id: str) -> None:
@@ -377,6 +381,7 @@ def build_container(
         state=state,
         videos=repository,
         downloader=downloader,
+        queue=QueueService(repository, jobs, downloads, downloader.queue_summary),
         job_logs=JobLogsService(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),

@@ -10,7 +10,7 @@ CatalogueRepository, so the two never undo each other.
 Tests: backend/tests/integration/db/test_job_repository.py
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Protocol
 
 from ytmirror.core.channels import Video
@@ -67,6 +67,36 @@ class JobRepository(Protocol):
 
     def next_priority(self) -> int:
         """Return a priority behind every job that waits or runs."""
+        ...
+
+    def lowest_priority(self) -> int | None:
+        """Return the lowest priority of a job that waits or runs, or None when there is none."""
+        ...
+
+    def set_priorities(self, priorities: Mapping[str, int]) -> None:
+        """Give waiting jobs new priorities, in one transaction (R-QU-02).
+
+        A job that no longer waits keeps its priority.
+
+        Args:
+            priorities: The new priority of each job.
+        """
+        ...
+
+    def mark_by_hand(self, job_id: str) -> None:
+        """Count a waiting job as started by hand from now on (R-DT-06, D-090).
+
+        Args:
+            job_id: The job. One that no longer waits is left as it is.
+        """
+        ...
+
+    def count(self, states: Collection[JobState]) -> int:
+        """Return how many jobs are in some states.
+
+        Args:
+            states: The states.
+        """
         ...
 
     def events(self, video_id: str) -> tuple[VideoEvent, ...]:
