@@ -85,16 +85,25 @@ _libc.renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
 class MacFileSystem:
     """Works on the real file system of the Mac."""
 
-    def __init__(self, run: Run | None = None, trash: Trash | None = None) -> None:
+    def __init__(
+        self,
+        run: Run | None = None,
+        trash: Trash | None = None,
+        free_bytes: Callable[[], int | None] | None = None,
+    ) -> None:
         """Create the adapter.
 
         Args:
             run: A stand-in for starting a program of macOS. For tests.
             trash: A stand-in for the Trash of macOS. For tests, so that no
                 test fills the Trash of the person who runs it.
+            free_bytes: A stand-in for the free space of every disk, when it gives
+                a number. For tests of the disk space guard, so that they never
+                depend on the Mac that runs them (R-QU-10).
         """
         self._run = run if run is not None else _start
         self._trash = trash if trash is not None else _to_trash
+        self._free_bytes = free_bytes
 
     def make_folder(self, folder: Path, *, inside: Path | None = None) -> None:
         """Create a folder and its parents. An existing folder is left as it is.
@@ -186,7 +195,9 @@ class MacFileSystem:
         existing = folder
         while not existing.exists() and existing != existing.parent:
             existing = existing.parent
-        return Disk(name=_volume_name(existing), free_bytes=shutil.disk_usage(existing).free)
+        given = None if self._free_bytes is None else self._free_bytes()
+        free = shutil.disk_usage(existing).free if given is None else given
+        return Disk(name=_volume_name(existing), free_bytes=free)
 
     def file_names(self, folder: Path, *, hidden: bool = False) -> list[str]:
         """Return the names of the files and folders directly in a folder, sorted.

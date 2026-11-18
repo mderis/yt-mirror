@@ -199,6 +199,7 @@ describe('the shell', () => {
     ).toEqual([
       'Check now',
       'Full check',
+      'Mirror everything missing',
       'Pause channel',
       'Open folder',
       'Repair dates',
@@ -221,6 +222,7 @@ describe('the shell', () => {
         .getAllByRole('menuitem')
         .map((entry) => entry.textContent?.trim()),
     ).toEqual([
+      'Mirror everything missing',
       'Resume channel',
       'Open folder',
       'Repair dates',

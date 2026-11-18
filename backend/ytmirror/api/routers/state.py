@@ -7,7 +7,7 @@ Tests: backend/tests/api/test_state.py
 
 from fastapi import APIRouter
 
-from ytmirror.api.catalogue_schemas import OpenChannelRequest, StateResponse
+from ytmirror.api.catalogue_schemas import OpenChannelRequest, StateResponse, ViewRequest
 from ytmirror.services.state import StateService
 from ytmirror.services.youtube_access import YouTubeAccess
 
@@ -33,6 +33,11 @@ def build_router(state: StateService, youtube: YouTubeAccess) -> APIRouter:
         state.open_channel(body.channel_id)
         return StateResponse.of(state.snapshot())
 
+    def set_view(body: ViewRequest) -> StateResponse:
+        """Remember whether channels show a list or a grid, for the whole app (R-UI-03)."""
+        state.set_view(body.view)
+        return StateResponse.of(state.snapshot())
+
     def try_youtube_now() -> StateResponse:
         """End the pause of the app and take up the work that waited (R-ER-05)."""
         youtube.try_now()
@@ -47,6 +52,13 @@ def build_router(state: StateService, youtube: YouTubeAccess) -> APIRouter:
         methods=["PUT"],
         response_model=StateResponse,
         operation_id="setOpenChannel",
+    )
+    router.add_api_route(
+        "/state/view",
+        set_view,
+        methods=["PUT"],
+        response_model=StateResponse,
+        operation_id="setView",
     )
     router.add_api_route(
         "/youtube/try-now",

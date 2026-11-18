@@ -3,10 +3,12 @@
  * One video in the list view (R-CH-10, docs/DESIGN.md section 4): thumbnail
  * with the duration, title, a line of facts and the status.
  *
- * The facts go into the `facts` slot, a progress bar into `progress`, the
- * status into `status` and the buttons into `actions`. The title is a button
- * that opens the details of the video (R-UI-08); the row of the open video is
- * marked. Selecting several rows arrives with milestone M5.
+ * The checkbox of the selection goes into the `select` slot (R-MI-07), the
+ * facts into `facts`, a progress bar into `progress`, the status into
+ * `status` and the buttons into `actions`. The title is a button that opens
+ * the details of the video (R-UI-08); the row of the open video and the rows
+ * that are selected are marked. A right-click asks for the menu of the video
+ * (R-UI-09, docs/DESIGN.md section 8.1).
  */
 import { ref, watch } from 'vue'
 
@@ -26,6 +28,8 @@ const props = withDefaults(
     detailsLabel?: string | undefined
     /** Whether the details of this video are open. */
     open?: boolean
+    /** Whether the video is selected (R-MI-07). */
+    selected?: boolean
   }>(),
   {
     thumbnail: undefined,
@@ -33,6 +37,7 @@ const props = withDefaults(
     newTag: undefined,
     detailsLabel: undefined,
     open: false,
+    selected: false,
   },
 )
 
@@ -41,6 +46,8 @@ const emit = defineEmits<{
   pictureMissing: []
   /** The title was pressed: show the details of the video. */
   details: []
+  /** A right-click: show the menu of the video at that place (R-UI-09). */
+  menu: [at: { x: number; y: number }]
 }>()
 
 /** A picture that is not cached yet makes room for the plain block behind it. */
@@ -64,9 +71,12 @@ watch(
   <div
     role="listitem"
     class="flex items-center gap-3 border-b border-line px-4 py-2"
-    :class="{ 'bg-surface-raised': open }"
+    :class="{ 'bg-surface-raised': open || selected }"
     :data-open="open || undefined"
+    :data-selected="selected || undefined"
+    @contextmenu.prevent="emit('menu', { x: $event.clientX, y: $event.clientY })"
   >
+    <slot name="select" />
     <div class="relative h-18 w-32 flex-none overflow-hidden rounded-md bg-track">
       <!-- `loading` stands before `src`: WebKit loads at once when the address is set first. -->
       <img

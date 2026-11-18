@@ -190,7 +190,7 @@ test('R-CH-32, R-QA-06: removing a channel while its video downloads leaves no f
 
   await row(page, FIRST).getByRole('button', { name: 'Mirror' }).click()
   await expect(row(page, FIRST).getByText(/Downloading \d+%/)).toBeVisible()
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Remove channel' }).click()
   const dialog = page.getByRole('dialog', { name: 'Remove Sample Channel One?' })
   await dialog.getByRole('radio', { name: /Delete the files/ }).check()
@@ -214,7 +214,7 @@ test('R-CH-32: "Delete the files" moves the files of a channel to the Trash and 
   const folder = join(freshApp.libraryDir, 'Sample Channel One')
   writeFileSync(join(folder, 'my notes.txt'), 'the user wrote this')
 
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Remove channel' }).click()
   const dialog = page.getByRole('dialog', { name: 'Remove Sample Channel One?' })
   await expect(dialog).toContainText('1 downloaded video')

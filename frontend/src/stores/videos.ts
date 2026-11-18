@@ -154,6 +154,21 @@ export const useVideosStore = defineStore('videos', () => {
     await api.mirrorVideos([videoId])
   }
 
+  /** Put videos in line, in this order: the bulk bar (R-MI-01, R-MI-07). */
+  async function mirrorMany(videoIds: string[]): Promise<void> {
+    await api.mirrorVideos(videoIds)
+  }
+
+  /** Put a video at the top of the line ("Mirror first", R-QU-02). */
+  async function mirrorFirst(videoId: string): Promise<void> {
+    await api.mirrorVideos([videoId], true)
+  }
+
+  /** Download synced videos again in their channel's quality (R-QL-06). */
+  async function redownload(videoIds: string[]): Promise<void> {
+    await api.redownloadVideos(videoIds)
+  }
+
   /** Put a failed video in line again (R-QU-08). */
   async function retry(videoId: string): Promise<void> {
     await api.retryVideo(videoId)
@@ -228,6 +243,9 @@ export const useVideosStore = defineStore('videos', () => {
     applyDownload,
     downloadOf,
     mirror,
+    mirrorMany,
+    mirrorFirst,
+    redownload,
     retry,
     cancel,
     isCancelling,

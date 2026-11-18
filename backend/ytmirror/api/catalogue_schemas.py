@@ -33,6 +33,7 @@ from ytmirror.core.exact_dates import (
     KeyStatus,
 )
 from ytmirror.core.jobs import JobProgress, Stage
+from ytmirror.core.models import ViewKind
 from ytmirror.core.progress import PartKind, PartProgress
 from ytmirror.core.queue import (
     NO_QUEUE,
@@ -701,6 +702,7 @@ class StateResponse(BaseModel):
         checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
             or None (R-CH-20).
         queue: How the queue of downloads stands (R-QU-02).
+        view: Whether channels show their videos as a list or a grid (R-UI-03).
     """
 
     channels: list[Channel]
@@ -712,6 +714,7 @@ class StateResponse(BaseModel):
     api_key: ApiKey
     checking_all: Mirroring | None = None
     queue: Queue = Queue.of(NO_QUEUE)
+    view: ViewKind = ViewKind.LIST
 
     @classmethod
     def of(cls, state: AppState) -> StateResponse:
@@ -728,6 +731,7 @@ class StateResponse(BaseModel):
             if state.checking_all is None
             else Mirroring(done=state.checking_all[0], total=state.checking_all[1]),
             queue=Queue.of(state.queue),
+            view=state.view,
         )
 
 
@@ -885,6 +889,16 @@ class QueueUpdatedEvent(BaseModel):
     """
 
     queue: Queue
+
+
+class ViewRequest(BaseModel):
+    """The body of ``PUT /api/state/view`` (R-UI-03).
+
+    Attributes:
+        view: List or grid.
+    """
+
+    view: ViewKind
 
 
 class OpenChannelRequest(BaseModel):

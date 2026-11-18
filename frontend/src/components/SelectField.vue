@@ -21,6 +21,8 @@ defineProps<{
   options: readonly { value: string; label: string }[]
   /** A short explanation under the select. */
   hint?: string | undefined
+  /** Whether the label is for screen readers only, as in a toolbar. */
+  labelHidden?: boolean | undefined
 }>()
 
 defineEmits<{
@@ -34,7 +36,9 @@ const hintId = useId()
 
 <template>
   <div class="flex min-w-0 flex-col">
-    <label :for="id" class="mb-1 font-medium text-text">{{ label }}</label>
+    <label :for="id" :class="labelHidden ? 'sr-only' : 'mb-1 font-medium text-text'">{{
+      label
+    }}</label>
     <div class="relative">
       <select
         :id="id"

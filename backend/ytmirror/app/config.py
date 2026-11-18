@@ -28,6 +28,7 @@ ENV_LIBRARY_DIR = "YTM_LIBRARY_DIR"
 ENV_TRASH_DIR = "YTM_TRASH_DIR"
 ENV_FAKE_LOOKUPS_PER_HOUR = "YTM_FAKE_LOOKUPS_PER_HOUR"
 ENV_FAKE_HOLD_DOWNLOADS = "YTM_FAKE_HOLD_DOWNLOADS"
+ENV_FAKE_FREE_SPACE_FILE = "YTM_FAKE_FREE_SPACE_FILE"
 
 DEFAULT_DEV_FRONTEND_URL = "http://127.0.0.1:5173/"
 DEFAULT_TOOL_MANIFEST = Path(__file__).resolve().parents[1] / "services" / "toolchain_manifest.json"
@@ -59,6 +60,8 @@ class AppPaths:
             that name a hold (``hold_after_report``), for a screenshot in the middle of a
             download. For tests only.
             For tests, so that no test fills the Trash of the person who runs it.
+        fake_free_space_file: A file whose number stands for the free space of every
+            disk, for tests of the disk space guard, or None for the real free space.
     """
 
     code_root: Path
@@ -77,6 +80,7 @@ class AppPaths:
     trash_dir: Path | None = None
     fake_lookups_per_hour: int | None = None
     fake_hold_downloads: bool = False
+    fake_free_space_file: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +162,11 @@ def resolve_paths(env: Mapping[str, str]) -> AppPaths:
         # a hand run on the fake YouTube never waits for them.
         fake_hold_downloads=env.get(ENV_FAKE_HOLD_DOWNLOADS) == "1"
         and bool(env.get(ENV_FAKE_YOUTUBE)),
+        # The free space of a file is for tests of the disk space guard: an app on the
+        # real YouTube reads the real free space whatever the environment says (R-QU-10).
+        fake_free_space_file=Path(env[ENV_FAKE_FREE_SPACE_FILE])
+        if env.get(ENV_FAKE_FREE_SPACE_FILE) and env.get(ENV_FAKE_YOUTUBE)
+        else None,
     )
 
 

@@ -8,13 +8,14 @@
  * It decides which page is shown: the channel that was open last, or the
  * welcome screen while there is no channel (R-UI-02).
  */
-import { computed, watchEffect } from 'vue'
+import { computed, reactive, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 
 import AppBanner from '@/components/AppBanner.vue'
 import IconButton from '@/components/IconButton.vue'
 import AddChannelDialog from '@/features/channel/AddChannelDialog.vue'
+import AutoMirrorQuestionDialog from '@/features/channel/AutoMirrorQuestionDialog.vue'
 import ChannelMenu from '@/features/channel/ChannelMenu.vue'
 import FilesLeftDialog from '@/features/channel/FilesLeftDialog.vue'
 import RemoveChannelDialog from '@/features/channel/RemoveChannelDialog.vue'
@@ -51,6 +52,13 @@ const hasBanners = computed(
 )
 
 const leavingHome = computed(() => route.name === 'home' && channels.channels.length > 0)
+
+/** Channels whose question the user put off until the next start of the window (D-095). */
+const putOff = reactive(new Set<string>())
+/** The first channel of the sidebar that waits for its answer before a large start. */
+const asking = computed(() =>
+  channels.channels.find((channel) => channel.auto_mirror_question && !putOff.has(channel.id)),
+)
 
 // The page follows the channels: one that is gone is left, and "home" is a channel if there is one.
 watchEffect(() => {
@@ -111,5 +119,11 @@ function onAdded(channelId: string, existing: boolean): void {
     <RemoveChannelDialog v-if="removing" :channel="removing" @close="ui.closeRemove()" />
     <FilesLeftDialog v-if="ui.filesLeft" :left="ui.filesLeft" @close="ui.closeFilesLeft()" />
     <ApiKeyDialog v-if="ui.apiKeyOpen" @close="ui.closeApiKey()" />
+    <AutoMirrorQuestionDialog
+      v-if="asking"
+      :key="asking.id"
+      :channel="asking"
+      @close="putOff.add(asking.id)"
+    />
   </div>
 </template>

@@ -56,6 +56,16 @@ export type DateInfo = components['schemas']['DateInfo']
 export type ExactDates = components['schemas']['ExactDates']
 export type RepairedDates = components['schemas']['RepairDatesResponse']
 export type Counted = components['schemas']['Mirroring']
+/** How the queue of downloads stands (R-QU-01, R-QU-02). */
+export type Queue = components['schemas']['Queue']
+/** The whole queue, as the downloads panel shows it. */
+export type QueueAnswer = components['schemas']['QueueResponse']
+export type QueueItem = components['schemas']['QueueItem']
+export type FailedItem = components['schemas']['FailedItem']
+/** The answer to the question before a large start of auto-mirror (D-095). */
+export type AutoMirrorAnswer = components['schemas']['AutoMirrorAnswer']
+/** List or grid (R-UI-03). */
+export type ViewKind = components['schemas']['ViewKind']
 type ErrorResponse = components['schemas']['ErrorResponse']
 
 const API_PREFIX = '/api'
@@ -134,6 +144,8 @@ export interface EventHandlers {
   jobProgress: (download: Download) => void
   apiKeyChanged: (key: ApiKey) => void
   checksProgress: (checkingAll: Counted | null) => void
+  /** The queue of downloads changed (R-QU-02). */
+  queueUpdated: (queue: Queue) => void
   /** The stream is connected again after a break: events may have been missed. */
   reconnected: () => void
 }
@@ -172,6 +184,9 @@ function openEvents(handlers: EventHandlers): () => void {
   )
   on<components['schemas']['ChecksProgressEvent']>('checks.progress', (event) =>
     handlers.checksProgress(event.checking_all),
+  )
+  on<components['schemas']['QueueUpdatedEvent']>('queue.updated', (event) =>
+    handlers.queueUpdated(event.queue),
   )
   source.addEventListener('error', () => {
     broken = true
@@ -244,9 +259,47 @@ export const api = {
   openChannelFolder: async (channelId: string): Promise<void> => {
     await send('POST', `/channels/${channelId}/open-folder`)
   },
-  /** Put videos in line to be downloaded, in this order (R-MI-01). */
-  mirrorVideos: async (ids: string[]): Promise<QueuedJob[]> =>
-    (await send<{ jobs: QueuedJob[] }>('POST', '/videos/mirror', { ids })).jobs,
+  /** Put videos in line to be downloaded, in this order, or at the top (R-MI-01, R-QU-02). */
+  mirrorVideos: async (ids: string[], first = false): Promise<QueuedJob[]> =>
+    (await send<{ jobs: QueuedJob[] }>('POST', '/videos/mirror', { ids, first })).jobs,
+  /** Download synced videos again in their channel's quality (R-QL-06). */
+  redownloadVideos: async (ids: string[]): Promise<QueuedJob[]> =>
+    (await send<{ jobs: QueuedJob[] }>('POST', '/videos/redownload', { ids })).jobs,
+  /** Queue every video of a channel without a file, once (R-MI-04). */
+  mirrorMissing: async (channelId: string): Promise<QueuedJob[]> =>
+    (await send<{ jobs: QueuedJob[] }>('POST', `/channels/${channelId}/mirror-missing`)).jobs,
+  /** Turn auto-mirror of a channel on or off (R-MI-02). */
+  setAutoMirror: (channelId: string, on: boolean): Promise<Channel> =>
+    send<Channel>('PUT', `/channels/${channelId}/auto-mirror`, { on }),
+  /** Answer the question before a large start of auto-mirror (D-095). */
+  answerAutoMirror: (channelId: string, answer: AutoMirrorAnswer): Promise<Channel> =>
+    send<Channel>('POST', `/channels/${channelId}/auto-mirror/answer`, { answer }),
+  /** Leave the missing files of a channel missing, until more are missing (D-092). */
+  leaveMissing: (channelId: string): Promise<Channel> =>
+    send<Channel>('POST', `/channels/${channelId}/missing/leave`),
+  /** Remember list or grid for the whole app (R-UI-03). */
+  setView: (view: ViewKind): Promise<AppState> => send<AppState>('PUT', '/state/view', { view }),
+  /** Ask for the whole queue (R-QU-02). */
+  getQueue: (): Promise<QueueAnswer> => request<QueueAnswer>('/queue'),
+  /** Pause all downloads (R-QU-02). */
+  pauseQueue: (): Promise<Queue> => send<Queue>('POST', '/queue/pause'),
+  /** Resume all downloads (R-QU-02). */
+  resumeQueue: (): Promise<Queue> => send<Queue>('POST', '/queue/resume'),
+  /** Put the waiting downloads in this order (R-QU-02). */
+  reorderQueue: async (jobIds: string[]): Promise<void> => {
+    await send('POST', '/queue/reorder', { job_ids: jobIds })
+  },
+  /** Remove every waiting download (R-QU-02). */
+  clearWaiting: (): Promise<{ removed: number }> =>
+    send<{ removed: number }>('POST', '/queue/clear-waiting'),
+  /** The limit of all downloads together, in MB/s, 0 for none (R-QU-03). */
+  setSpeedLimit: (mbps: number): Promise<Queue> =>
+    send<Queue>('POST', '/queue/speed-limit', { mbps }),
+  /** Go on although the disk space guard paused the queue (R-QU-10). */
+  resumeAnyway: (): Promise<Queue> => send<Queue>('POST', '/queue/resume-anyway'),
+  /** Look again whether the folder of a channel can be reached (R-QU-11). */
+  tryFolderAgain: (channelId: string): Promise<{ available: boolean }> =>
+    send<{ available: boolean }>('POST', `/queue/folders/${channelId}/try-again`),
   /** Put a failed video in line again (R-QU-08). */
   retryVideo: (videoId: string): Promise<Video> => send<Video>('POST', `/videos/${videoId}/retry`),
   /** Cancel a download that waits or runs (R-QU-02). */

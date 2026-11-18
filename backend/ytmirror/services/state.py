@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from ytmirror.core.channels import ChannelView, YouTubePause
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.exact_dates import NO_KEY, KeyState
+from ytmirror.core.models import ViewKind
 from ytmirror.core.queue import NO_QUEUE, QueueSummary
 from ytmirror.ports.app_meta_repository import AppMetaRepository
 from ytmirror.ports.file_system import Disk, FileSystem
@@ -42,6 +43,7 @@ class AppState:
         checking_all: How many checks of a check of all channels ended, and how many there
             are, or None (R-CH-20: "Checking channels: 3 of 5").
         queue: How the queue of downloads stands (R-QU-02).
+        view: Whether channels show their videos as a list or a grid (R-UI-03).
     """
 
     channels: tuple[ChannelView, ...]
@@ -53,6 +55,7 @@ class AppState:
     api_key: KeyState = NO_KEY
     checking_all: tuple[int, int] | None = None
     queue: QueueSummary = NO_QUEUE
+    view: ViewKind = ViewKind.LIST
 
 
 class StateService:
@@ -110,7 +113,16 @@ class StateService:
             api_key=self._api_key(),
             checking_all=self._views.checking_all(),
             queue=self._queue(),
+            view=self._settings.current().default_view,
         )
+
+    def set_view(self, view: ViewKind) -> None:
+        """Remember the list or grid of the toggle, for the whole app (R-UI-03).
+
+        Args:
+            view: The view the user chose.
+        """
+        self._settings.change(default_view=view)
 
     def open_channel(self, channel_id: str | None) -> None:
         """Remember which channel the user has open, for the next start (R-UI-02).

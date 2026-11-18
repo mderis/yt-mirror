@@ -55,6 +55,7 @@ def test_the_snapshot_of_a_new_app(client: TestClient, world: World) -> None:
             "disk_guard": None,
             "folders_away": [],
         },
+        "view": "list",
     }
 
 
@@ -142,3 +143,15 @@ def test_without_an_icon_source_there_is_no_favicon(tmp_path: Path, frontend_dir
 
     assert client.get("/favicon.svg").status_code == 404
     assert client.get("/favicon.png").status_code == 404
+
+
+def test_the_view_of_the_toggle_is_remembered_for_the_whole_app(
+    client: TestClient, world: World
+) -> None:
+    """R-UI-03: list or grid is one choice of the app, kept across a restart."""
+    assert client.get("/api/state").json()["view"] == "list"
+
+    answer = client.put("/api/state/view", json={"view": "grid"})
+
+    assert answer.json()["view"] == "grid"
+    assert world.settings.current().default_view.value == "grid"

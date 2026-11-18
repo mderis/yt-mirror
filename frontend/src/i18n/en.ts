@@ -169,6 +169,7 @@ export const en = {
     upToDate: 'Up to date · checked {ago}',
     newVideos: '{count} new video | {count} new videos',
     paused: 'Paused',
+    pausedMirroring: 'Paused · {done} of {total}',
     couldNotCheck: 'Could not check',
     folderNotFound: 'Folder not found',
     couldNotCheckRetrying: 'Could not check · retrying in {in}',
@@ -346,6 +347,7 @@ export const en = {
       resume: 'Resume channel',
       openFolder: 'Open folder',
       openOnYouTube: 'Open on YouTube',
+      mirrorMissing: 'Mirror everything missing',
       remove: 'Remove channel',
     },
     listing: {
@@ -454,6 +456,83 @@ export const en = {
       newTag: 'New',
       failed: 'The video list could not be loaded.',
       retry: 'Try again',
+      /** An automatic download that waits for room in the lookup budget (R-DT-06, D-090). */
+      paced: 'Waiting · paced to protect your access to YouTube · may start at {time}',
+      /** A download that failed in a way that passes, before it is tried again (R-QU-07). */
+      retryAt: 'Trying again at {time}',
+      belowTarget: 'Lower than target quality',
+      redownloading: 'Downloading again {percent}%',
+      redownloadingStarting: 'Downloading again',
+      redownloadQueued: 'Queued to download again',
+      select: 'Select: {title}',
+      selectAll: 'Select all shown',
+      moreActions: 'More actions for {title}',
+      noMatch: 'No video matches',
+      noMatchText: 'Nothing in this tab has "{search}" in its title.',
+      emptyTab: 'No videos here',
+      emptyTabText: 'No video of this channel is in this tab.',
+    },
+    /** The menu of a video (R-UI-09, design: Menus.html). */
+    videoMenu: {
+      label: 'Actions for {title}',
+      play: 'Play',
+      reveal: 'Show in Finder',
+      details: 'Details',
+      openOnYouTube: 'Open on YouTube',
+      mirror: 'Mirror',
+      mirrorFirst: 'Mirror first (top of queue)',
+      redownload: 'Re-download',
+      retry: 'Retry',
+    },
+    /** The filter tabs, search, order and view of a channel (R-UI-03 to R-UI-06). */
+    tools: {
+      tabsLabel: 'Show',
+      tab: {
+        all: 'All',
+        new: 'New',
+        not_downloaded: 'Not downloaded',
+        synced: 'Synced',
+        failed: 'Failed',
+      },
+      search: 'Filter by title',
+      sort: 'Sort',
+      sorts: {
+        newest: 'Newest first',
+        oldest: 'Oldest first',
+        title: 'Title',
+        duration: 'Duration',
+        size: 'Size on disk',
+      },
+      list: 'List view',
+      grid: 'Grid view',
+    },
+    /** The bar shown while videos are selected (R-MI-07, design: Main.html). */
+    bulk: {
+      label: 'Selected videos',
+      selected: '{count} selected',
+      mirror: 'Mirror',
+      redownload: 'Re-download',
+      clear: 'Clear',
+    },
+    autoMirror: {
+      label: 'Auto-mirror',
+      hint: 'New videos are mirrored after every check',
+      /** The question before a large start (R-MI-02, D-095). */
+      question: {
+        title: 'Start auto-mirror for {channel}?',
+        text: 'Auto-mirror would download {count} videos of this channel now, about {size}. Downloads that start by themselves are paced to protect your access to YouTube.',
+        mirrorAll: 'Mirror all {count} videos (about {size})',
+        onlyNew: 'Only new videos from now on',
+        turnOff: 'Turn auto-mirror off',
+        close: 'Ask me later',
+      },
+    },
+    /** Many missing files of an auto-mirror channel wait for the user (R-MI-06, D-092). */
+    missing: {
+      title: '{count} files of this channel are missing',
+      text: 'They were deleted, moved or renamed. Auto-mirror downloads at most a few missing files again by itself.',
+      mirror: 'Mirror them again',
+      leave: 'Leave them missing',
     },
   },
   /** The details panel of a video (R-UI-08, design: Details.html). */

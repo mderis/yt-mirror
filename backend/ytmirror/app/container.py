@@ -476,10 +476,23 @@ def _stop_tools(children: ChildProcesses, tools: ToolBox, job: Path | None = Non
 
 
 def _file_system(paths: AppPaths) -> FileSystem:
-    """Return the file system of macOS, with a folder of its own as the Trash when tests ask."""
+    """Return the file system of macOS, with test stand-ins when tests ask.
+
+    A folder of its own stands for the Trash, and a file for the free space of every disk.
+    """
     trash_dir = paths.trash_dir
+    free_file = paths.fake_free_space_file
+
+    def free_bytes() -> int | None:
+        if free_file is None:
+            return None
+        try:
+            return int(free_file.read_text(encoding="utf-8").strip())
+        except OSError, ValueError:
+            return None
+
     if trash_dir is None:
-        return MacFileSystem()
+        return MacFileSystem(free_bytes=free_bytes)
 
     def to_folder(path: Path) -> None:
         trash_dir.mkdir(parents=True, exist_ok=True)
@@ -490,7 +503,7 @@ def _file_system(paths: AppPaths) -> FileSystem:
             target = trash_dir / f"{path.name} {number}"
         path.rename(target)
 
-    return MacFileSystem(trash=to_folder)
+    return MacFileSystem(trash=to_folder, free_bytes=free_bytes)
 
 
 def _exact_date_source(gateway: YouTubeGateway) -> ExactDateSource:

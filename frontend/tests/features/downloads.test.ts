@@ -51,7 +51,9 @@ describe('downloading videos', () => {
 
     await fireEvent.click(within(row()).getByRole('button', { name: 'Mirror' }))
 
-    await waitFor(() => expect(app.lastBody('/api/videos/mirror')).toEqual({ ids: [ID] }))
+    await waitFor(() =>
+      expect(app.lastBody('/api/videos/mirror')).toEqual({ ids: [ID], first: false }),
+    )
   })
 
   it('R-FB-02, R-FB-03, R-QU-02: a queued video says so at once and can be cancelled', async () => {
@@ -436,7 +438,9 @@ describe('the details panel', () => {
 
     await fireEvent.click(await within(panel).findByRole('button', { name: 'Mirror' }))
 
-    await waitFor(() => expect(app.lastBody('/api/videos/mirror')).toEqual({ ids: [ID] }))
+    await waitFor(() =>
+      expect(app.lastBody('/api/videos/mirror')).toEqual({ ids: [ID], first: false }),
+    )
     expect(part('[data-details-description]').textContent).toContain(
       'The description is saved with the file when the video is mirrored.',
     )

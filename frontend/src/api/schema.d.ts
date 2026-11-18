@@ -682,6 +682,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/state/view': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Set View
+     * @description Remember whether channels show a list or a grid, for the whole app (R-UI-03).
+     */
+    put: operations['setView']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/tools': {
     parameters: {
       query?: never
@@ -1974,6 +1994,7 @@ export interface components {
      *         checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
      *             or None (R-CH-20).
      *         queue: How the queue of downloads stands (R-QU-02).
+     *         view: Whether channels show their videos as a list or a grid (R-UI-03).
      */
     StateResponse: {
       api_key: components['schemas']['ApiKey']
@@ -1999,6 +2020,8 @@ export interface components {
        *     }
        */
       queue: components['schemas']['Queue']
+      /** @default list */
+      view: components['schemas']['ViewKind']
       youtube_pause: components['schemas']['Pause'] | null
     }
     /**
@@ -2282,6 +2305,22 @@ export interface components {
     VideosResponse: {
       /** Videos */
       videos: components['schemas']['Video'][]
+    }
+    /**
+     * ViewKind
+     * @description How a channel's videos are shown: as a list or as a grid (R-UI-03).
+     * @enum {string}
+     */
+    ViewKind: 'list' | 'grid'
+    /**
+     * ViewRequest
+     * @description The body of ``PUT /api/state/view`` (R-UI-03).
+     *
+     *     Attributes:
+     *         view: List or grid.
+     */
+    ViewRequest: {
+      view: components['schemas']['ViewKind']
     }
   }
   responses: never
@@ -4280,6 +4319,66 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': components['schemas']['OpenChannelRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['StateResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  setView: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ViewRequest']
       }
     }
     responses: {

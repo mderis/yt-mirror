@@ -99,7 +99,7 @@ for (const theme of ['light', 'dark']) {
     // Every sample has a name of its own, so none is left out of the images.
     await expect(column.locator('[data-samples] > :not([data-component])')).toHaveCount(0)
     expect(new Set(sections.map(([name]) => name)).size).toBe(sections.length)
-    expect(sections.length).toBe(26)
+    expect(sections.length).toBe(27)
 
     for (const [name, section] of sections) {
       await expect.soft(section, name).toHaveScreenshot(`theme-preview-${theme}-${name}.png`)

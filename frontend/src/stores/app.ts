@@ -14,6 +14,7 @@ import { ref } from 'vue'
 import { api, ApiError, type ErrorCode, type Health } from '@/api/client'
 
 import { useChannelsStore } from './channels'
+import { useQueueStore } from './queue'
 import { useToolsStore } from './tools'
 import { useVideosStore } from './videos'
 
@@ -42,6 +43,7 @@ export const useAppStore = defineStore('app', () => {
     const tools = useToolsStore()
     const channels = useChannelsStore()
     const videos = useVideosStore()
+    const queue = useQueueStore()
     closeStream ??= api.openEvents({
       toolUpdated: (event) => tools.apply(event.tool),
       channelUpdated: (channel) => {
@@ -53,9 +55,13 @@ export const useAppStore = defineStore('app', () => {
       taskProgress: (progress) => channels.applyProgress(progress),
       pauseChanged: (pause) => channels.setPause(pause),
       videoUpdated: (channelId, video) => videos.applyVideo(channelId, video),
-      jobProgress: (download) => videos.applyDownload(download),
+      jobProgress: (download) => {
+        videos.applyDownload(download)
+        queue.applyDownload(download)
+      },
       apiKeyChanged: (key) => channels.setApiKey(key),
       checksProgress: (progress) => channels.setCheckingAll(progress),
+      queueUpdated: (summary) => queue.apply(summary),
       reconnected: reload,
     })
   }

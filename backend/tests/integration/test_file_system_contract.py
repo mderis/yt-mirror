@@ -513,3 +513,11 @@ def test_a_file_in_a_folder_that_cannot_be_searched_is_not_gone(tmp_path: Path) 
         assert not MacFileSystem().is_gone(folder / "Other.mkv")
     finally:
         folder.chmod(0o700)
+
+
+def test_a_test_can_give_every_disk_its_free_space(tmp_path: Path) -> None:
+    """R-QU-10: the disk space guard is tested with a free space of the test's choosing."""
+    files = MacFileSystem(free_bytes=lambda: 9_000_000_000)
+
+    assert files.disk_of(tmp_path).free_bytes == 9_000_000_000
+    assert MacFileSystem(free_bytes=lambda: None).disk_of(tmp_path).free_bytes > 0

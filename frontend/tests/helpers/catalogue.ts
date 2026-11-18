@@ -78,6 +78,7 @@ export function appState(changes: Partial<AppState> = {}): AppState {
       speed_limit_mbps: 0,
       folders_away: [],
     },
+    view: 'list',
     ...changes,
   }
 }

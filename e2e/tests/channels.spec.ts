@@ -23,6 +23,8 @@ const rows = (page: Page): Locator =>
   page.getByRole('list', { name: 'Videos' }).getByRole('listitem')
 const row = (page: Page, videoId: string): Locator => page.locator(`[data-video="${videoId}"]`)
 const dialog = (page: Page): Locator => page.getByRole('dialog')
+/** The list of videos, which says how many it shows in `data-count` (R-UI-07). */
+const listOf = (page: Page): Locator => page.locator('[role="list"][data-count]')
 
 /** Open the app past its first run. Without channels it shows the welcome screen. */
 async function openApp(page: Page, app: FreshApp): Promise<void> {
@@ -209,7 +211,7 @@ test('R-CH-11: the first listing of a channel with 5,000 videos ends with all of
   await dialog(page).getByRole('button', { name: 'Cancel' }).click()
 
   await expect(page.locator('[data-totals]')).toContainText('5,000 videos', { timeout: 60_000 })
-  await expect(rows(page)).toHaveCount(5000, { timeout: 60_000 })
+  await expect(listOf(page)).toHaveAttribute('data-count', '5000', { timeout: 60_000 })
 })
 
 test('R-CH-12, R-CH-15, R-CH-23: "Check now" finds the new videos near the top and marks them as new', async ({
@@ -243,7 +245,7 @@ test('R-CH-12, R-CH-13, R-CH-14: only full checks find what changed far down, an
   await page.reload()
   await expect(rows(page)).toHaveCount(47)
 
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Full check' }).click()
 
   await expect(rows(page)).toHaveCount(48)
@@ -254,7 +256,7 @@ test('R-CH-12, R-CH-13, R-CH-14: only full checks find what changed far down, an
 
   await check(freshApp, CHANGING_ID, 'quick')
   await expect(row(page, 'chg00000042')).not.toContainText('Removed from YouTube')
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Full check' }).click()
 
   await expect(row(page, 'chg00000042')).toContainText('Removed from YouTube')
@@ -310,11 +312,11 @@ test('R-CH-31, R-CH-32: a channel is paused, resumed and removed from its menu, 
   await expect(page.getByRole('button', { name: 'Check now' })).toHaveCount(0)
   await expect(page.locator('[data-check]')).toContainText('Paused. No checks until you resume.')
 
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Resume channel' }).click()
   await expect(page.getByRole('button', { name: 'Check now' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Remove channel' }).click()
   await expect(dialog(page)).toContainText(join(freshApp.libraryDir, 'Sample Channel One'))
   await dialog(page).getByRole('button', { name: 'Remove channel' }).click()
@@ -362,7 +364,12 @@ for (const [name, handle, channelId, count] of [
     await openApp(page, freshApp)
     await addChannel(freshApp, handle, channelId)
     await page.reload()
-    await expect(rows(page)).toHaveCount(count, { timeout: 60_000 })
+    await expect(listOf(page)).toHaveAttribute('data-count', String(count), { timeout: 60_000 })
+    // A long list draws the videos in view (R-UI-07): it is scrolled to its end first.
+    await page.getByRole('region', { name: 'Video list' }).evaluate((region) => {
+      region.scrollTop = region.scrollHeight
+    })
+    await expect(rows(page).last()).toBeInViewport()
 
     const facts = await scrollFacts(page)
 
@@ -452,7 +459,7 @@ test('R-CH-25, R-FB-01, R-UI-11: a retry after a failed check is seen the whole 
   expect(samples.every((sample) => sample.retrying && sample.busy)).toBe(true)
   expect(samples.every((sample) => sample.status === 'Checking for new videos...')).toBe(true)
   await expect(sidebar(page).locator('[data-status]')).toHaveText('Up to date · checked just now')
-  await expect(rows(page)).toHaveCount(300)
+  await expect(listOf(page)).toHaveAttribute('data-count', '300')
 })
 
 test('R-CH-11, R-CH-25: the retry of a failed first listing shows its progress the whole time', async ({
@@ -481,7 +488,7 @@ test('R-CH-11, R-CH-25: the retry of a failed first listing shows its progress t
   expect(samples.every((sample) => sample.status === 'Checking for new videos...')).toBe(true)
   expect(new Set(counts).size).toBeGreaterThan(2)
   expect(counts).toEqual([...counts].sort((first, second) => first - second))
-  await expect(rows(page)).toHaveCount(300)
+  await expect(listOf(page)).toHaveAttribute('data-count', '300')
 })
 
 test('R-CH-27: a full check shows its progress and can be cancelled, and then nothing changed', async ({
@@ -496,9 +503,9 @@ test('R-CH-27: a full check shows its progress and can be cancelled, and then no
   await check(freshApp, SLOW_ID, 'quick')
   const before = (await freshApp.api(`/channels/${SLOW_ID}`)) as Record<string, unknown>
   await page.reload()
-  await expect(rows(page)).toHaveCount(300)
+  await expect(listOf(page)).toHaveAttribute('data-count', '300')
 
-  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('button', { name: 'More actions', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Full check' }).click()
   const progress = page.locator('[data-full-check]')
   await expect(progress).toContainText(/Full check: \d+ of about 300/)
@@ -510,7 +517,7 @@ test('R-CH-27: a full check shows its progress and can be cancelled, and then no
   expect(after.last_full_check_at).toBe(before.last_full_check_at)
   expect(after.last_check_error).toBeNull()
   expect(after.videos).toBe(300)
-  await expect(rows(page)).toHaveCount(300)
+  await expect(listOf(page)).toHaveAttribute('data-count', '300')
 })
 
 test('R-UI-13: the channel menu and the dialogs work with the keyboard alone', async ({
@@ -522,7 +529,7 @@ test('R-UI-13: the channel menu and the dialogs work with the keyboard alone', a
   await page.reload()
   await expect(rows(page)).toHaveCount(12)
 
-  await page.getByRole('button', { name: 'More actions' }).focus()
+  await page.getByRole('button', { name: 'More actions', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('menuitem', { name: 'Check now' })).toBeFocused()
   await page.keyboard.press('End')
@@ -605,7 +612,7 @@ for (const theme of ['light', 'dark'] as const) {
       await picturesLoaded(page)
       await page.evaluate(() => document.fonts.ready)
 
-      await page.getByRole('button', { name: 'More actions' }).click()
+      await page.getByRole('button', { name: 'More actions', exact: true }).click()
       await expect(page.getByRole('menu')).toBeVisible()
       await expect(page).toHaveScreenshot(`channel-menu-${theme}.png`, {
         mask: [page.locator('[data-free-space]')],
