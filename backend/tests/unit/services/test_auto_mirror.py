@@ -1,6 +1,5 @@
 """Tests of auto-mirror: what it queues, when it asks first, and "Mirror everything missing"."""
 
-import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -34,9 +33,7 @@ def listed(tmp_path: Path, videos: int, **choices: Any) -> World:
 
 def as_before_m5(world: World) -> None:
     """Make the channel what migration 0011 makes of one stored with auto-mirror on."""
-    world.repository.save_channel(
-        dataclasses.replace(channel_of(world), auto_mirror=True, auto_mirror_asked=False)
-    )
+    world.repository.update_channel(SMALL_ID, auto_mirror=True, auto_mirror_asked=False)
 
 
 def test_a_channel_added_with_auto_mirror_queues_its_videos_as_automatic(tmp_path: Path) -> None:
@@ -251,10 +248,8 @@ def test_a_video_whose_date_cannot_decide_the_limit_gets_its_exact_date_first(
     world = listed(tmp_path, 5)
     newest = world.repository.video(world.ids(SMALL_ID)[0])
     assert newest is not None and newest.published_at is not None
-    world.repository.save_channel(
-        dataclasses.replace(
-            channel_of(world), auto_mirror=True, mirror_after=newest.published_at - DAY_S // 4
-        )
+    world.repository.update_channel(
+        SMALL_ID, auto_mirror=True, mirror_after=newest.published_at - DAY_S // 4
     )
 
     world.auto_mirror.run(SMALL_ID)

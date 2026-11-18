@@ -17,7 +17,6 @@ Tests: backend/tests/unit/services/test_auto_mirror.py
 
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 
 import structlog
 from structlog.typing import FilteringBoundLogger
@@ -120,9 +119,7 @@ class AutoMirrorService:
         """
         channel = self._known(channel_id)
         if channel.auto_mirror != on:
-            self._repository.save_channel(
-                replace(channel, auto_mirror=on, auto_mirror_asked=not on)
-            )
+            self._repository.update_channel(channel_id, auto_mirror=on, auto_mirror_asked=not on)
             _log.info(
                 "automirror.turned_on" if on else "automirror.turned_off",
                 msg="Auto-mirror turned on" if on else "Auto-mirror turned off",
@@ -145,14 +142,15 @@ class AutoMirrorService:
         Raises:
             AppError: ``NOT_FOUND`` for an unknown channel.
         """
-        channel = self._known(channel_id)
+        self._known(channel_id)
         if answer is AutoMirrorAnswer.TURN_OFF:
-            changed = replace(channel, auto_mirror=False, auto_mirror_asked=True)
+            self._repository.update_channel(channel_id, auto_mirror=False, auto_mirror_asked=True)
         elif answer is AutoMirrorAnswer.ONLY_NEW:
-            changed = replace(channel, mirror_after=self._start_of_today(), auto_mirror_asked=True)
+            self._repository.update_channel(
+                channel_id, mirror_after=self._start_of_today(), auto_mirror_asked=True
+            )
         else:
-            changed = replace(channel, auto_mirror_asked=True)
-        self._repository.save_channel(changed)
+            self._repository.update_channel(channel_id, auto_mirror_asked=True)
         _log.info("automirror.answered", msg="Auto-mirror got its answer", answer=answer.value)
         self._state.set(channel_id, None, None)
         self.run(channel_id)
@@ -188,10 +186,10 @@ class AutoMirrorService:
         Raises:
             AppError: ``NOT_FOUND`` for an unknown channel.
         """
-        channel = self._known(channel_id)
+        self._known(channel_id)
         held = self._state.missing_held(channel_id)
         if held is not None:
-            self._repository.save_channel(replace(channel, missing_left=held))
+            self._repository.update_channel(channel_id, missing_left=held)
         self._state.set(channel_id, self._state.question(channel_id), None)
         self._views.publish(channel_id)
 
@@ -215,7 +213,7 @@ class AutoMirrorService:
                 )
                 to_queue, missing = [], []
             else:
-                self._repository.save_channel(replace(channel, auto_mirror_asked=True))
+                self._repository.update_channel(channel_id, auto_mirror_asked=True)
         if question is None:
             if len(missing) > MISSING_AGAIN_AT_MOST:
                 if channel.missing_left is None or len(missing) > channel.missing_left:

@@ -102,9 +102,11 @@ def test_a_failed_check_is_stored_with_its_code_and_its_time(
     repository.add_channel(make_channel())
     failed = make_channel(last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW + 60)
 
-    repository.save_channel(failed)
+    repository.update_channel(
+        CHANNEL_ID, last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW + 60
+    )
     stored = repository.channel(CHANNEL_ID)
-    repository.save_channel(make_channel())
+    repository.update_channel(CHANNEL_ID, last_check_error=None, last_check_error_at=None)
 
     assert stored == failed
     assert repository.channel(CHANNEL_ID) == make_channel()
@@ -158,12 +160,51 @@ def test_saving_a_channel_stores_its_current_values(
     created = stored_times(engine, "channels", CHANNEL_ID)
     clock.advance(60)
 
-    repository.save_channel(make_channel(paused=True, title="A new name"))
+    repository.update_channel(CHANNEL_ID, paused=True, title="A new name")
 
     stored = repository.channel(CHANNEL_ID)
     assert stored is not None
     assert (stored.paused, stored.title) == (True, "A new name")
     assert stored_times(engine, "channels", CHANNEL_ID) == (created[0], created[1] + 60)
+
+
+def test_an_update_changes_only_the_columns_it_names(repository: CatalogueRepository) -> None:
+    """R-CH-31, R-MI-02: a writer never stores back what it read of the other columns."""
+    repository.add_channel(dataclasses.replace(make_channel(), auto_mirror=True))
+    repository.update_channel(CHANNEL_ID, auto_mirror=False)
+
+    repository.update_channel(CHANNEL_ID, paused=True)
+
+    stored = repository.channel(CHANNEL_ID)
+    assert stored is not None
+    assert (stored.paused, stored.auto_mirror) == (True, False)
+
+
+def test_an_update_refuses_a_name_that_is_no_column(repository: CatalogueRepository) -> None:
+    """infra: a misspelt field fails at once instead of being dropped."""
+    repository.add_channel(make_channel())
+
+    with pytest.raises(ValueError, match="not a field"):
+        repository.update_channel(CHANNEL_ID, pause=True)
+    with pytest.raises(ValueError, match="not a field"):
+        repository.update_channel(CHANNEL_ID, id="UCother")
+
+
+def test_a_check_stores_only_the_columns_it_owns(repository: CatalogueRepository) -> None:
+    """R-CH-12, R-MI-02: auto-mirror changed during a check is not undone by its result."""
+    repository.add_channel(dataclasses.replace(make_channel(), auto_mirror=True))
+    read_at_start = repository.channel(CHANNEL_ID)
+    assert read_at_start is not None
+    repository.update_channel(CHANNEL_ID, auto_mirror=False, missing_left=7)
+
+    repository.apply_check(
+        dataclasses.replace(read_at_start, title="Checked", last_check_at=NOW), changes()
+    )
+
+    stored = repository.channel(CHANNEL_ID)
+    assert stored is not None
+    assert (stored.title, stored.last_check_at) == ("Checked", NOW)
+    assert (stored.auto_mirror, stored.missing_left) == (False, 7)
 
 
 def test_saving_an_unchanged_channel_does_not_touch_the_row(
@@ -174,7 +215,7 @@ def test_saving_an_unchanged_channel_does_not_touch_the_row(
     before = stored_times(engine, "channels", CHANNEL_ID)
     clock.advance(60)
 
-    repository.save_channel(make_channel())
+    repository.update_channel(CHANNEL_ID, paused=False, title=make_channel().title)
 
     assert stored_times(engine, "channels", CHANNEL_ID) == before
 
@@ -183,7 +224,7 @@ def test_saving_a_channel_that_was_removed_does_not_bring_it_back(
     repository: CatalogueRepository,
 ) -> None:
     """R-CH-32: a removed channel stays removed, also when work on it finishes later."""
-    repository.save_channel(make_channel())
+    assert repository.update_channel(CHANNEL_ID, paused=True) is False
 
     assert repository.channels() == ()
 
@@ -481,14 +522,12 @@ def test_a_retry_is_counted_only_for_a_failed_check_of_a_channel_not_paused(
     repository.add_channel(make_channel())
     assert repository.count_check_retry(CHANNEL_ID) is None
 
-    repository.save_channel(
-        make_channel(last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW)
+    repository.update_channel(
+        CHANNEL_ID, last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW
     )
     assert repository.count_check_retry(CHANNEL_ID) == 1
     assert repository.count_check_retry(CHANNEL_ID) == 2
 
-    repository.save_channel(
-        make_channel(paused=True, last_check_error=ErrorCode.RATE_LIMITED, last_check_error_at=NOW)
-    )
+    repository.update_channel(CHANNEL_ID, paused=True)
     assert repository.count_check_retry(CHANNEL_ID) is None
     assert repository.count_check_retry("UCnonenonenonenonenone00") is None

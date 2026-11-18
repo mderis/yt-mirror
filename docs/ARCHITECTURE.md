@@ -202,6 +202,8 @@ Dependency direction: `api -> services -> core` and `services -> ports <- adapte
 
 All timestamps are integers: seconds since the Unix epoch, UTC. All tables have `created_at` and `updated_at`.
 
+Every writer stores only the columns it owns, never a whole row it read earlier: another writer may have changed the others meanwhile (found in the review of M5). A channel row is changed by `update_channel` with the columns named, and a check stores only `CHECK_CHANNEL_FIELDS` (its titles, avatar and check times). A video row is changed by a download only in its download columns, and the date columns among them only with the exact date the download found; a check stores only the columns it reads from YouTube.
+
 ### channels
 | Column | Type | Notes |
 |---|---|---|

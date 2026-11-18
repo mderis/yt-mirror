@@ -10,7 +10,7 @@ Tests: backend/tests/unit/services/test_channels.py
 import threading
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
@@ -418,7 +418,7 @@ class ChannelsService:
         """
         channel = self._known(channel_id)
         if channel.paused != paused:
-            self._repository.save_channel(replace(channel, paused=paused))
+            self._repository.update_channel(channel.id, paused=paused)
             _log.info(
                 "channel.paused" if paused else "channel.resumed",
                 msg="Channel paused" if paused else "Channel resumed",

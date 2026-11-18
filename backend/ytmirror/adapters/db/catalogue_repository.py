@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.job_repository import DOWNLOAD_FIELDS
 from ytmirror.adapters.db.tables import ChannelRow, VideoEventRow, VideoRow
-from ytmirror.core.catalogue import CheckChanges
+from ytmirror.core.catalogue import CHECK_CHANNEL_FIELDS, CheckChanges
 from ytmirror.core.channels import (
     Channel,
     ChannelTotals,
@@ -73,14 +73,24 @@ class SqlCatalogueRepository:
         with Session(self._engine) as session, session.begin():
             session.add(ChannelRow(**_values_of(channel), created_at=now, updated_at=now))
 
-    def save_channel(self, channel: Channel) -> None:
-        """Store the current values of a channel that was added before.
+    def update_channel(self, channel_id: str, **fields: object) -> bool:
+        """Change some columns of a stored channel, and nothing else.
 
         Args:
-            channel: The channel as it is now.
+            channel_id: The channel.
+            **fields: The columns and their new values.
+
+        Returns:
+            False when the channel is not stored (any more).
+
+        Raises:
+            ValueError: For a name that is not a column a writer may change.
         """
+        unknown = set(fields) - _CHANNEL_FIELDS
+        if unknown:
+            raise ValueError(f"not a field of a channel: {sorted(unknown)}")
         with Session(self._engine) as session, session.begin():
-            self._save_channel(session, channel)
+            return self._update_channel(session, channel_id, fields)
 
     def remove_channel(self, channel_id: str) -> None:
         """Remove a channel and its whole catalogue (R-CH-32).
@@ -203,7 +213,8 @@ class SqlCatalogueRepository:
         """
         now = self._now()
         with Session(self._engine) as session, session.begin():
-            if not self._save_channel(session, channel):
+            owned = {name: getattr(channel, name) for name in CHECK_CHANNEL_FIELDS}
+            if not self._update_channel(session, channel.id, owned):
                 return False
             taken = _ids_of_other_channels(session, channel.id, changes.inserted)
             fresh = [
@@ -343,12 +354,15 @@ class SqlCatalogueRepository:
                 )
             }
 
-    def _save_channel(self, session: Session, channel: Channel) -> bool:
-        row = session.get(ChannelRow, channel.id)
+    def _update_channel(
+        self, session: Session, channel_id: str, fields: Mapping[str, object]
+    ) -> bool:
+        row = session.get(ChannelRow, channel_id)
         if row is None:
             return False
         changed = False
-        for name, value in _values_of(channel).items():
+        for name, given in fields.items():
+            value = getattr(given, "value", given)
             if getattr(row, name) != value:
                 setattr(row, name, value)
                 changed = True
@@ -358,6 +372,10 @@ class SqlCatalogueRepository:
 
     def _now(self) -> int:
         return int(self._clock.now().timestamp())
+
+
+_CHANNEL_FIELDS = frozenset(field.name for field in dataclasses.fields(Channel)) - {"id"}
+"""The columns of a channel a writer may change; its ID never changes."""
 
 
 def _ids_of_other_channels(session: Session, channel_id: str, videos: Sequence[Video]) -> set[str]:

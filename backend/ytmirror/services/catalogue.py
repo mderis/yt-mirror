@@ -362,12 +362,10 @@ class CatalogueService:
                 error_code=ErrorCode.INTERNAL.value,
                 exc_info=True,
             )
-            self._repository.save_channel(
-                replace(
-                    channel,
-                    last_check_error=ErrorCode.INTERNAL,
-                    last_check_error_at=int(self._clock.now().timestamp()),
-                )
+            self._repository.update_channel(
+                channel.id,
+                last_check_error=ErrorCode.INTERNAL,
+                last_check_error_at=int(self._clock.now().timestamp()),
             )
         else:
             if changes is not None:
@@ -487,12 +485,10 @@ class CatalogueService:
             **error.details,
         )
         if error.code is not ErrorCode.BOT_CHECK:
-            self._repository.save_channel(
-                replace(
-                    channel,
-                    last_check_error=error.code,
-                    last_check_error_at=int(self._clock.now().timestamp()),
-                )
+            self._repository.update_channel(
+                channel.id,
+                last_check_error=error.code,
+                last_check_error_at=int(self._clock.now().timestamp()),
             )
             return
         with self._wake:

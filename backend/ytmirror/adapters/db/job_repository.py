@@ -357,10 +357,16 @@ def _job_values(job: Job) -> dict[str, Any]:
     }
 
 
+_DATE_FIELDS = ("published_at", "published_exact", "published_precision")
+"""A download writes these only with the exact date it found. Otherwise its copy of them is
+the one it read at its start, and the exact-date fetch may have stored a better one since."""
+
+
 def _download_values(video: Video) -> dict[str, Any]:
     return {
         name: getattr(value, "value", value)
         for name in DOWNLOAD_FIELDS
+        if video.published_exact or name not in _DATE_FIELDS
         for value in (getattr(video, name),)
     }
 

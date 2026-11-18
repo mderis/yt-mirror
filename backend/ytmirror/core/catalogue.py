@@ -28,6 +28,24 @@ MISSES_UNTIL_GONE = 2
 """Full checks in a row without a video until it counts as removed from YouTube (R-CH-13)."""
 
 
+CHECK_CHANNEL_FIELDS = frozenset(
+    {
+        "title",
+        "handle",
+        "avatar_url",
+        "last_check_at",
+        "last_check_error",
+        "last_check_error_at",
+        "last_full_check_at",
+        "first_listed_at",
+        "check_retries",
+    }
+)
+"""The columns of a channel that a check owns and stores. Never auto-mirror, its date
+limit, the pause, the missing files left, or anything else the user changes while a
+check runs (review of M5)."""
+
+
 @dataclass(frozen=True, slots=True)
 class CheckChanges:
     """What one successful check changes.

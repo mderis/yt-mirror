@@ -1,6 +1,5 @@
 """Tests of a re-download: the old file stays until the new one is in place (R-QL-06, D-093)."""
 
-import dataclasses
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -158,7 +157,7 @@ def test_a_file_lower_than_the_quality_of_its_channel_is_marked(world: World) ->
     assert height is not None
 
     target = next(q for q in (Quality.P2160, Quality.P1440, Quality.P1080) if int(q.value) > height)
-    world.repository.save_channel(dataclasses.replace(channel, quality=target))
+    world.repository.update_channel(channel.id, quality=target)
 
     view = world.views.video(FIRST)
     assert view is not None

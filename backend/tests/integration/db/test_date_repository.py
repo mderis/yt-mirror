@@ -1,6 +1,5 @@
 """Tests of ``ytmirror.adapters.db.date_repository`` on a migrated database."""
 
-import dataclasses
 from pathlib import Path
 
 import pytest
@@ -172,7 +171,7 @@ def test_a_video_the_api_left_out_waits_for_the_next_check_of_its_channel(
 
     assert dates.pending(NOW + 20, limit=10, by_api=True) == ()
     assert ids(dates.pending(NOW + 20, limit=10, by_api=False)) == [video_id(1)]
-    catalogue.save_channel(dataclasses.replace(channel, last_check_at=NOW + 30))
+    catalogue.update_channel(channel.id, last_check_at=NOW + 30)
     assert ids(dates.pending(NOW + 40, limit=10, by_api=True)) == [video_id(1)]
 
 
