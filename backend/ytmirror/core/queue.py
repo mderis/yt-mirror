@@ -60,6 +60,25 @@ def retry_delay(code: ErrorCode, attempts: int) -> int | None:
     return RETRY_DELAYS_S[attempts]
 
 
+GB = 1_000_000_000
+"""A gigabyte, as macOS counts it, for the disk space guard (R-QU-10)."""
+
+
+@dataclass(frozen=True, slots=True)
+class DiskGuardPause:
+    """The queue is paused because a disk has too little free space (R-QU-10).
+
+    Attributes:
+        disk: The name of the volume.
+        free_bytes: Its free space when the guard saw it.
+        limit_bytes: The free space below which the queue pauses.
+    """
+
+    disk: str
+    free_bytes: int
+    limit_bytes: int
+
+
 @dataclass(frozen=True, slots=True)
 class QueueSummary:
     """How the queue stands, for the queue bar and the downloads panel.
@@ -70,6 +89,10 @@ class QueueSummary:
         failed: How many videos failed and wait for the user (R-QU-08).
         paused: Whether the user paused all downloads (R-QU-02).
         places: How many downloads may run at once (R-QU-01).
+        speed_limit_mbps: The limit of all downloads together, 0 for none (R-QU-03).
+        disk_guard: The pause of the disk space guard, or None (R-QU-10).
+        folders_away: The channels whose folder cannot be reached: their downloads
+            wait (R-QU-11).
     """
 
     downloading: int
@@ -77,6 +100,9 @@ class QueueSummary:
     failed: int
     paused: bool
     places: int
+    speed_limit_mbps: int = 0
+    disk_guard: DiskGuardPause | None = None
+    folders_away: tuple[str, ...] = ()
 
 
 NO_QUEUE = QueueSummary(downloading=0, waiting=0, failed=0, paused=False, places=2)

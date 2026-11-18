@@ -15,7 +15,8 @@ from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import DownloadProgress, JobProgressed, JobState, Stage
 from ytmirror.core.models import Settings
 from ytmirror.core.pacing import LookupBudget
-from ytmirror.core.queue import RETRY_DELAYS_S, QueueChanged, QueueSummary
+from ytmirror.core.queue import GB, RETRY_DELAYS_S, DiskGuardPause, QueueChanged, QueueSummary
+from ytmirror.ports.file_system import Disk
 
 FIRST = "sm000000005"
 SECOND = "sm000000004"
@@ -750,3 +751,106 @@ def test_retry_by_hand_starts_the_automatic_retries_afresh(world: World) -> None
     view = world.views.video(FIRST)
     assert view is not None
     assert view.video.attempts == 1
+
+
+# --- the speed limit, the disk space guard (R-QU-03, R-QU-10)
+
+
+def report_bytes(arrived: int) -> DownloadProgress:
+    """A report of the video stream that says how many bytes arrived."""
+    return DownloadProgress(
+        stage=Stage.VIDEO, fraction=0.5, speed_bps=None, left_s=None, downloaded_bytes=arrived
+    )
+
+
+def test_the_speed_limit_slows_a_download_down(world: World) -> None:
+    """R-QU-03: at 1 MB/s, 3 MB take about 3 seconds."""
+    world.downloader.set_speed_limit(1)
+    seconds: list[float] = []
+
+    def three_mb(tell: Callable[[DownloadProgress], None]) -> None:
+        start = world.clock.monotonic()
+        for megabytes in (1, 2, 3):
+            tell(report_bytes(megabytes * 1_000_000))
+        seconds.append(world.clock.monotonic() - start)
+
+    world.download.during_video = three_mb
+    world.downloader.mirror([FIRST])
+
+    world.download_all()
+
+    assert 2.4 <= seconds[0] <= 3.0
+    assert world.downloader.queue_summary().speed_limit_mbps == 1
+
+
+def test_too_little_free_space_pauses_the_queue_before_a_download(world: World) -> None:
+    """R-QU-10: below 10 GB nothing starts, and the queue says which disk and why."""
+    world.files.disk = Disk("Media", 9 * GB)
+    world.downloader.mirror([FIRST])
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    assert world.download.calls == []
+    assert world.downloader.queue_summary().disk_guard == DiskGuardPause("Media", 9 * GB, 10 * GB)
+
+
+def test_resume_anyway_goes_on_with_the_low_disk(world: World) -> None:
+    """R-QU-10: the user can resume anyway; the guard leaves that disk alone meanwhile."""
+    world.files.disk = Disk("Media", 9 * GB)
+    world.downloader.mirror([FIRST])
+    world.download_all()
+
+    world.downloader.resume_anyway()
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+    assert world.downloader.queue_summary().disk_guard is None
+
+
+def test_the_guard_watches_a_disk_again_once_it_had_room(world: World) -> None:
+    """R-QU-10: "Resume anyway" lasts until the disk had room again, then the guard is back."""
+    world.files.disk = Disk("Media", 9 * GB)
+    world.downloader.mirror([FIRST])
+    world.download_all()
+    world.downloader.resume_anyway()
+    world.files.disk = Disk("Media", 50 * GB)
+    world.download_all()
+
+    world.files.disk = Disk("Media", 9 * GB)
+    world.downloader.mirror([SECOND])
+    world.download_all()
+
+    assert status_of(world, SECOND) is VideoStatus.QUEUED
+    assert world.downloader.queue_summary().disk_guard is not None
+
+
+def test_a_disk_that_runs_low_during_a_download_stops_it_and_keeps_its_file(world: World) -> None:
+    """R-QU-10, D-091: the guard looks while a download runs; the download waits with its file."""
+    [job] = world.downloader.mirror([FIRST])
+
+    def fills(tell: Callable[[DownloadProgress], None]) -> None:
+        world.files.disk = Disk("Media", 2 * GB)
+        world.clock.advance(10)
+        tell(report_bytes(1_000_000))
+
+    world.download.during_video = fills
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    assert world.jobs.job(job.id).state is JobState.WAITING  # type: ignore[union-attr]
+    assert world.downloader.queue_summary().disk_guard is not None
+
+
+def test_the_pause_of_the_guard_ends_when_the_disk_has_room_again(world: World) -> None:
+    """R-QU-10: once there is room again, the queue goes on by itself."""
+    world.files.disk = Disk("Media", 9 * GB)
+    world.downloader.mirror([FIRST])
+    world.download_all()
+    world.files.disk = Disk("Media", 30 * GB)
+
+    world.downloader.look_at_disks_again()
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.SYNCED

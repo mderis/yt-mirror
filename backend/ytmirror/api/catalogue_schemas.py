@@ -600,6 +600,20 @@ class DiskSpace(BaseModel):
     free_bytes: int
 
 
+class DiskGuard(BaseModel):
+    """The queue is paused because a disk has too little free space (R-QU-10).
+
+    Attributes:
+        disk: The name of the volume.
+        free_bytes: Its free space when the guard saw it.
+        limit_bytes: The free space below which the queue pauses.
+    """
+
+    disk: str
+    free_bytes: int
+    limit_bytes: int
+
+
 class Queue(BaseModel):
     """How the queue stands, for the queue bar (R-QU-01, R-QU-02).
 
@@ -609,6 +623,9 @@ class Queue(BaseModel):
         failed: How many videos failed (R-QU-08).
         paused: Whether the user paused all downloads.
         places: How many downloads may run at once.
+        speed_limit_mbps: The limit of all downloads together, 0 for none (R-QU-03).
+        disk_guard: The pause of the disk space guard, or None (R-QU-10).
+        folders_away: The channels whose folder cannot be reached (R-QU-11).
     """
 
     downloading: int
@@ -616,16 +633,27 @@ class Queue(BaseModel):
     failed: int
     paused: bool
     places: int
+    speed_limit_mbps: int = 0
+    disk_guard: DiskGuard | None = None
+    folders_away: list[str] = []
 
     @classmethod
     def of(cls, summary: QueueSummary) -> Queue:
         """Return the wire form of a summary of the queue."""
+        guard = summary.disk_guard
         return cls(
             downloading=summary.downloading,
             waiting=summary.waiting,
             failed=summary.failed,
             paused=summary.paused,
             places=summary.places,
+            speed_limit_mbps=summary.speed_limit_mbps,
+            disk_guard=None
+            if guard is None
+            else DiskGuard(
+                disk=guard.disk, free_bytes=guard.free_bytes, limit_bytes=guard.limit_bytes
+            ),
+            folders_away=list(summary.folders_away),
         )
 
 
@@ -787,6 +815,26 @@ class ReorderRequest(BaseModel):
     """
 
     job_ids: list[str]
+
+
+class SpeedLimitRequest(BaseModel):
+    """The body of ``POST /api/queue/speed-limit`` (R-QU-03).
+
+    Attributes:
+        mbps: The limit of all downloads together in MB/s: 0 (unlimited), 5, 2 or 1.
+    """
+
+    mbps: int
+
+
+class TryFolderResponse(BaseModel):
+    """The answer of ``POST /api/queue/folders/{channel_id}/try-again`` (R-QU-11).
+
+    Attributes:
+        available: Whether the folder can be reached now: then its downloads go on.
+    """
+
+    available: bool
 
 
 class ClearWaitingResponse(BaseModel):

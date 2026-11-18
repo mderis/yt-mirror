@@ -394,6 +394,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/queue/folders/{channel_id}/try-again': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Try Folder Again
+     * @description Look again whether the folder of a channel can be reached (R-QU-11).
+     */
+    post: operations['tryFolderAgain']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/queue/pause': {
     parameters: {
       query?: never
@@ -448,6 +468,46 @@ export interface paths {
      * @description Resume all downloads (R-QU-02).
      */
     post: operations['resumeQueue']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/resume-anyway': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Resume Anyway
+     * @description Resume the queue that the disk space guard paused (R-QU-10).
+     */
+    post: operations['resumeAnyway']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/speed-limit': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Speed Limit
+     * @description Change the limit of all downloads together (R-QU-03).
+     */
+    post: operations['setSpeedLimit']
     delete?: never
     options?: never
     head?: never
@@ -1080,6 +1140,23 @@ export interface components {
      */
     DateState: 'waiting' | 'updating' | 'unavailable'
     /**
+     * DiskGuard
+     * @description The queue is paused because a disk has too little free space (R-QU-10).
+     *
+     *     Attributes:
+     *         disk: The name of the volume.
+     *         free_bytes: Its free space when the guard saw it.
+     *         limit_bytes: The free space below which the queue pauses.
+     */
+    DiskGuard: {
+      /** Disk */
+      disk: string
+      /** Free Bytes */
+      free_bytes: number
+      /** Limit Bytes */
+      limit_bytes: number
+    }
+    /**
      * DiskSpace
      * @description The disk the library is on (R-UI-01).
      *
@@ -1553,16 +1630,30 @@ export interface components {
      *         failed: How many videos failed (R-QU-08).
      *         paused: Whether the user paused all downloads.
      *         places: How many downloads may run at once.
+     *         speed_limit_mbps: The limit of all downloads together, 0 for none (R-QU-03).
+     *         disk_guard: The pause of the disk space guard, or None (R-QU-10).
+     *         folders_away: The channels whose folder cannot be reached (R-QU-11).
      */
     Queue: {
+      disk_guard?: components['schemas']['DiskGuard'] | null
       /** Downloading */
       downloading: number
       /** Failed */
       failed: number
+      /**
+       * Folders Away
+       * @default []
+       */
+      folders_away: string[]
       /** Paused */
       paused: boolean
       /** Places */
       places: number
+      /**
+       * Speed Limit Mbps
+       * @default 0
+       */
+      speed_limit_mbps: number
       /** Waiting */
       waiting: number
     }
@@ -1704,6 +1795,17 @@ export interface components {
       key: string
     }
     /**
+     * SpeedLimitRequest
+     * @description The body of ``POST /api/queue/speed-limit`` (R-QU-03).
+     *
+     *     Attributes:
+     *         mbps: The limit of all downloads together in MB/s: 0 (unlimited), 5, 2 or 1.
+     */
+    SpeedLimitRequest: {
+      /** Mbps */
+      mbps: number
+    }
+    /**
      * Stage
      * @description What a running download does now (R-QU-04).
      * @enum {string}
@@ -1741,8 +1843,10 @@ export interface components {
        * @default {
        *       "downloading": 0,
        *       "failed": 0,
+       *       "folders_away": [],
        *       "paused": false,
        *       "places": 2,
+       *       "speed_limit_mbps": 0,
        *       "waiting": 0
        *     }
        */
@@ -1855,6 +1959,17 @@ export interface components {
       setup_required: boolean
       /** Tools */
       tools: components['schemas']['Tool'][]
+    }
+    /**
+     * TryFolderResponse
+     * @description The answer of ``POST /api/queue/folders/{channel_id}/try-again`` (R-QU-11).
+     *
+     *     Attributes:
+     *         available: Whether the folder can be reached now: then its downloads go on.
+     */
+    TryFolderResponse: {
+      /** Available */
+      available: boolean
     }
     /** ValidationError */
     ValidationError: {
@@ -3182,6 +3297,64 @@ export interface operations {
       }
     }
   }
+  tryFolderAgain: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['TryFolderResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   pauseQueue: {
     parameters: {
       query?: never
@@ -3321,6 +3494,113 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  resumeAnyway: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  setSpeedLimit: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SpeedLimitRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
         }
       }
       /** @description Internal Server Error */

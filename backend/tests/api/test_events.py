@@ -284,4 +284,15 @@ def test_the_queue_reaches_the_window_when_it_changes(
     bus.close()
 
     queues = [data["queue"] for name, data in stream.events() if name == "queue.updated"]
-    assert queues == [{"downloading": 0, "waiting": 1, "failed": 0, "paused": False, "places": 2}]
+    assert queues == [
+        {
+            "downloading": 0,
+            "waiting": 1,
+            "failed": 0,
+            "paused": False,
+            "places": 2,
+            "speed_limit_mbps": 0,
+            "disk_guard": None,
+            "folders_away": [],
+        }
+    ]

@@ -1423,10 +1423,10 @@ def test_a_new_download_cleans_up_a_kept_marker_first(world: World) -> None:
     assert visible(world) == [name]
 
 
-def test_a_download_while_a_kept_marker_cannot_be_reached_fails_and_keeps_it(
+def test_a_download_while_a_kept_marker_cannot_be_reached_waits_and_keeps_it(
     world: World,
 ) -> None:
-    """R-QA-06: Mirror while the drive is away fails clearly; the marker waits for the drive."""
+    """R-QA-06, R-QU-11: while the drive is away the download waits; the marker waits with it."""
     name = kept_marker(world)
     asked = len(world.download.calls)
 
@@ -1436,18 +1436,18 @@ def test_a_download_while_a_kept_marker_cannot_be_reached_fails_and_keeps_it(
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.last_error_code) == (
-        VideoStatus.FAILED,
-        ErrorCode.FOLDER_UNAVAILABLE,
-    )
+    assert (video.status, video.last_error_code) == (VideoStatus.QUEUED, None)
     assert video.placing_file == name
     assert len(world.download.calls) == asked
     assert world.files.trashed == []
+    assert world.downloader.queue_summary().folders_away == (SMALL_ID,)
 
-    world.downloader.start()
+    assert world.downloader.try_folder_again(SMALL_ID) is True
+    world.download_all()
 
     assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
     assert world.files.trashed == [folder_of(world) / name]
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
 
 
 def test_cancelling_a_waiting_download_keeps_a_kept_marker(world: World) -> None:

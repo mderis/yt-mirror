@@ -9,6 +9,7 @@ Tests: backend/tests/integration/app/test_container.py
 
 import os
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,6 +69,7 @@ from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.schema import SchemaService
 from ytmirror.services.settings import SettingsService
+from ytmirror.services.speed_limit import SpeedLimit
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.toolchain import ToolchainService
@@ -300,6 +302,9 @@ def build_container(
         job_logs=paths.logs_dir / JOB_LOG_FOLDER,
         run_in_background=_in_a_thread,
         call_later=_later,
+        speed=SpeedLimit(
+            lambda: settings.current().speed_limit_mbps, used_clock.monotonic, time.sleep
+        ),
         stop_tools=lambda: _stop_tools(used_children, used_tool_box),
         stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
     )

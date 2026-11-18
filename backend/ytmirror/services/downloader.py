@@ -59,7 +59,9 @@ from ytmirror.core.media import MediaFacts, verification_problem
 from ytmirror.core.naming import HIDDEN_DIR, TEMP_DIR, video_file_name
 from ytmirror.core.quality import effective_quality
 from ytmirror.core.queue import (
+    GB,
     HAND_JOBS_PER_ACTION,
+    DiskGuardPause,
     QueueChanged,
     QueueSummary,
     priorities_first,
@@ -77,6 +79,7 @@ from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
 from ytmirror.services.repair import verify_dates
 from ytmirror.services.settings import SettingsService
+from ytmirror.services.speed_limit import SpeedLimit
 from ytmirror.services.youtube_access import CallLater, YouTubeAccess
 
 _log: FilteringBoundLogger = structlog.get_logger(__name__)
@@ -88,6 +91,9 @@ MIRRORABLE = frozenset({VideoStatus.NOT_DOWNLOADED, VideoStatus.FILE_MISSING})
 
 LONGEST_WAIT_S = 60.0
 """The longest a worker waits before it looks again whether a paced download may start."""
+
+DISK_CHECK_S = 5.0
+"""How often a running download looks at the free space of its disk (R-QU-10)."""
 
 _GONE = "removed from YouTube"
 """The reason a queued download of a video removed from YouTube ends (R-CH-14)."""
@@ -164,6 +170,7 @@ class DownloaderService:
         job_logs: Path,
         run_in_background: Callable[[Callable[[], None]], None],
         call_later: CallLater,
+        speed: SpeedLimit | None = None,
         stop_tools: Callable[[], None] = lambda: None,
         stop_job_tools: Callable[[Path], None] = lambda _folder: None,
     ) -> None:
@@ -185,6 +192,7 @@ class DownloaderService:
             run_in_background: Runs a worker without blocking.
             call_later: Runs work after a delay: the last progress report that
                 came too soon after the one before (R-QU-04).
+            speed: The limit of all downloads together (R-QU-03). None: unlimited.
             stop_tools: Stops the ffmpeg and the other tools the app started,
                 when the app quits (R-PL-13).
             stop_job_tools: Stops the ffmpeg of one job, by its temp folder,
@@ -206,7 +214,19 @@ class DownloaderService:
         self._stop_tools = stop_tools
         self._stop_job_tools = stop_job_tools
         self._call_later = call_later
+        self._speed = speed
         self._work_of: dict[str, Path] = {}
+        self._folders: dict[str, Path] = {}
+        """The channel folder of each running job, for the disk space guard."""
+        self._arrived: dict[str, int] = {}
+        """How many bytes each running job had told, for the speed limit."""
+        self._disk_checked: dict[str, float] = {}
+        self._guard: DiskGuardPause | None = None
+        """The pause of the disk space guard, or None (R-QU-10)."""
+        self._guard_ignored: set[str] = set()
+        """Disks the user resumed anyway: the guard leaves them until they had room again."""
+        self._folders_away: set[str] = set()
+        """Channels whose folder cannot be reached: their downloads wait (R-QU-11)."""
         self._wake = threading.Condition()
         self._started = False
         self._workers = 0
@@ -343,8 +363,9 @@ class DownloaderService:
                 with self._wake:
                     while not (self._stopped or self._too_many() or self._next_job() is not None):
                         if not self._wake.wait(timeout=self._wait_for_room_s()):
-                            # Time passed: room in the budget may have come back.
+                            # Time passed: room in the budget or on the disk may have come back.
                             self._update_paced()
+                            self.look_at_disks_again()
                     if self._stopped or self._too_many():
                         self._workers -= 1
                         return
@@ -384,13 +405,25 @@ class DownloaderService:
             self._stopped
             or self._youtube.pause() is not None
             or self._settings.current().downloads_paused
+            or self._guard is not None
             or self._busy() >= self._capacity()
         ):
             return None
         room: int | None = None
         now = self._now()
-        for job in self._jobs.jobs([JobState.WAITING]):
+        waiting = self._jobs.jobs([JobState.WAITING])
+        away: set[str] = set()
+        if self._folders_away:
+            videos = self._repository.videos_by_id([job.video_id for job in waiting])
+            away = {
+                video_id
+                for video_id, video in videos.items()
+                if video.channel_id in self._folders_away
+            }
+        for job in waiting:
             if job.id in self._running or (job.not_before is not None and job.not_before > now):
+                continue
+            if job.video_id in away:
                 continue
             if job.by_hand:
                 return job
@@ -416,6 +449,8 @@ class DownloaderService:
             until = self._youtube.paced_until(1)[0]
             if until is not None:
                 moments.append(until)
+        if self._guard is not None:
+            moments.append(now + LONGEST_WAIT_S)
         if not moments:
             return None
         return min(LONGEST_WAIT_S, max(1.0, min(moments) - now))
@@ -478,6 +513,9 @@ class DownloaderService:
                 self._work_of.pop(job.id, None)
                 self._last_told.pop(job.id, None)
                 self._thread_of.pop(job.id, None)
+                self._folders.pop(job.id, None)
+                self._arrived.pop(job.id, None)
+                self._disk_checked.pop(job.id, None)
                 self._cancelled.discard(job.id)
                 self._stopping.discard(job.id)
                 self._nothing_placed.discard(job.id)
@@ -611,13 +649,173 @@ class DownloaderService:
     def queue_summary(self) -> QueueSummary:
         """Return how the queue stands (R-QU-01, R-QU-02)."""
         settings = self._settings.current()
+        with self._wake:
+            guard = self._guard
+            away = tuple(sorted(self._folders_away))
         return QueueSummary(
             downloading=self._jobs.count([JobState.RUNNING]),
             waiting=self._jobs.count([JobState.WAITING]),
             failed=self._repository.count_with_status(VideoStatus.FAILED),
             paused=settings.downloads_paused,
             places=settings.parallel_downloads,
+            speed_limit_mbps=settings.speed_limit_mbps,
+            disk_guard=guard,
+            folders_away=away,
         )
+
+    def set_speed_limit(self, mbps: int) -> None:
+        """Change the limit of all downloads together; it takes effect at once (R-QU-03).
+
+        Args:
+            mbps: MB/s, or 0 for unlimited.
+        """
+        self._settings.change(speed_limit_mbps=mbps)
+        _log.info("queue.speed_limit", msg="The speed limit changed", mbps=mbps)
+        self._queue_changed()
+
+    def resume_anyway(self) -> None:
+        """Resume the queue that the disk space guard paused (R-QU-10).
+
+        The guard leaves that disk alone until it had more free space than the
+        limit again: then it watches it as before.
+        """
+        with self._wake:
+            guard = self._guard
+            if guard is None:
+                return
+            self._guard_ignored.add(guard.disk)
+            self._guard = None
+            self._wake.notify_all()
+        _log.info("queue.resumed", msg="The queue goes on although the disk is low", reason="disk")
+        self._add_workers()
+        self._queue_changed()
+
+    def try_folder_again(self, channel_id: str) -> bool:
+        """Look again whether the folder of a channel can be reached ("Try again", R-QU-11).
+
+        Args:
+            channel_id: The channel.
+
+        Returns:
+            Whether it can: then its downloads go on.
+        """
+        channel = self._repository.channel(channel_id)
+        if channel is None:
+            self._folder_back(channel_id)
+            return True
+        if not self._files.folder_exists(self._views.folder_of(channel)):
+            return False
+        self.tidy(channel_id)
+        return True
+
+    def _folder_away(self, channel_id: str, log: FilteringBoundLogger) -> None:
+        """The folder of a channel cannot be reached: its downloads wait (R-QU-11)."""
+        with self._wake:
+            new = channel_id not in self._folders_away
+            self._folders_away.add(channel_id)
+        if new:
+            log.warning(
+                "queue.paused",
+                msg="The folder of a channel cannot be reached. Its downloads wait",
+                reason="folder",
+                channel_id=channel_id,
+            )
+            self._queue_changed()
+
+    def _folder_back(self, channel_id: str) -> None:
+        """The folder of a channel can be reached again: its downloads go on (R-QU-11)."""
+        with self._wake:
+            if channel_id not in self._folders_away:
+                return
+            self._folders_away.discard(channel_id)
+            self._wake.notify_all()
+        _log.info(
+            "queue.resumed",
+            msg="The folder of a channel is back. Its downloads go on",
+            reason="folder",
+            channel_id=channel_id,
+        )
+        self._add_workers()
+        self._queue_changed()
+
+    def _disk_of(self, folder: Path) -> DiskGuardPause:
+        disk = self._files.disk_of(folder)
+        limit = self._settings.current().disk_guard_gb * GB
+        return DiskGuardPause(disk=disk.name, free_bytes=disk.free_bytes, limit_bytes=limit)
+
+    def _low_disk(self, folder: Path) -> DiskGuardPause | None:
+        """Return the disk of a folder when the guard must pause for it, else None (R-QU-10)."""
+        disk = self._disk_of(folder)
+        with self._wake:
+            if disk.free_bytes >= disk.limit_bytes:
+                # It had room again: a later "Resume anyway" is needed afresh.
+                self._guard_ignored.discard(disk.disk)
+                return None
+            if disk.disk in self._guard_ignored:
+                return None
+        return disk
+
+    def _guard_hit(
+        self, disk: DiskGuardPause, log: FilteringBoundLogger, *, full: bool = False
+    ) -> None:
+        """Pause the queue for lack of free space; running downloads stop and wait (R-QU-10)."""
+        with self._wake:
+            new = self._guard is None
+            self._guard = disk
+        if new:
+            log.warning(
+                "queue.disk_guard",
+                msg="Too little free space: the queue pauses",
+                disk=disk.disk,
+                free_bytes=disk.free_bytes,
+                limit_bytes=disk.limit_bytes,
+                full=full,
+            )
+            self._stop_running("disk guard")
+            self._queue_changed()
+
+    def look_at_disks_again(self) -> None:
+        """End the pause of the guard when its disk has room again (R-QU-10).
+
+        A waiting worker does this every minute while the guard pauses the queue.
+        """
+        with self._wake:
+            guard = self._guard
+        if guard is None:
+            return
+        folders = [self._views.folder_of(channel) for channel in self._repository.channels()]
+        for folder in folders:
+            disk = self._files.disk_of(folder)
+            if disk.name == guard.disk:
+                if disk.free_bytes < self._settings.current().disk_guard_gb * GB:
+                    return
+                break
+        with self._wake:
+            self._guard = None
+            self._wake.notify_all()
+        _log.info("queue.resumed", msg="The disk has room again. The queue goes on", reason="disk")
+        self._queue_changed()
+
+    def _limit_speed(self, job: Job, progress: DownloadProgress) -> None:
+        """Wait as long as the speed limit of all downloads asks (R-QU-03)."""
+        if self._speed is None or progress.downloaded_bytes is None:
+            return
+        before = self._arrived.get(job.id, 0)
+        self._arrived[job.id] = progress.downloaded_bytes
+        # A download again without subtitles starts from 0: then it counts from there.
+        arrived = progress.downloaded_bytes - before if progress.downloaded_bytes >= before else 0
+        self._speed.took(arrived, stop=lambda: self._is_cancelled(job.id))
+
+    def _watch_disk(self, job: Job) -> None:
+        """Look at the free space of a running download's disk now and then (R-QU-10)."""
+        folder = self._folders.get(job.id)
+        now = self._clock.monotonic()
+        if folder is None or now - self._disk_checked.get(job.id, -DISK_CHECK_S) < DISK_CHECK_S:
+            return
+        self._disk_checked[job.id] = now
+        low = self._low_disk(folder)
+        if low is not None:
+            self._guard_hit(low, _log.bind(job_id=job.id))
 
     def _to_top(self, job_ids: Sequence[str]) -> None:
         """Put waiting jobs at the top of the line, in the order given (R-QU-02)."""
@@ -904,8 +1102,18 @@ class DownloaderService:
             )
             return
         place = self._place_of(channel, job)
+        if not self._files.folder_exists(place.folder):
+            # The drive is away, or the folder is gone: the downloads of the channel wait
+            # in line, and nothing is marked failed (R-QU-11).
+            self._folder_away(channel.id, log)
+            return
+        low = self._low_disk(place.folder)
+        if low is not None:
+            self._guard_hit(low, log)
+            return
         with self._wake:
             self._work_of[job.id] = place.work
+            self._folders[job.id] = place.folder
         started = self._clock.monotonic()
         keep_work = False
         log.info("download.started", msg="Download started", quality=job.quality.value)
@@ -939,6 +1147,19 @@ class DownloaderService:
                 # A failure that passes: tried again later, from its partial files (R-QU-07).
                 keep_work = True
                 self._retry_later(running, video, error.code, delay, log, keep_marker=keep_marker)
+                return
+            if isinstance(error, AppError) and error.code in (
+                ErrorCode.FOLDER_UNAVAILABLE,
+                ErrorCode.DISK_FULL,
+            ):
+                # The folder went away or the disk is full while it ran: the job waits in
+                # line with what it downloaded, and the queue pauses (R-QU-10, R-QU-11).
+                keep_work = True
+                if error.code is ErrorCode.FOLDER_UNAVAILABLE:
+                    self._folder_away(channel.id, log)
+                else:
+                    self._guard_hit(self._disk_of(place.folder), log, full=True)
+                self._back_in_line(running, video, log, keep_marker=keep_marker, error=error)
                 return
             if (stopped and self._resumes(job.id)) or (
                 isinstance(error, AppError) and error.code is ErrorCode.BOT_CHECK
@@ -1686,6 +1907,7 @@ class DownloaderService:
         channel = self._repository.channel(channel_id)
         if channel is None or not self._files.folder_exists(self._views.folder_of(channel)):
             return
+        self._folder_back(channel_id)
         for cleanup in (self._clean_markers, self._sweep_temp_folders):
             try:
                 cleanup([channel])
@@ -1849,6 +2071,8 @@ class DownloaderService:
     ) -> None:
         if progress.stage is Stage.PROCESSING:
             video = self._processing(job)
+        self._limit_speed(job, progress)
+        self._watch_disk(job)
         previous = self._state.progress_of(video.id)
         told = JobProgress(
             job_id=job.id,

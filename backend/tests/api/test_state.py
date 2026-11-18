@@ -45,7 +45,16 @@ def test_the_snapshot_of_a_new_app(client: TestClient, world: World) -> None:
         "youtube_pause": None,
         "api_key": {"status": "none", "until": None},
         "checking_all": None,
-        "queue": {"downloading": 0, "waiting": 0, "failed": 0, "paused": False, "places": 2},
+        "queue": {
+            "downloading": 0,
+            "waiting": 0,
+            "failed": 0,
+            "paused": False,
+            "places": 2,
+            "speed_limit_mbps": 0,
+            "disk_guard": None,
+            "folders_away": [],
+        },
     }
 
 

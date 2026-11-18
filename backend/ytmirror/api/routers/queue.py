@@ -14,7 +14,11 @@ from ytmirror.api.catalogue_schemas import (
     Queue,
     QueueResponse,
     ReorderRequest,
+    SpeedLimitRequest,
+    TryFolderResponse,
 )
+from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.models import SPEED_LIMITS_MBPS
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.queue import QueueService
 
@@ -56,6 +60,22 @@ def build_router(queue: QueueService, downloader: DownloaderService) -> APIRoute
         """Remove every download that waits from the line (R-QU-02)."""
         return ClearWaitingResponse(removed=downloader.clear_waiting())
 
+    def speed_limit(body: SpeedLimitRequest) -> Queue:
+        """Change the limit of all downloads together (R-QU-03)."""
+        if body.mbps not in SPEED_LIMITS_MBPS:
+            raise AppError(ErrorCode.INVALID_REQUEST, {"mbps": str(body.mbps)})
+        downloader.set_speed_limit(body.mbps)
+        return Queue.of(downloader.queue_summary())
+
+    def resume_anyway() -> Queue:
+        """Resume the queue that the disk space guard paused (R-QU-10)."""
+        downloader.resume_anyway()
+        return Queue.of(downloader.queue_summary())
+
+    def try_folder_again(channel_id: str) -> TryFolderResponse:
+        """Look again whether the folder of a channel can be reached (R-QU-11)."""
+        return TryFolderResponse(available=downloader.try_folder_again(channel_id))
+
     router.add_api_route(
         "/queue", get_queue, methods=["GET"], response_model=QueueResponse, operation_id="getQueue"
     )
@@ -79,5 +99,26 @@ def build_router(queue: QueueService, downloader: DownloaderService) -> APIRoute
         methods=["POST"],
         response_model=ClearWaitingResponse,
         operation_id="clearWaiting",
+    )
+    router.add_api_route(
+        "/queue/speed-limit",
+        speed_limit,
+        methods=["POST"],
+        response_model=Queue,
+        operation_id="setSpeedLimit",
+    )
+    router.add_api_route(
+        "/queue/resume-anyway",
+        resume_anyway,
+        methods=["POST"],
+        response_model=Queue,
+        operation_id="resumeAnyway",
+    )
+    router.add_api_route(
+        "/queue/folders/{channel_id}/try-again",
+        try_folder_again,
+        methods=["POST"],
+        response_model=TryFolderResponse,
+        operation_id="tryFolderAgain",
     )
     return router

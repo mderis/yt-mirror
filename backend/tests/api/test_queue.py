@@ -51,6 +51,9 @@ def test_the_queue_lists_waiting_downloads_in_order(client: TestClient, world: W
         "failed": 0,
         "paused": False,
         "places": 2,
+        "speed_limit_mbps": 0,
+        "disk_guard": None,
+        "folders_away": [],
     }
 
 
@@ -76,3 +79,11 @@ def test_pause_and_resume_all(client: TestClient, world: World) -> None:
     assert client.post("/api/queue/pause").json()["paused"] is True
     assert client.get("/api/state").json()["queue"]["paused"] is True
     assert client.post("/api/queue/resume").json()["paused"] is False
+
+
+def test_the_speed_limit_takes_one_of_the_offered_values(client: TestClient, world: World) -> None:
+    """R-QU-03: the panel offers unlimited, 5, 2 and 1 MB/s; anything else is refused."""
+    assert client.post("/api/queue/speed-limit", json={"mbps": 2}).json()["speed_limit_mbps"] == 2
+    refused = client.post("/api/queue/speed-limit", json={"mbps": 3})
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "INVALID_REQUEST"

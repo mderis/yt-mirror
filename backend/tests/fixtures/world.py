@@ -63,6 +63,7 @@ from ytmirror.services.queue import QueueService
 from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.settings import SettingsService
+from ytmirror.services.speed_limit import SpeedLimit
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.youtube_access import YouTubeAccess
@@ -498,6 +499,11 @@ class World:
             job_logs=folder / "logs" / "jobs",
             run_in_background=self.background.append,
             call_later=lambda delay, work: self.later.append((delay, work)),
+            speed=SpeedLimit(
+                lambda: self.settings.current().speed_limit_mbps,
+                self.clock.monotonic,
+                self.clock.advance,
+            ),
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
         )
