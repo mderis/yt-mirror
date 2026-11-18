@@ -79,7 +79,7 @@ const someSelected = computed(
         <span class="text-meta text-text-muted">{{ formatNumber(counts[tab]) }}</span>
       </button>
     </div>
-    <div class="relative ml-auto min-w-48 flex-1 basis-48">
+    <div class="relative ml-auto min-w-40 flex-1 basis-40">
       <label :for="searchId" class="sr-only">{{ t('channel.tools.search') }}</label>
       <AppIcon
         name="search"
