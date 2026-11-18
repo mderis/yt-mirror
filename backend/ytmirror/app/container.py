@@ -294,6 +294,7 @@ def build_container(
         new_job_id=lambda: str(ULID()),
         job_logs=paths.logs_dir / JOB_LOG_FOLDER,
         run_in_background=_in_a_thread,
+        call_later=_later,
         stop_tools=lambda: _stop_tools(used_children, used_tool_box),
         stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
     )

@@ -6,10 +6,11 @@ R-FN-01 to R-FN-05 (the file name), R-MD-01 to R-MD-05 (metadata, subtitles,
 thumbnails), R-DT-01, R-DT-07, R-DT-10 (the file dates), R-LG-02 (the job ID
 in every log line) and R-LG-03 (every status change recorded).
 
-Jobs wait in one line and are taken in the order of their priority. The
-worker is built so that more than one can run (R-QU-01, milestone M5): a
-worker takes the next job under a lock, and everything about a job is kept
-by its ID. Milestone M3 runs one worker.
+Jobs wait in one line and are taken in the order of their priority. As many
+run at once as the setting "Parallel downloads" allows (R-QU-01): each worker
+takes the next job under one lock, and everything about a job is kept by its
+ID. A download cancelled while it only asks YouTube takes no place among them:
+its worker is replaced at once, and ends when YouTube's answer comes (R-QU-02).
 
 Cancel ends a download at its next step. A download is past the point of no
 return once its file is moved into the channel folder: then it ends synced.
@@ -17,6 +18,7 @@ After a cancel, a failure or a quit, nothing of the job is left but its log:
 its temp folder is deleted, and no file of another video is touched.
 
 Tests: backend/tests/unit/services/test_downloader.py,
+backend/tests/unit/services/test_downloader_queue.py,
 backend/tests/integration/test_download_end_to_end.py
 """
 
@@ -64,7 +66,7 @@ from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
 from ytmirror.services.repair import verify_dates
 from ytmirror.services.settings import SettingsService
-from ytmirror.services.youtube_access import YouTubeAccess
+from ytmirror.services.youtube_access import CallLater, YouTubeAccess
 
 _log: FilteringBoundLogger = structlog.get_logger(__name__)
 
@@ -147,7 +149,7 @@ class DownloaderService:
         new_job_id: Callable[[], str],
         job_logs: Path,
         run_in_background: Callable[[Callable[[], None]], None],
-        workers: int = 1,
+        call_later: CallLater,
         stop_tools: Callable[[], None] = lambda: None,
         stop_job_tools: Callable[[Path], None] = lambda _folder: None,
     ) -> None:
@@ -167,7 +169,8 @@ class DownloaderService:
             new_job_id: Gives a new ULID for each job.
             job_logs: The folder of the logs of jobs.
             run_in_background: Runs a worker without blocking.
-            workers: How many downloads run at once. One in milestone M3.
+            call_later: Runs work after a delay: the last progress report that
+                came too soon after the one before (R-QU-04).
             stop_tools: Stops the ffmpeg and the other tools the app started,
                 when the app quits (R-PL-13).
             stop_job_tools: Stops the ffmpeg of one job, by its temp folder,
@@ -188,9 +191,21 @@ class DownloaderService:
         self._run_in_background = run_in_background
         self._stop_tools = stop_tools
         self._stop_job_tools = stop_job_tools
+        self._call_later = call_later
         self._work_of: dict[str, Path] = {}
-        self._workers = workers
         self._wake = threading.Condition()
+        self._started = False
+        self._workers = 0
+        """How many workers wait for jobs or run one, not counting retired ones."""
+        self._worker_threads: set[int] = set()
+        self._retired: set[int] = set()
+        """Workers whose job was abandoned while it asked YouTube. Each ends with that job."""
+        self._thread_of: dict[str, int] = {}
+        """The thread that runs each running job."""
+        self._side_files = threading.Lock()
+        """Held while side files that waited are written: by one worker at a time."""
+        self._held_reports: dict[str, JobProgress] = {}
+        """The newest progress report of each job that came too soon to be told (R-QU-04)."""
         self._running: dict[str, str] = {}
         """The jobs that run, with the channel of each."""
         self._videos: dict[str, Video] = {}
@@ -248,12 +263,35 @@ class DownloaderService:
                 )
         self._retry_side_files_quietly()
         self._youtube.when_asking_again(self._wake_up)
-        for _ in range(self._workers):
-            self._run_in_background(self._work_until_stopped)
+        with self._wake:
+            self._started = True
+        self._add_workers()
 
     def _wake_up(self) -> None:
         with self._wake:
             self._wake.notify_all()
+
+    def _add_workers(self) -> None:
+        """Start workers until as many run as the setting allows (R-QU-01).
+
+        The setting is read each time, so a change takes effect without a restart:
+        more workers start here, and the ones that are too many end when idle.
+        """
+        with self._wake:
+            if not self._started or self._stopped:
+                return
+            missing = max(0, self._capacity() - self._workers)
+            self._workers += missing
+        for _ in range(missing):
+            self._run_in_background(self._work_until_stopped)
+
+    def _capacity(self) -> int:
+        """How many downloads may run at once (R-QU-01)."""
+        return self._settings.current().parallel_downloads
+
+    def _busy(self) -> int:
+        """How many places running jobs take. An abandoned lookup takes none (R-QU-02)."""
+        return sum(1 for job_id in self._running if job_id not in self._abandoned)
 
     def stop(self, wait_s: float = 2.0) -> None:
         """Stop: a running download is cancelled and cleaned up before this returns.
@@ -274,39 +312,63 @@ class DownloaderService:
             self._wake.wait_for(lambda: not self._running, timeout=wait_s)
 
     def _work_until_stopped(self) -> None:
-        while True:
+        me = threading.get_ident()
+        with self._wake:
+            self._worker_threads.add(me)
+        try:
+            while True:
+                with self._wake:
+                    self._wake.wait_for(
+                        lambda: self._stopped or self._too_many() or self._next_job() is not None
+                    )
+                    if self._stopped or self._too_many():
+                        self._workers -= 1
+                        return
+                try:
+                    self.work_once()
+                except Exception:  # noqa: BLE001  (a worker must never die)
+                    # A worker must never die: the queue would stop until the next start.
+                    _log.error(
+                        "download.failed",
+                        msg="A download worker hit an unexpected error and goes on",
+                        error_code=ErrorCode.INTERNAL.value,
+                        exc_info=True,
+                    )
+                with self._wake:
+                    if me in self._retired:
+                        # Its job was abandoned, and another worker took its place.
+                        self._retired.discard(me)
+                        return
+        finally:
             with self._wake:
-                self._wake.wait_for(lambda: self._stopped or self._has_waiting())
-                if self._stopped:
-                    return
-            try:
-                self.work_once()
-            except Exception:  # noqa: BLE001  (the one worker must never die)
-                # The one worker must never die: the queue would stop until the next start.
-                _log.error(
-                    "download.failed",
-                    msg="The download worker hit an unexpected error and goes on",
-                    error_code=ErrorCode.INTERNAL.value,
-                    exc_info=True,
-                )
+                self._worker_threads.discard(me)
 
-    def _has_waiting(self) -> bool:
-        """Whether a job can start now. While YouTube is paused, waiting jobs wait (R-ER-05)."""
-        return self._youtube.pause() is None and bool(self._jobs.jobs([JobState.WAITING]))
+    def _too_many(self) -> bool:
+        """Whether more workers run than the setting allows: one of them ends (R-QU-01)."""
+        return self._workers > self._capacity()
+
+    def _next_job(self) -> Job | None:
+        """The waiting job a worker takes next, or None when none may start now.
+
+        Nothing starts while YouTube is paused (R-ER-05) or while every place is
+        taken (R-QU-01). A job that a worker took already is never taken twice.
+        """
+        if self._stopped or self._youtube.pause() is not None or self._busy() >= self._capacity():
+            return None
+        return next(
+            (job for job in self._jobs.jobs([JobState.WAITING]) if job.id not in self._running),
+            None,
+        )
 
     def work_once(self) -> bool:
         """Run the next waiting job, if there is one. Returns whether one ran."""
         with self._wake:
-            if self._stopped or self._youtube.pause() is not None:
-                return False
-            job = next(
-                (job for job in self._jobs.jobs([JobState.WAITING]) if job.id not in self._running),
-                None,
-            )
+            job = self._next_job()
             if job is None:
                 return False
             video = self._repository.video(job.video_id)
             self._running[job.id] = "" if video is None else video.channel_id
+            self._thread_of[job.id] = threading.get_ident()
         try:
             with structlog.contextvars.bound_contextvars(job_id=job.id):
                 self._run(job)
@@ -327,6 +389,7 @@ class DownloaderService:
                 self._videos.pop(job.id, None)
                 self._work_of.pop(job.id, None)
                 self._last_told.pop(job.id, None)
+                self._thread_of.pop(job.id, None)
                 self._cancelled.discard(job.id)
                 self._nothing_placed.discard(job.id)
                 self._asking.discard(job.id)
@@ -415,9 +478,13 @@ class DownloaderService:
                 # It has written nothing, and start_writing now refuses it: it ends here.
                 self._asking.discard(job.id)
                 self._abandoned.add(job.id)
+                self._retire_worker_of(job.id)
                 video = self._repository.video(job.video_id)
                 self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled")
+                self._wake.notify_all()
         if abandoned:
+            # Its worker waits for YouTube's answer: another one takes its place now.
+            self._add_workers()
             _log.info(
                 "download.cancelled",
                 msg="Download cancelled before a file was written. YouTube's answer is ignored",
@@ -441,6 +508,16 @@ class DownloaderService:
             video_id=job.video_id,
         )
         return True
+
+    def _retire_worker_of(self, job_id: str) -> None:
+        """Let the worker of an abandoned job end with it, and count it no more (R-QU-02).
+
+        Called under the lock. A job run outside a worker (as in a test) has none.
+        """
+        thread = self._thread_of.get(job_id)
+        if thread is not None and thread in self._worker_threads and thread not in self._retired:
+            self._retired.add(thread)
+            self._workers -= 1
 
     def end_removed(self, video_ids: Sequence[str]) -> None:
         """End the waiting downloads of videos a check found removed from YouTube (R-CH-14).
@@ -1032,7 +1109,18 @@ class DownloaderService:
         return True
 
     def retry_side_files(self) -> None:
-        """Write the side files that waited (R-MD-02, R-MD-05). One that fails again waits on."""
+        """Write the side files that waited (R-MD-02, R-MD-05). One that fails again waits on.
+
+        One worker at a time writes them: when another one does already, this returns.
+        """
+        if not self._side_files.acquire(blocking=False):
+            return
+        try:
+            self._write_waiting_side_files()
+        finally:
+            self._side_files.release()
+
+    def _write_waiting_side_files(self) -> None:
         for pending in self._jobs.pending_side_files():
             video = self._repository.video(pending.video_id)
             channel = None if video is None else self._repository.channel(video.channel_id)
@@ -1390,6 +1478,8 @@ class DownloaderService:
         self._views.publish(channel.id)
         with self._wake:
             self._wake.notify_all()
+        # The setting may allow more downloads now than when the workers started.
+        self._add_workers()
         return job
 
     def _change(self, job: Job, video: Video, status: VideoStatus, reason: str) -> Video:
@@ -1438,8 +1528,28 @@ class DownloaderService:
             previous is None or previous.stage is not progress.stage or progress.fraction == 1.0
         )
         if last is not None and now - last < PROGRESS_EVERY_S and not stage_changed:
+            # Too soon to be told now. If no newer report comes, this one is told once
+            # the quarter second is over, so a row never keeps an old percent (R-QU-04).
+            with self._wake:
+                first = job.id not in self._held_reports
+                self._held_reports[job.id] = told
+            if first:
+                self._call_later(
+                    PROGRESS_EVERY_S - (now - last), lambda: self._tell_held_report(job.id)
+                )
             return
-        self._last_told[job.id] = now
+        with self._wake:
+            self._held_reports.pop(job.id, None)
+            self._last_told[job.id] = now
+        self._events.publish(JobProgressed(told))
+
+    def _tell_held_report(self, job_id: str) -> None:
+        """Tell the progress report that came too soon, unless a newer one was told (R-QU-04)."""
+        with self._wake:
+            told = self._held_reports.pop(job_id, None)
+            if told is None or job_id not in self._running or job_id in self._abandoned:
+                return
+            self._last_told[job_id] = self._clock.monotonic()
         self._events.publish(JobProgressed(told))
 
     def _tell(self, video: Video) -> None:

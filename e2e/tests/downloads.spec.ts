@@ -117,11 +117,11 @@ test('R-QU-02: a cancel while YouTube is only asked ends within half a second, a
   expect(readdirSync(folder).filter((name) => !name.startsWith('.'))).toEqual([])
   expect(existsSync(temp) ? readdirSync(temp) : []).toEqual([])
   await row(page, SLOW).getByRole('button', { name: 'Mirror' }).click()
-  // Why 20 s: M3 has one worker, and it takes the new job only once the abandoned lookup of
-  // the cancelled one has answered (up to 3 s here, accepted for M3). Then the new job's own
-  // lookup takes 3 s, then the download, on a busy CI runner. M5 should tighten this: with
-  // its parallel workers the new job starts at once on a free worker (docs/STATUS.md).
-  await expect(row(page, SLOW).getByText('Synced · 270p')).toBeVisible({ timeout: 20_000 })
+  // Why 10 s: the abandoned lookup holds no worker and no place (R-QU-01), so the new job
+  // starts at once. Its own lookup takes 3 s here, then the download, on a busy CI runner.
+  // That the next job never waits for an abandoned lookup is proven by the backend tests
+  // with one place and with two (test_downloader_queue.py).
+  await expect(row(page, SLOW).getByText('Synced · 270p')).toBeVisible({ timeout: 10_000 })
 })
 
 test('R-QU-04: the percent and the bar of a row grow as the fake YouTube sends progress in steps', async ({

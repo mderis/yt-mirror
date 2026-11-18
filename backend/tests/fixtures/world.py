@@ -8,6 +8,7 @@ are fakes. Nothing runs in the background by itself: a test says when.
 
 import itertools
 import json
+import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -245,6 +246,14 @@ class FakeDownload:
         self.info_json: str | None = None
         self.asking: Callable[[], object] = lambda: None
         """What the metadata lookup does before the first file is written."""
+        self.held: dict[str, threading.Event] = {}
+        """Videos whose lookup waits until their event is set."""
+        self.asked: dict[str, threading.Event] = {}
+        """Set when the lookup of a video began: one event per video, made on first use."""
+        self.during_video: Callable[[Callable[[DownloadProgress], None]], object] = lambda _tell: (
+            None
+        )
+        """What the download reports while its video stream arrives, before the stage ends."""
         """The raw metadata to give, or None for a small valid one."""
 
     def __call__(
@@ -257,6 +266,9 @@ class FakeDownload:
         """Download like the gateway, into the temp folder of the job."""
         self.calls.append(request)
         # The metadata lookup: it only reads, and a cancel does not interrupt it.
+        self.asked.setdefault(request.video_id, threading.Event()).set()
+        if request.video_id in self.held:
+            self.held[request.video_id].wait(10)
         self.asking()
         if self.fail is not None:
             raise self.fail
@@ -266,6 +278,10 @@ class FakeDownload:
                 self.on_cancel()
             if is_cancelled():
                 raise DownloadCancelledError(f"cancelled at {stage.value}")
+            if stage is Stage.VIDEO:
+                self.during_video(on_progress)
+                if is_cancelled():
+                    raise DownloadCancelledError("cancelled while the video stream arrived")
             on_progress(DownloadProgress(stage=stage, fraction=1.0, speed_bps=1e6, left_s=0))
         if request.manual_subtitles and self.subtitles_fail_once:
             self.subtitles_fail_once = False
@@ -457,6 +473,7 @@ class World:
             new_job_id=lambda: job_id(next(self.job_numbers)),
             job_logs=folder / "logs" / "jobs",
             run_in_background=self.background.append,
+            call_later=lambda delay, work: self.later.append((delay, work)),
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
         )
