@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, screen, waitFor, within } from '@testing-library/vue'
 import { describe, expect, it } from 'vitest'
 
 import { openApp, part } from '../helpers/app'
@@ -100,6 +100,26 @@ describe('the keyboard shortcuts', () => {
     await fireEvent.keyDown(search, { key: 'g' })
 
     expect(app.requests()).not.toContain('PUT /api/state/view')
+  })
+
+  it('R-UI-13: Enter and Space on a focused button press the button, not a shortcut', async () => {
+    const app = await openWith()
+    await press('ArrowDown')
+    const mirror = within(part(`[data-video="${video(3).id}"]`)).getByRole('button', {
+      name: 'Mirror',
+    })
+    mirror.focus()
+
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+    mirror.dispatchEvent(enter)
+    mirror.dispatchEvent(space)
+    await waitFor(() => expect(current()).toBe(video(1).id))
+
+    expect(enter.defaultPrevented).toBe(false)
+    expect(space.defaultPrevented).toBe(false)
+    expect(app.requests()).not.toContain(`GET /api/videos/${video(1).id}`)
+    expect(screen.queryByRole('region', { name: 'Selected videos' })).toBeNull()
   })
 
   it('R-UI-13: a digit opens that channel of the sidebar', async () => {

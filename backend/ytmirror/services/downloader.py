@@ -349,12 +349,16 @@ class DownloaderService:
         return self._settings.current().parallel_downloads
 
     def downloading_now(self) -> int:
-        """Return how many downloads run now, from memory: it never waits on the database.
+        """Return how many downloads run now, from memory, without waiting for anything.
 
-        For the quit question (R-QU-12), which macOS waits for.
+        For the quit question (R-QU-12, D-096), which macOS waits for on the main
+        thread. The lock of the queue is not taken: it is held while the disks are
+        looked at, which can take long on a slow drive. A copy of a dict or a set
+        is taken in one step, so the count is never torn.
         """
-        with self._wake:
-            return self._busy()
+        running = self._running.copy()
+        abandoned = self._abandoned.copy()
+        return sum(1 for job_id in running if job_id not in abandoned)
 
     def _busy(self) -> int:
         """How many places running jobs take. An abandoned lookup takes none (R-QU-02)."""

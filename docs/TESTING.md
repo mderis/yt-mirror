@@ -172,3 +172,7 @@ Manual:
 - [ ] With another app in front, a click on the Dock icon brings the yt-mirror window forward. The same with the window minimized.
 - [ ] Undo, Redo, Cut, Copy, Paste and Select All work with their shortcuts in a text field of the app.
 - [ ] Log out of macOS, restart and shut down while the app runs. Each one goes through without the app holding it up, and the last line of the debug log is `app.stopping`.
+- [ ] Log out, restart and shut down while a download runs. None of them asks "Quit yt-mirror?", and the download goes on at the next start.
+- [ ] Cmd+Q, Quit in the Dock and the red window button while a download runs each ask "Quit yt-mirror?". "Keep running" keeps the download going; "Quit" quits.
+- [ ] Every item of the File, View, Channel, Window and Help menus does what its control in the window does, and is greyed out when it does not apply: open a paused channel and see "Resume Channel" and no "Check Now".
+- [ ] Cmd+R on a channel checks it once (one check in the log, not two). Cmd+A with no text field in focus selects the shown videos.

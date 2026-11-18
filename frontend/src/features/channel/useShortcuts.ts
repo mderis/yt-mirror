@@ -22,6 +22,10 @@ import { useUiStore } from '@/stores/ui'
 import { useVideosStore } from '@/stores/videos'
 import { useViewStore } from '@/stores/view'
 
+/** Controls that Space and Enter press: on them, these two keys are theirs, not a shortcut. */
+const PRESSABLE =
+  'button, a[href], summary, [role="button"], [role="tab"], [role="checkbox"], [role="option"]'
+
 /** Whether a key goes to what has the focus: a field, a select, a menu or a dialog. */
 function typing(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -75,6 +79,10 @@ export function useShortcuts(channelId: () => string, shown: Ref<readonly Video[
       return
     }
     if (command || event.altKey) {
+      return
+    }
+    const pressing = event.key === ' ' || event.key === 'Enter'
+    if (pressing && event.target instanceof Element && event.target.closest(PRESSABLE) !== null) {
       return
     }
     const video = current()

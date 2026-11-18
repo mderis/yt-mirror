@@ -882,3 +882,56 @@ def test_pausing_a_channel_stops_its_running_download_and_keeps_its_file(world: 
 
     assert status_of(world, FIRST) is VideoStatus.QUEUED
     assert world.files.exists(temp_of(world, job.id) / f"{FIRST}.f399.mp4.part")
+
+
+# --- the count the quit question reads (R-QU-12, D-096)
+
+
+def test_the_running_downloads_are_counted_without_an_abandoned_lookup(world: World) -> None:
+    """R-QU-12, D-096: the quit question counts what runs; an abandoned lookup is not a download."""
+    held = hold(world, FIRST, SECOND)
+    workers = start_workers(world)
+    jobs = world.downloader.mirror([FIRST, SECOND])
+    assert world.download.asked[FIRST].wait(10)
+    assert world.download.asked[SECOND].wait(10)
+    assert world.downloader.downloading_now() == 2
+
+    world.downloader.cancel(jobs[0].id)
+
+    assert world.downloader.downloading_now() == 1
+    held[FIRST].set()
+    held[SECOND].set()
+    stop(world, workers)
+    assert world.downloader.downloading_now() == 0
+
+
+def test_the_count_answers_at_once_while_the_queue_waits_for_the_database(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-QU-12, D-096: macOS waits for the quit question; a busy database never holds it up.
+
+    A reorder writes the new places while it holds the lock of the queue.
+    """
+    jobs = world.downloader.mirror([FIRST, SECOND])
+    writing = threading.Event()
+    release = threading.Event()
+    write = world.jobs.set_priorities
+
+    def slow_write(changes: dict[str, int]) -> None:
+        writing.set()
+        release.wait(10)
+        write(changes)
+
+    monkeypatch.setattr(world.jobs, "set_priorities", slow_write)
+    order = [jobs[1].id, jobs[0].id]
+    writer = threading.Thread(target=world.downloader.reorder, args=(order,), daemon=True)
+    writer.start()
+    assert writing.wait(10), "The reorder did not write"
+
+    started = time.monotonic()
+    count = world.downloader.downloading_now()
+
+    assert time.monotonic() - started < 1
+    assert count == 0
+    release.set()
+    writer.join(10)
