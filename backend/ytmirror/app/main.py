@@ -275,6 +275,8 @@ def run_app(
         container.catalogue.start()
         container.thumbnails.start()
         container.downloader.start()
+        # Auto-mirror takes up what is new, and asks first about a large start (R-MI-02, D-095).
+        threading.Thread(target=container.auto_mirror.run_all, daemon=True).start()
         # The checks by themselves and the exact dates: after the downloader, as the dates
         # yield to downloads (R-CH-20, R-DT-06).
         container.scheduler.start()
@@ -416,6 +418,7 @@ def api_services(container: Container) -> ApiServices:
         dates=container.dates,
         repair=container.repair,
         queue=container.queue,
+        auto_mirror=container.auto_mirror,
     )
 
 

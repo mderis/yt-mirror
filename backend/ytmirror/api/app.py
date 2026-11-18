@@ -23,6 +23,7 @@ from ytmirror.api.schemas import ErrorResponse
 from ytmirror.api.security import API_PREFIX, SESSION_COOKIE, SecurityMiddleware, SecurityPolicy
 from ytmirror.core.errors import ErrorCode
 from ytmirror.ports.clock import Clock
+from ytmirror.services.auto_mirror import AutoMirrorService
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
@@ -79,6 +80,7 @@ class ApiServices:
         dates: The exact-date fetch and the API key.
         repair: Repairs the dates of files on demand.
         queue: The queue as the downloads panel shows it.
+        auto_mirror: Auto-mirror and "Mirror everything missing".
     """
 
     diagnostics: DiagnosticsService
@@ -94,6 +96,7 @@ class ApiServices:
     dates: DatesService
     repair: RepairService
     queue: QueueService
+    auto_mirror: AutoMirrorService
 
 
 def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAPI:
@@ -132,6 +135,7 @@ def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAP
             services.views,
             services.thumbnails,
             services.repair,
+            services.auto_mirror,
         ),
         prefix=API_PREFIX,
     )

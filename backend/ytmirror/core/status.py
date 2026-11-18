@@ -177,7 +177,8 @@ def channel_status(
         folder_missing: Whether the channel folder is gone from a connected drive
             (R-MI-06, D-087). It ranks with "Could not check", just before it.
     """
-    if mirroring:
+    if mirroring and not channel.paused:
+        # A paused channel's downloads do not run (R-CH-31): it says "Paused · X of Y".
         return ChannelStatus.MIRRORING
     if checking:
         return ChannelStatus.CHECKING

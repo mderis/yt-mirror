@@ -10,6 +10,7 @@ Tests: backend/tests/api/test_channels.py, test_state.py and test_videos.py
 
 from pydantic import BaseModel
 
+from ytmirror.core.auto_mirror import AutoMirrorAnswer
 from ytmirror.core.channels import (
     ChannelStatus,
     ChannelView,
@@ -71,6 +72,18 @@ class Progress(BaseModel):
         )
 
 
+class AutoMirrorQuestionInfo(BaseModel):
+    """Auto-mirror waits for the user before a large start (R-MI-02, D-095).
+
+    Attributes:
+        count: How many videos it would download.
+        estimated_bytes: About how much room they take.
+    """
+
+    count: int
+    estimated_bytes: int
+
+
 class Channel(BaseModel):
     """One channel as the interface shows it (R-CH-34, R-CH-35).
 
@@ -108,6 +121,10 @@ class Channel(BaseModel):
             wait (R-DT-12): "the API key is not working, using the slow way".
         waiting_until: When the exact dates go on, while they wait for YouTube.
         retry_at: When a failed check is tried again by itself (R-CH-25), or None.
+        auto_mirror_question: What auto-mirror would start and waits for an answer
+            about (D-095), or None.
+        missing_held: How many missing files auto-mirror waits for an answer about
+            (D-092), or None.
     """
 
     id: str
@@ -140,6 +157,8 @@ class Channel(BaseModel):
     key_notice: bool = False
     waiting_until: int | None = None
     retry_at: int | None = None
+    auto_mirror_question: AutoMirrorQuestionInfo | None = None
+    missing_held: int | None = None
 
     @classmethod
     def of(cls, view: ChannelView) -> Channel:
@@ -178,6 +197,13 @@ class Channel(BaseModel):
             key_notice=view.key_notice,
             waiting_until=view.waiting_until,
             retry_at=view.retry_at,
+            auto_mirror_question=None
+            if view.auto_mirror_question is None
+            else AutoMirrorQuestionInfo(
+                count=view.auto_mirror_question[0],
+                estimated_bytes=view.auto_mirror_question[1],
+            ),
+            missing_held=view.missing_held,
         )
 
 
@@ -1182,3 +1208,23 @@ class RepairDatesResponse(BaseModel):
     checked: int
     repaired: int
     failed: int
+
+
+class AutoMirrorRequest(BaseModel):
+    """The body of ``PUT /api/channels/{id}/auto-mirror`` (R-MI-02).
+
+    Attributes:
+        on: Whether auto-mirror is on.
+    """
+
+    on: bool
+
+
+class AutoMirrorAnswerRequest(BaseModel):
+    """The body of ``POST /api/channels/{id}/auto-mirror/answer`` (D-095).
+
+    Attributes:
+        answer: Mirror all, only new videos from now on, or turn auto-mirror off.
+    """
+
+    answer: AutoMirrorAnswer

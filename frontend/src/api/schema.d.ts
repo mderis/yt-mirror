@@ -134,6 +134,46 @@ export interface paths {
     patch: operations['changeChannel']
     trace?: never
   }
+  '/api/channels/{channel_id}/auto-mirror': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Set Auto Mirror
+     * @description Turn auto-mirror of a channel on or off (R-MI-02). On asks before a large start.
+     */
+    put: operations['setAutoMirror']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/auto-mirror/answer': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Answer Auto Mirror
+     * @description Answer the question before a large start of auto-mirror (D-095).
+     */
+    post: operations['answerAutoMirror']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/channels/{channel_id}/avatar': {
     parameters: {
       query?: never
@@ -208,6 +248,46 @@ export interface paths {
     get: operations['getFilesToTrash']
     put?: never
     post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/mirror-missing': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Mirror Missing
+     * @description Queue every video of the channel without a file, once (R-MI-04).
+     */
+    post: operations['mirrorMissing']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/missing/leave': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Leave Missing
+     * @description Leave the missing files of the channel missing, until more are missing (D-092).
+     */
+    post: operations['leaveMissing']
     delete?: never
     options?: never
     head?: never
@@ -848,6 +928,47 @@ export interface components {
       api_key: components['schemas']['ApiKey']
     }
     /**
+     * AutoMirrorAnswer
+     * @description The answers to the question before a large start of auto-mirror (D-095).
+     * @enum {string}
+     */
+    AutoMirrorAnswer: 'mirror_all' | 'only_new' | 'turn_off'
+    /**
+     * AutoMirrorAnswerRequest
+     * @description The body of ``POST /api/channels/{id}/auto-mirror/answer`` (D-095).
+     *
+     *     Attributes:
+     *         answer: Mirror all, only new videos from now on, or turn auto-mirror off.
+     */
+    AutoMirrorAnswerRequest: {
+      answer: components['schemas']['AutoMirrorAnswer']
+    }
+    /**
+     * AutoMirrorQuestionInfo
+     * @description Auto-mirror waits for the user before a large start (R-MI-02, D-095).
+     *
+     *     Attributes:
+     *         count: How many videos it would download.
+     *         estimated_bytes: About how much room they take.
+     */
+    AutoMirrorQuestionInfo: {
+      /** Count */
+      count: number
+      /** Estimated Bytes */
+      estimated_bytes: number
+    }
+    /**
+     * AutoMirrorRequest
+     * @description The body of ``PUT /api/channels/{id}/auto-mirror`` (R-MI-02).
+     *
+     *     Attributes:
+     *         on: Whether auto-mirror is on.
+     */
+    AutoMirrorRequest: {
+      /** On */
+      on: boolean
+    }
+    /**
      * BannerChangedEvent
      * @description The data of the ``banner.changed`` event of ``GET /api/events``.
      *
@@ -928,10 +1049,15 @@ export interface components {
      *             wait (R-DT-12): "the API key is not working, using the slow way".
      *         waiting_until: When the exact dates go on, while they wait for YouTube.
      *         retry_at: When a failed check is tried again by itself (R-CH-25), or None.
+     *         auto_mirror_question: What auto-mirror would start and waits for an answer
+     *             about (D-095), or None.
+     *         missing_held: How many missing files auto-mirror waits for an answer about
+     *             (D-092), or None.
      */
     Channel: {
       /** Auto Mirror */
       auto_mirror: boolean
+      auto_mirror_question?: components['schemas']['AutoMirrorQuestionInfo'] | null
       /** Avatar Version */
       avatar_version: number
       /** Catalogue Version */
@@ -964,6 +1090,8 @@ export interface components {
       /** Mirror After */
       mirror_after: number | null
       mirroring?: components['schemas']['Mirroring'] | null
+      /** Missing Held */
+      missing_held?: number | null
       /** New Videos */
       new_videos: number
       /** Paused */
@@ -2598,6 +2726,130 @@ export interface operations {
       }
     }
   }
+  setAutoMirror: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AutoMirrorRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Channel']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  answerAutoMirror: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AutoMirrorAnswerRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Channel']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   getChannelAvatar: {
     parameters: {
       query?: never
@@ -2792,6 +3044,122 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['FilesToTrashResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  mirrorMissing: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MirrorResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  leaveMissing: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Channel']
         }
       }
       /** @description Unauthorized */

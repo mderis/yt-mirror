@@ -397,6 +397,10 @@ class ChannelView:
             (R-DT-12).
         waiting_until: When the exact-date fetch goes on, while it waits for YouTube.
         retry_at: When a failed check is tried again by itself (R-CH-25), or None.
+        auto_mirror_question: How many videos auto-mirror would start, and their
+            estimated size, while it waits for the user's answer (D-095), else None.
+        missing_held: How many missing files auto-mirror waits for the user about
+            (D-092), else None.
     """
 
     channel: Channel
@@ -412,6 +416,8 @@ class ChannelView:
     key_notice: bool = False
     waiting_until: int | None = None
     retry_at: int | None = None
+    auto_mirror_question: tuple[int, int] | None = None
+    missing_held: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

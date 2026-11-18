@@ -210,6 +210,7 @@ class ChannelsService:
         ),
         *,
         media: MediaTools,
+        paused_downloads: Callable[[str, bool], None] = lambda _channel_id, _paused: None,
     ) -> None:
         """Create the service.
 
@@ -227,12 +228,15 @@ class ChannelsService:
             close_downloads: Cancels the downloads of a channel, waits for them to
                 end, and lets no new one start while the channel is removed.
             media: Reads the video ID inside a file before it goes to the Trash.
+            paused_downloads: Told when a channel is paused or resumed: its downloads
+                stop or go on (R-CH-31).
         """
         self._repository = repository
         self._youtube = youtube
         self._files = files
         self._picker = picker
         self._close_downloads = close_downloads
+        self._paused_downloads = paused_downloads
         self._media = media
         self._settings = settings
         self._views = views
@@ -420,6 +424,7 @@ class ChannelsService:
                 msg="Channel paused" if paused else "Channel resumed",
                 channel_id=channel_id,
             )
+            self._paused_downloads(channel_id, paused)
             if paused:
                 self._catalogue.forget(channel_id)
             elif channel.first_listed_at is None:

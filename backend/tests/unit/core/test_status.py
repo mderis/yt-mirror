@@ -1,5 +1,6 @@
 """Tests of ``ytmirror.core.status``."""
 
+import dataclasses
 import itertools
 
 import pytest
@@ -223,3 +224,12 @@ def test_exact_dates_that_wait_for_youtube_say_so_in_their_own_place() -> None:
     failed = make_channel(last_check_error=ErrorCode.NETWORK_UNREACHABLE)
     assert status(failed) is ChannelStatus.COULD_NOT_CHECK
     assert not waits_for_youtube(listed, youtube_paused=True)
+
+
+def test_a_paused_channel_with_downloads_in_line_says_paused_not_mirroring() -> None:
+    """R-CH-31, R-FB-01: its downloads do not run, so it is not mirroring ("Paused · X of Y")."""
+    channel = dataclasses.replace(make_channel(), paused=True)
+
+    assert channel_status(channel, checking=False, new_videos=0, mirroring=True) is (
+        ChannelStatus.PAUSED
+    )

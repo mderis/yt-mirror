@@ -357,7 +357,7 @@ Measured in November 2026 on four real channels: a quick check with nothing new 
 8. Run exclusion rules on new videos (R-EX-06).
 9. Wake the exact-date fetch: the new videos wait for their exact dates (section 7.4).
 10. If dates repair is on, compare file dates with `published_at` and fix differences, then read them back (R-DT-09). "Repair dates" in the channel menu does the same on demand (`POST /channels/{id}/repair-dates`).
-11. If auto-mirror is on, enqueue eligible videos (R-MI-02, R-MI-03).
+11. If auto-mirror is on, enqueue eligible videos (R-MI-02, R-MI-03). From M5 (`services/auto_mirror.py`, `core/auto_mirror.py`): every video that is not excluded, not synced, not removed and not waiting, as automatic downloads (D-090); a failed one only when its failure can pass and it failed at least 6 hours ago (R-QU-09). The date limit decides at once for an exact date and for an approximate one whose whole range lies on one side; any other video goes to the front of the exact-date fetch, which looks it up while downloads run too, within the budget, and auto-mirror runs again when its date arrives. At most 5 missing files are queued again; above that none is, and the channel says how many are missing until the user answers ("Mirror them again" by hand, or "Leave them missing", kept in `channels.missing_left` until more are missing, D-092). A channel whose `auto_mirror_asked` is false, after it was turned on or after migration 0011, starts more than 5 downloads only after the user answered (D-095). Auto-mirror also runs at every start, when it is turned on, and when a paused channel is resumed. A paused channel's downloads stay in line, and its running ones stop as at a quit (R-CH-31).
 12. Emit the new channel state, write activity entries, send a notification if there are new videos.
 
 Checks never run side by side: one worker takes them one after another (R-CH-24), so two listings never ask YouTube at the same time. Before every channel of "Check all channels now" but the first, the worker waits a random time of 1 to 3 seconds. The wait ends at once when the app stops or the check is dropped. A video that a check lists and that another channel already has is left out of the check and logged (R-CH-17, D-075): a video has one channel. A first listing that a quit interrupted has written nothing, and is started again at the next start (R-CH-11).
@@ -545,7 +545,8 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | POST `/channels/{id}/check` | Check now (`kind`: `quick` or `full`; `trigger`: what the user pressed, `button`, `menu` or `retry`, logged with the check; `api` when it names none) |
 | POST `/channels/{id}/check/cancel` | Cancel a full check (R-CH-27) |
 | POST `/channels/check-all` | Check all channels |
-| POST `/channels/{id}/mirror-missing` | Queue everything eligible once |
+| POST `/channels/{id}/mirror-missing` | Queue everything eligible once, by hand (R-MI-04). From M5 |
+| PUT `/channels/{id}/auto-mirror`, POST `/channels/{id}/auto-mirror/answer`, POST `/channels/{id}/missing/leave` | Turn auto-mirror on or off; answer the question before a large start (`mirror_all`, `only_new`, `turn_off`, D-095); leave the missing files missing (D-092). From M5 |
 | POST `/channels/{id}/open-folder` | Open in Finder |
 | GET `/channels/{id}/videos` | The catalogue (all rows, compact fields) |
 | GET `/channels/{id}/avatar`, `/videos/{id}/thumbnail` | A cached picture, or `NOT_FOUND` at once when it is not cached (R-CH-16, D-067) |

@@ -54,6 +54,8 @@ from ytmirror.ports.native_app import NativeApp
 from ytmirror.ports.system_probe import SystemProbe
 from ytmirror.ports.tool_box import ToolBox
 from ytmirror.ports.youtube_gateway import YouTubeGateway
+from ytmirror.services.auto_mirror import AutoMirrorService
+from ytmirror.services.auto_mirror_state import AutoMirrorState
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
@@ -100,6 +102,7 @@ class Container:
         videos: Reads the catalogue of a channel.
         downloader: Downloads videos, as many at once as the setting allows (R-QU-01).
         queue: The queue as the downloads panel shows it (R-QU-02).
+        auto_mirror: Queues the videos of channels with auto-mirror on (R-MI-02).
         job_logs: Deletes the logs of jobs that are no longer kept.
         dates: Looks up exact dates in the background, and keeps the API key.
         scheduler: Starts checks by themselves and runs the exact-date fetch.
@@ -126,6 +129,7 @@ class Container:
     videos: SqlCatalogueRepository
     downloader: DownloaderService
     queue: QueueService
+    auto_mirror: AutoMirrorService
     job_logs: JobLogsService
     dates: DatesService
     scheduler: Scheduler
@@ -251,6 +255,7 @@ def build_container(
     downloads = DownloadState()
     date_repository = SqlDateRepository(engine, used_clock)
     date_state = DateFetchState()
+    auto_mirror_state = AutoMirrorState()
     views = ChannelViews(
         repository,
         settings,
@@ -260,6 +265,7 @@ def build_container(
         downloads=downloads,
         dates=date_state,
         fetch_states=date_repository.fetch_states,
+        auto_mirror=auto_mirror_state,
     )
     thumbnails = ThumbnailService(
         repository, youtube, FileImageCache(paths.cache_dir), views, _in_a_thread
@@ -282,6 +288,8 @@ def build_container(
         repair.after_check(channel_id)
         # A drive that came back: what earlier runs left there is cleaned up (R-QA-06).
         downloader.tidy(channel_id)
+        # Auto-mirror queues what is new, after every check (R-MI-02).
+        auto_mirror.run(channel_id)
         # New videos wait for their exact dates (ARCHITECTURE 7.1 step 9).
         dates.wake()
 
@@ -324,7 +332,15 @@ def build_container(
         _in_a_thread,
         close_downloads=downloader.channel_closed,
         media=media,
+        paused_downloads=lambda channel_id, paused: _paused(channel_id, paused),
     )
+
+    def _paused(channel_id: str, paused: bool) -> None:
+        # A paused channel's downloads stop; a resumed one's go on (R-CH-31).
+        downloader.channel_paused(channel_id, paused=paused)
+        if not paused:
+            auto_mirror.run(channel_id)
+
     secrets = Secrets()
     dates = DatesService(
         dates=date_repository,
@@ -339,9 +355,28 @@ def build_container(
         register_secret=secrets.register,
         tell_video=views.tell_video,
         tell_channel=views.publish,
-        found_exact=lambda video_id: repair.repair_video(video_id),
+        found_exact=lambda video_id: _found_exact(video_id),
         look_up=pace != 0,
     )
+    auto_mirror = AutoMirrorService(
+        repository=repository,
+        jobs=jobs,
+        downloader=downloader,
+        views=views,
+        settings=settings,
+        clock=used_clock,
+        state=auto_mirror_state,
+        prioritize=dates.prioritize,
+    )
+
+    def _found_exact(video_id: str) -> None:
+        # A synced file gets the exact date (R-DT-10); a decision that waited is taken (R-MI-03).
+        repair.repair_video(video_id)
+        video = repository.video(video_id)
+        channel = None if video is None else repository.channel(video.channel_id)
+        if channel is not None and channel.auto_mirror and channel.mirror_after is not None:
+            auto_mirror.run(channel.id)
+
     state = StateService(
         views,
         settings,
@@ -395,6 +430,7 @@ def build_container(
         videos=repository,
         downloader=downloader,
         queue=QueueService(repository, jobs, downloads, downloader.queue_summary),
+        auto_mirror=auto_mirror,
         job_logs=JobLogsService(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),

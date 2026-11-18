@@ -412,14 +412,15 @@ class DownloaderService:
         room: int | None = None
         now = self._now()
         waiting = self._jobs.jobs([JobState.WAITING])
+        held = set(self._folders_away) | {
+            channel.id for channel in self._repository.channels() if channel.paused
+        }
         away: set[str] = set()
-        if self._folders_away:
+        if held and waiting:
+            # A paused channel's downloads do not run (R-CH-31), nor those of a channel
+            # whose folder cannot be reached (R-QU-11): they stay in line.
             videos = self._repository.videos_by_id([job.video_id for job in waiting])
-            away = {
-                video_id
-                for video_id, video in videos.items()
-                if video.channel_id in self._folders_away
-            }
+            away = {video_id for video_id, video in videos.items() if video.channel_id in held}
         for job in waiting:
             if job.id in self._running or (job.not_before is not None and job.not_before > now):
                 continue
@@ -526,7 +527,14 @@ class DownloaderService:
 
     # --- what the user asks for
 
-    def mirror(self, video_ids: Sequence[str], *, first: bool = False) -> list[Job]:
+    def mirror(
+        self,
+        video_ids: Sequence[str],
+        *,
+        first: bool = False,
+        automatic: bool = False,
+        failed_too: bool = False,
+    ) -> list[Job]:
         """Put videos in line to be downloaded, in the order given (R-MI-01).
 
         This is an action of the user: the first 20 jobs it puts in line are
@@ -537,9 +545,15 @@ class DownloaderService:
         the top of the line, in the order given ("Mirror first", R-QU-02), also
         the ones that waited already.
 
+        Auto-mirror puts its videos in line with ``automatic``: none of them is
+        started by hand, and a waiting one is left as it is (R-MI-02, D-090).
+
         Args:
             video_ids: The videos.
             first: Whether they go to the top of the line.
+            automatic: Whether the app queues them by itself (auto-mirror).
+            failed_too: Whether failed videos are queued too, as "Mirror everything
+                missing" and auto-mirror do (R-MI-04, R-QU-09).
 
         Returns:
             The jobs that were put in line.
@@ -555,15 +569,21 @@ class DownloaderService:
                 video = self._known(video_id)
                 active = self._jobs.active_job_of(video_id)
                 if active is not None:
-                    if active.state is JobState.WAITING and active.id not in self._running:
+                    if (
+                        not automatic
+                        and active.state is JobState.WAITING
+                        and active.id not in self._running
+                    ):
                         if not active.by_hand:
                             self._jobs.mark_by_hand(active.id)
                         chosen.append(active.id)
                     continue
-                if video.status not in MIRRORABLE or video.gone or video.excluded:
+                allowed = MIRRORABLE | {VideoStatus.FAILED} if failed_too else MIRRORABLE
+                if video.status not in allowed or video.gone or video.excluded:
                     continue
-                by_hand = len(queued) < HAND_JOBS_PER_ACTION
-                job = self._put_in_line(video, "mirror", by_hand=by_hand)
+                by_hand = not automatic and len(queued) < HAND_JOBS_PER_ACTION
+                reason = "auto-mirror" if automatic else "mirror"
+                job = self._put_in_line(video, reason, by_hand=by_hand)
                 queued.append(job)
                 chosen.append(job.id)
         if first and chosen:
@@ -583,16 +603,36 @@ class DownloaderService:
         self._stop_running("paused")
         self._queue_changed()
 
-    def _stop_running(self, reason: str) -> None:
-        """Stop every running download; each goes back in line with its partial files (D-091).
+    def channel_paused(self, channel_id: str, *, paused: bool) -> None:
+        """A channel was paused or resumed: its downloads stop or go on (R-CH-31).
+
+        A paused channel's running downloads stop and wait in line with their
+        partial files, as at a quit (D-091). Its waiting ones stay in line.
+
+        Args:
+            channel_id: The channel.
+            paused: Whether it is paused now.
+        """
+        if paused:
+            self._stop_running("channel paused", channel_id=channel_id)
+        else:
+            self._wake_up()
+            self._add_workers()
+        self._queue_changed()
+
+    def _stop_running(self, reason: str, *, channel_id: str | None = None) -> None:
+        """Stop running downloads; each goes back in line with its partial files (D-091).
 
         Args:
             reason: Why, for the log.
+            channel_id: Only the downloads of this channel, or None for all.
         """
         works: list[Path] = []
         with self._wake:
-            for job_id in self._running:
+            for job_id, channel in self._running.items():
                 if job_id in self._abandoned or job_id in self._cancelled:
+                    continue
+                if channel_id is not None and channel != channel_id:
                     continue
                 self._stopping.add(job_id)
                 work = self._work_of.get(job_id)

@@ -51,6 +51,8 @@ from ytmirror.core.jobs import (
 from ytmirror.core.models import AppEvent
 from ytmirror.core.pacing import LookupBudget
 from ytmirror.ports.api_key_store import ApiKeyStore
+from ytmirror.services.auto_mirror import AutoMirrorService
+from ytmirror.services.auto_mirror_state import AutoMirrorState
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
@@ -400,6 +402,7 @@ class World:
         self.downloads = DownloadState()
         self.date_repository = SqlDateRepository(engine, self.clock)
         self.date_state = DateFetchState()
+        self.auto_mirror_state = AutoMirrorState()
         self.views = ChannelViews(
             self.repository,
             self.settings,
@@ -409,6 +412,7 @@ class World:
             downloads=self.downloads,
             dates=self.date_state,
             fetch_states=self.date_repository.fetch_states,
+            auto_mirror=self.auto_mirror_state,
         )
         self.waited: list[float] = []
         self.during_wait: Callable[[], None] | None = None
@@ -446,6 +450,7 @@ class World:
                 channel_id, self.close_wait_s
             ),
             media=self.media,
+            paused_downloads=lambda channel_id, paused: self._paused(channel_id, paused),
         )
         self.api = FixtureYouTubeApi(self.fixture.api_date)
         self.keys = InMemoryApiKeyStore()
@@ -510,6 +515,16 @@ class World:
         self.queue = QueueService(
             self.repository, self.jobs, self.downloads, self.downloader.queue_summary
         )
+        self.auto_mirror = AutoMirrorService(
+            repository=self.repository,
+            jobs=self.jobs,
+            downloader=self.downloader,
+            views=self.views,
+            settings=self.settings,
+            clock=self.clock,
+            state=self.auto_mirror_state,
+            prioritize=lambda video_ids: self.dates.prioritize(video_ids),
+        )
         self.repair = RepairService(
             repository=self.repository,
             files=self.files,
@@ -534,6 +549,13 @@ class World:
         self.channels.write_channel_file(channel_id)
         self.repair.after_check(channel_id)
         self.downloader.tidy(channel_id)
+        self.auto_mirror.run(channel_id)
+
+    def _paused(self, channel_id: str, paused: bool) -> None:
+        """What the container does when a channel is paused or resumed (R-CH-31)."""
+        self.downloader.channel_paused(channel_id, paused=paused)
+        if not paused:
+            self.auto_mirror.run(channel_id)
 
     def _channel_opened(self, channel_id: str) -> None:
         """What the container does when a channel is opened: a check if old, files looked for."""
@@ -545,6 +567,10 @@ class World:
         """What the container does when the fetch found an exact time: repair the file."""
         self.found_exact.append(video_id)
         self.repair.repair_video(video_id)
+        video = self.repository.video(video_id)
+        channel = None if video is None else self.repository.channel(video.channel_id)
+        if channel is not None and channel.auto_mirror and channel.mirror_after is not None:
+            self.auto_mirror.run(channel.id)
 
     def download_all(self) -> None:
         """Let every waiting download run, one after another."""

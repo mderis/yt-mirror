@@ -44,6 +44,7 @@ from ytmirror.core.schedule import retry_at
 from ytmirror.core.status import NEW_FOR_S, channel_status, is_new, waits_for_youtube
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
+from ytmirror.services.auto_mirror_state import AutoMirrorState
 from ytmirror.services.date_fetch_state import DateFetchState
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
@@ -63,6 +64,7 @@ class ChannelViews:
         downloads: DownloadState | None = None,
         dates: DateFetchState | None = None,
         fetch_states: Callable[[str], Mapping[str, FetchState]] = lambda channel_id: {},
+        auto_mirror: AutoMirrorState | None = None,
     ) -> None:
         """Create the views.
 
@@ -75,6 +77,7 @@ class ChannelViews:
             downloads: The downloads that wait or run.
             dates: How the exact-date fetch stands.
             fetch_states: What the fetch keeps for the videos of a channel.
+            auto_mirror: What auto-mirror waits for the user about.
         """
         self._repository = repository
         self._settings = settings
@@ -84,6 +87,7 @@ class ChannelViews:
         self._downloads = downloads if downloads is not None else DownloadState()
         self._dates = dates if dates is not None else DateFetchState()
         self._fetch_states = fetch_states
+        self._auto_mirror = auto_mirror if auto_mirror is not None else AutoMirrorState()
         events.subscribe(self._on_event)
         self._lock = threading.Lock()
         self._checking: set[str] = set()
@@ -370,6 +374,7 @@ class ChannelViews:
         exact_dates = self._dates.progress(channel.id)
         dates_wait = self._dates.waits_for_youtube(channel.id)
         hold = self._dates.hold() if dates_wait else None
+        question = self._auto_mirror.question(channel.id)
         return ChannelView(
             channel=channel,
             status=channel_status(
@@ -395,6 +400,10 @@ class ChannelViews:
             key_notice=exact_dates is not None and self._dates.key().failing,
             waiting_until=None if hold is None else hold.until,
             retry_at=retry_at(channel),
+            auto_mirror_question=None
+            if question is None
+            else (question.count, question.estimated_bytes),
+            missing_held=self._auto_mirror.missing_held(channel.id),
         )
 
     def _new_since(self) -> int:

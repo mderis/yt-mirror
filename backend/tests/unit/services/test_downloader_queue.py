@@ -854,3 +854,31 @@ def test_the_pause_of_the_guard_ends_when_the_disk_has_room_again(world: World) 
     world.download_all()
 
     assert status_of(world, FIRST) is VideoStatus.SYNCED
+
+
+# --- a paused channel's downloads do not run (R-CH-31)
+
+
+def test_a_paused_channel_keeps_its_downloads_in_line(world: World) -> None:
+    """R-CH-31: its queued downloads stay queued, and go on when it is resumed."""
+    world.downloader.mirror([FIRST])
+    world.channels.set_paused(SMALL_ID, paused=True)
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    world.channels.set_paused(SMALL_ID, paused=False)
+    world.download_all()
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
+
+
+def test_pausing_a_channel_stops_its_running_download_and_keeps_its_file(world: World) -> None:
+    """R-CH-31, D-091: a running download of a paused channel stops, as at a quit."""
+    [job] = world.downloader.mirror([FIRST])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = lambda: world.channels.set_paused(SMALL_ID, paused=True)
+
+    world.download_all()
+
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    assert world.files.exists(temp_of(world, job.id) / f"{FIRST}.f399.mp4.part")
