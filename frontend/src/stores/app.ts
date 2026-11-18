@@ -57,6 +57,12 @@ export const useAppStore = defineStore('app', () => {
       taskProgress: (progress) => channels.applyProgress(progress),
       pauseChanged: (pause) => channels.setPause(pause),
       videoUpdated: (channelId, video) => videos.applyVideo(channelId, video),
+      videosChanged: (channelId) => {
+        // One summary instead of an event per video: the open list is loaded again.
+        if (videos.channelId === channelId) {
+          void videos.reload()
+        }
+      },
       jobProgress: (download) => {
         videos.applyDownload(download)
         queue.applyDownload(download)

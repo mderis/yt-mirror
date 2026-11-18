@@ -28,9 +28,11 @@ from ytmirror.core.auto_mirror import (
     AutoMirrorQuestion,
     auto_plan,
     estimated_bytes,
+    missing_count,
     missing_videos,
+    question_count,
 )
-from ytmirror.core.channels import Channel, Quality
+from ytmirror.core.channels import Channel, Quality, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.jobs import ACTIVE_STATES, Job
 from ytmirror.core.quality import effective_quality
@@ -177,6 +179,37 @@ class AutoMirrorService:
             self._views.publish(channel_id)
         return jobs
 
+    def mirror_them_again(self, channel_id: str) -> list[Job]:
+        """Queue the missing files of a channel again, and nothing else (R-MI-06, D-092).
+
+        "Mirror them again" of the banner of many missing files: an action by hand,
+        whose first 20 jobs start by hand (D-090). Videos that were never mirrored
+        are left alone.
+
+        Args:
+            channel_id: The channel.
+
+        Returns:
+            The jobs that were put in line.
+
+        Raises:
+            AppError: ``NOT_FOUND`` for an unknown channel.
+        """
+        self._known(channel_id)
+        busy = self._busy()
+        ids = [
+            video.id
+            for video in self._repository.videos(channel_id)
+            if video.status is VideoStatus.FILE_MISSING
+            and not video.excluded
+            and not video.gone
+            and video.id not in busy
+        ]
+        jobs = self._downloader.mirror(ids)
+        if self._state.set(channel_id, self._state.question(channel_id), None):
+            self._views.publish(channel_id)
+        return jobs
+
     def leave_missing(self, channel_id: str) -> None:
         """Leave the missing files of a channel missing, until more are missing (D-092).
 
@@ -195,29 +228,38 @@ class AutoMirrorService:
 
     def _run(self, channel_id: str) -> None:
         channel = self._repository.channel(channel_id)
-        if channel is None:
+        if channel is None or channel.first_listed_at is None:
+            # Nothing is known before the first listing: nothing is counted, asked or
+            # queued. The listing's end runs auto-mirror again (D-095).
             self._state.set(channel_id, None, None)
             return
         now = int(self._clock.now().timestamp())
-        plan = auto_plan(channel, self._repository.videos(channel_id), self._busy(), now)
+        videos = self._repository.videos(channel_id)
+        plan = auto_plan(channel, videos, self._busy(), now)
         question: AutoMirrorQuestion | None = None
         held: int | None = None
         to_queue = list(plan.new)
         missing = list(plan.missing)
+        decide = list(plan.decide_first)
         if channel.auto_mirror and not channel.paused and not channel.auto_mirror_asked:
-            if len(to_queue) + len(missing) > AUTO_MIRROR_ASK_ABOVE:
-                # A large start is never silent: the user is asked first (D-095).
+            count = question_count(plan)
+            if count > AUTO_MIRROR_ASK_ABOVE:
+                # A large start is never silent: the user is asked first (D-095). Until
+                # the answer, nothing starts, not even the lookups of undecided dates.
                 question = AutoMirrorQuestion(
-                    count=len(to_queue) + len(missing),
-                    estimated_bytes=estimated_bytes([*to_queue, *missing], self._height(channel)),
+                    count=count,
+                    estimated_bytes=estimated_bytes(
+                        [*to_queue, *missing, *decide], self._height(channel)
+                    ),
                 )
-                to_queue, missing = [], []
+                to_queue, missing, decide = [], [], []
             else:
                 self._repository.update_channel(channel_id, auto_mirror_asked=True)
         if question is None:
-            if len(missing) > MISSING_AGAIN_AT_MOST:
-                if channel.missing_left is None or len(missing) > channel.missing_left:
-                    held = len(missing)
+            total = missing_count(videos)
+            if total > MISSING_AGAIN_AT_MOST:
+                if channel.missing_left is None or total > channel.missing_left:
+                    held = total
                     _log.info(
                         "queue.missing_held",
                         msg="Many files of a channel are missing. Auto-mirror asks first",
@@ -228,8 +270,8 @@ class AutoMirrorService:
             ids = [video.id for video in [*to_queue, *missing]]
             if ids:
                 self._downloader.mirror(ids, automatic=True, failed_too=True)
-            if plan.decide_first:
-                self._prioritize([video.id for video in plan.decide_first])
+            if decide:
+                self._prioritize([video.id for video in decide])
         if self._state.set(channel_id, question, held):
             self._views.publish(channel_id)
 

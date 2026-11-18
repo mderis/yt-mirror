@@ -166,6 +166,21 @@ class VideoUpdated:
 
 
 @dataclass(frozen=True, slots=True)
+class VideosChanged:
+    """Many videos of a channel changed at once, as by a bulk action (R-FB-03, review of M5).
+
+    One event instead of one per video: the window loads the list of the channel again.
+
+    Attributes:
+        channel_id: The channel.
+        count: How many videos changed.
+    """
+
+    channel_id: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
 class JobProgressed:
     """A running download got further (R-QU-04).
 

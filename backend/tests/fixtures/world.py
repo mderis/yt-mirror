@@ -297,7 +297,8 @@ class FakeDownload:
         on_formats(self.formats)
         start_writing()
         # As yt-dlp does: the video stream arrives in a partial file of its own.
-        self._files.add_files(request.work_folder, [f"{request.video_id}.f399.mp4.part"])
+        video_format = self.formats.split("+")[0]
+        self._files.add_files(request.work_folder, [f"{request.video_id}.f{video_format}.mp4.part"])
         for stage in (Stage.VIDEO, Stage.AUDIO, Stage.PROCESSING):
             if stage is self.cancel_at:
                 self.on_cancel()

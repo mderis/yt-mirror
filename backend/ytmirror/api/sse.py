@@ -36,13 +36,14 @@ from ytmirror.api.catalogue_schemas import (
     QueueUpdatedEvent,
     TaskProgressEvent,
     Video,
+    VideosChangedEvent,
     VideoUpdatedEvent,
 )
 from ytmirror.api.schemas import Tool, ToolUpdatedEvent
 from ytmirror.api.ui_schemas import MenuCommandEvent, QuitAskedEvent
 from ytmirror.core.channels import ChannelUpdated, ChecksProgressed, TaskProgressed
 from ytmirror.core.exact_dates import KeyStateChanged
-from ytmirror.core.jobs import JobProgressed, VideoUpdated
+from ytmirror.core.jobs import JobProgressed, VideosChanged, VideoUpdated
 from ytmirror.core.models import AppEvent, MenuCommanded, QuitAsked, ToolUpdated
 from ytmirror.core.queue import QueueChanged
 from ytmirror.services.events import EventBus
@@ -54,6 +55,7 @@ TOOL_UPDATED = "tool.updated"
 CHANNEL_UPDATED = "channel.updated"
 TASK_PROGRESS = "task.progress"
 VIDEO_UPDATED = "video.updated"
+VIDEOS_CHANGED = "videos.changed"
 JOB_PROGRESS = "job.progress"
 BANNER_CHANGED = "banner.changed"
 API_KEY_CHANGED = "apikey.changed"
@@ -68,6 +70,7 @@ type EventData = (
     | TaskProgressEvent
     | BannerChangedEvent
     | VideoUpdatedEvent
+    | VideosChangedEvent
     | JobProgressEvent
     | ApiKeyChangedEvent
     | ChecksProgressEvent
@@ -120,6 +123,9 @@ def build_router(
                 channel_id=event.view.video.channel_id, video=Video.of(event.view)
             )
             return encode(VIDEO_UPDATED, data)
+        if isinstance(event, VideosChanged):
+            data = VideosChangedEvent(channel_id=event.channel_id, count=event.count)
+            return encode(VIDEOS_CHANGED, data)
         if isinstance(event, JobProgressed):
             return encode(JOB_PROGRESS, JobProgressEvent(download=Download.of(event.progress)))
         if isinstance(event, ChecksProgressed):
@@ -183,7 +189,7 @@ def build_router(
                 "description": (
                     "A stream of Server-Sent Events. The events ``tool.updated``, "
                     "``channel.updated``, ``task.progress``, ``banner.changed``, "
-                    "``video.updated``, ``job.progress``, ``apikey.changed``, "
+                    "``video.updated``, ``videos.changed``, ``job.progress``, ``apikey.changed``, "
                     "``checks.progress``, ``queue.updated``, ``menu.command`` and "
                     "``quit.asked`` carry "
                     "these data, in this order."

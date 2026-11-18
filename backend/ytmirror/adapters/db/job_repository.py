@@ -51,6 +51,10 @@ DOWNLOAD_FIELDS = (
 """The columns of a video that a download writes. A check writes the others."""
 
 
+_CHUNK = 500
+"""How many IDs one query names at most, below the limit of SQLite."""
+
+
 class SqlJobRepository:
     """Reads and writes ``jobs`` and ``video_events``, and the download columns of videos."""
 
@@ -204,18 +208,70 @@ class SqlJobRepository:
                 .values(formats=formats, updated_at=self._now())
             )
 
-    def mark_by_hand(self, job_id: str) -> None:
-        """Count a waiting job as started by hand from now on (R-DT-06, D-090).
+    def promote(self, job_ids: Sequence[str]) -> None:
+        """Count waiting jobs as started by hand, and let a retry start now (D-090).
 
         Args:
-            job_id: The job. One that no longer waits is left as it is.
+            job_ids: The jobs. One that no longer waits is left as it is.
         """
         with Session(self._engine) as session, session.begin():
-            session.execute(
-                update(JobRow)
-                .where(JobRow.id == job_id, JobRow.state == JobState.WAITING.value)
-                .values(by_hand=True, updated_at=self._now())
-            )
+            for start in range(0, len(job_ids), _CHUNK):
+                session.execute(
+                    update(JobRow)
+                    .where(
+                        JobRow.id.in_(job_ids[start : start + _CHUNK]),
+                        JobRow.state == JobState.WAITING.value,
+                    )
+                    .values(by_hand=True, not_before=None, updated_at=self._now())
+                )
+
+    def active_jobs_of(self, video_ids: Sequence[str]) -> Mapping[str, Job]:
+        """Return the jobs that wait or run for some videos, by video.
+
+        Args:
+            video_ids: The videos.
+        """
+        found: dict[str, Job] = {}
+        with Session(self._reader) as session:
+            for start in range(0, len(video_ids), _CHUNK):
+                rows = session.scalars(
+                    select(JobRow).where(
+                        JobRow.video_id.in_(video_ids[start : start + _CHUNK]),
+                        JobRow.state.in_([state.value for state in ACTIVE_STATES]),
+                    )
+                )
+                found.update((row.video_id, _job_of(row)) for row in rows)
+        return found
+
+    def record_many(self, entries: Sequence[tuple[Job, Video | None, StatusChange | None]]) -> None:
+        """Store many new jobs with what they change of their videos, in one transaction.
+
+        Args:
+            entries: The jobs, with their videos and status changes.
+        """
+        now = self._now()
+        with Session(self._engine) as session, session.begin():
+            for job, video, change in entries:
+                session.add(JobRow(**_job_values(job), created_at=job.created_at, updated_at=now))
+                if video is not None:
+                    session.execute(
+                        update(VideoRow)
+                        .where(VideoRow.id == video.id)
+                        .values(**_download_values(video), updated_at=now)
+                    )
+                if change is not None:
+                    session.add(
+                        VideoEventRow(
+                            video_id=change.video_id,
+                            at=now,
+                            from_status=change.from_status.value,
+                            to_status=change.to_status.value,
+                            reason=change.reason,
+                            job_id=job.id,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
 
     def count(self, states: Collection[JobState]) -> int:
         """Return how many jobs are in some states.

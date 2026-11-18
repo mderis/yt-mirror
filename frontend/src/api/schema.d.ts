@@ -294,6 +294,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/channels/{channel_id}/missing/mirror': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Mirror Them Again
+     * @description Queue the missing files of the channel again, and nothing else (R-MI-06, D-092).
+     */
+    post: operations['mirrorThemAgain']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/channels/{channel_id}/open-folder': {
     parameters: {
       query?: never
@@ -1522,6 +1542,7 @@ export interface components {
       | components['schemas']['TaskProgressEvent']
       | components['schemas']['BannerChangedEvent']
       | components['schemas']['VideoUpdatedEvent']
+      | components['schemas']['VideosChangedEvent']
       | components['schemas']['JobProgressEvent']
       | components['schemas']['ApiKeyChangedEvent']
       | components['schemas']['ChecksProgressEvent']
@@ -2384,6 +2405,22 @@ export interface components {
       /** Channel Id */
       channel_id: string
       video: components['schemas']['Video']
+    }
+    /**
+     * VideosChangedEvent
+     * @description The data of the ``videos.changed`` event: many videos of a channel changed at once.
+     *
+     *     The window loads the list of the channel again (R-FB-03).
+     *
+     *     Attributes:
+     *         channel_id: The channel.
+     *         count: How many videos changed.
+     */
+    VideosChangedEvent: {
+      /** Channel Id */
+      channel_id: string
+      /** Count */
+      count: number
     }
     /**
      * VideosResponse
@@ -3356,6 +3393,64 @@ export interface operations {
       }
     }
   }
+  mirrorThemAgain: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MirrorResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   openChannelFolder: {
     parameters: {
       query?: never
@@ -3537,7 +3632,7 @@ export interface operations {
     }
     requestBody?: never
     responses: {
-      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress``, ``banner.changed``, ``video.updated``, ``job.progress``, ``apikey.changed``, ``checks.progress``, ``queue.updated``, ``menu.command`` and ``quit.asked`` carry these data, in this order. */
+      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress``, ``banner.changed``, ``video.updated``, ``videos.changed``, ``job.progress``, ``apikey.changed``, ``checks.progress``, ``queue.updated``, ``menu.command`` and ``quit.asked`` carry these data, in this order. */
       200: {
         headers: {
           [name: string]: unknown

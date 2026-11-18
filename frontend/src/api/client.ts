@@ -144,6 +144,8 @@ export interface EventHandlers {
   pauseChanged: (pause: Pause | null) => void
   /** A video changed: its status, its file or its date (R-FB-03). */
   videoUpdated: (channelId: string, video: Video) => void
+  /** Many videos of a channel changed at once: its list is loaded again (R-FB-03). */
+  videosChanged: (channelId: string) => void
   /** A running download got further (R-QU-04). */
   jobProgress: (download: Download) => void
   apiKeyChanged: (key: ApiKey) => void
@@ -183,6 +185,9 @@ function openEvents(handlers: EventHandlers): () => void {
   )
   on<components['schemas']['VideoUpdatedEvent']>('video.updated', (event) =>
     handlers.videoUpdated(event.channel_id, event.video),
+  )
+  on<components['schemas']['VideosChangedEvent']>('videos.changed', (event) =>
+    handlers.videosChanged(event.channel_id),
   )
   on<components['schemas']['JobProgressEvent']>('job.progress', (event) =>
     handlers.jobProgress(event.download),
@@ -280,6 +285,9 @@ export const api = {
   /** Queue every video of a channel without a file, once (R-MI-04). */
   mirrorMissing: async (channelId: string): Promise<QueuedJob[]> =>
     (await send<{ jobs: QueuedJob[] }>('POST', `/channels/${channelId}/mirror-missing`)).jobs,
+  /** Queue the missing files of a channel again, and nothing else (R-MI-06, D-092). */
+  mirrorThemAgain: async (channelId: string): Promise<QueuedJob[]> =>
+    (await send<{ jobs: QueuedJob[] }>('POST', `/channels/${channelId}/missing/mirror`)).jobs,
   /** Turn auto-mirror of a channel on or off (R-MI-02). */
   setAutoMirror: (channelId: string, on: boolean): Promise<Channel> =>
     send<Channel>('PUT', `/channels/${channelId}/auto-mirror`, { on }),

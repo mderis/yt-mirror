@@ -95,11 +95,31 @@ class JobRepository(Protocol):
         """
         ...
 
-    def mark_by_hand(self, job_id: str) -> None:
-        """Count a waiting job as started by hand from now on (R-DT-06, D-090).
+    def promote(self, job_ids: Sequence[str]) -> None:
+        """Count waiting jobs as started by hand from now on, and let a retry start now.
+
+        Implements the promotion of D-090. A job that no longer waits is left as it is.
 
         Args:
-            job_id: The job. One that no longer waits is left as it is.
+            job_ids: The jobs.
+        """
+        ...
+
+    def active_jobs_of(self, video_ids: Sequence[str]) -> Mapping[str, Job]:
+        """Return the jobs that wait or run for some videos, by video.
+
+        Args:
+            video_ids: The videos.
+        """
+        ...
+
+    def record_many(self, entries: Sequence[tuple[Job, Video | None, StatusChange | None]]) -> None:
+        """Store many new jobs, each with what it changes of its video, in one transaction.
+
+        For the bulk actions of the user (review of M5): one write instead of one per job.
+
+        Args:
+            entries: The jobs, with their videos and status changes as ``record`` takes them.
         """
         ...
 

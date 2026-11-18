@@ -1117,6 +1117,20 @@ class ChannelUpdatedEvent(BaseModel):
     channel: Channel
 
 
+class VideosChangedEvent(BaseModel):
+    """The data of the ``videos.changed`` event: many videos of a channel changed at once.
+
+    The window loads the list of the channel again (R-FB-03).
+
+    Attributes:
+        channel_id: The channel.
+        count: How many videos changed.
+    """
+
+    channel_id: str
+    count: int
+
+
 class VideoUpdatedEvent(BaseModel):
     """The data of the ``video.updated`` event of ``GET /api/events`` (R-FB-03).
 

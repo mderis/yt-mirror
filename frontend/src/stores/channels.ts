@@ -168,6 +168,11 @@ export const useChannelsStore = defineStore('channels', () => {
     await api.mirrorMissing(channelId)
   }
 
+  /** Queue the missing files of a channel again, and nothing else (R-MI-06, D-092). */
+  async function mirrorThemAgain(channelId: string): Promise<void> {
+    await api.mirrorThemAgain(channelId)
+  }
+
   /** Leave the missing files of a channel missing, until more are missing (D-092). */
   async function leaveMissing(channelId: string): Promise<void> {
     apply(await api.leaveMissing(channelId))
@@ -265,6 +270,7 @@ export const useChannelsStore = defineStore('channels', () => {
     setAutoMirror,
     answerAutoMirror,
     mirrorMissing,
+    mirrorThemAgain,
     leaveMissing,
     check,
     cancelCheck,

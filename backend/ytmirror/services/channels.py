@@ -378,6 +378,9 @@ class ChannelsService:
             quality=new.quality,
             auto_mirror=new.auto_mirror,
             mirror_after=new.mirror_after,
+            # Added with auto-mirror, it is asked before a large start after its first
+            # listing: the add dialog shows no size (D-095).
+            auto_mirror_asked=not new.auto_mirror,
             position=1 + max((other.position for other in self._repository.channels()), default=-1),
         )
         self._repository.add_channel(channel)

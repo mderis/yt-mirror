@@ -450,14 +450,14 @@ def summaries(world: World) -> list[QueueSummary]:
 
 
 def test_the_queue_is_told_when_it_changes(world: World) -> None:
-    """R-FB-03, R-QU-02: the queue bar hears of every job put in line, started and ended."""
+    """R-FB-03, R-QU-02: the queue bar hears of every action, start and end of a job."""
     world.events.clear()
 
     world.downloader.mirror([FIRST, SECOND])
     world.download_all()
 
     told = [(summary.downloading, summary.waiting) for summary in summaries(world)]
-    assert told[:2] == [(0, 1), (0, 2)]
+    assert told[0] == (0, 2), "one summary for the whole action"
     assert (1, 1) in told
     assert told[-1] == (0, 0)
 
@@ -618,6 +618,28 @@ def test_pause_all_stops_a_running_download_and_keeps_its_partial_file(world: Wo
     assert status_of(world, FIRST) is VideoStatus.SYNCED
     assert world.download.calls[-1].formats == "399+251"
     assert world.files.exists(temp_of(world, job.id)) is False
+
+
+def test_parts_of_formats_no_longer_offered_are_removed_when_a_download_continues(
+    world: World,
+) -> None:
+    """R-QU-05, D-091: YouTube offers other formats now; the old parts do not stay behind."""
+    [job] = world.downloader.mirror([FIRST])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = world.downloader.pause_all
+    world.download_all()
+    old_part = temp_of(world, job.id) / f"{FIRST}.f399.mp4.part"
+    assert world.files.exists(old_part)
+    world.download.cancel_at = None
+    world.download.formats = "400+251"
+    seen: list[bool] = []
+    world.download.during_video = lambda _tell: seen.append(world.files.exists(old_part))
+
+    world.downloader.resume_all()
+    world.download_all()
+
+    assert seen == [False]
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
 
 
 def test_the_not_a_bot_check_keeps_the_partial_file_of_a_download(world: World) -> None:

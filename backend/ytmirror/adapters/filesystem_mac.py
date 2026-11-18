@@ -462,6 +462,25 @@ class MacFileSystem:
             raise ValueError(f"not the temp folder of a job: {folder}")
         shutil.rmtree(folder, ignore_errors=True)
 
+    def remove_partial_file(self, path: Path) -> None:
+        """Delete one partial file of a download from the temp folder of its job (D-091).
+
+        Args:
+            path: The file.
+
+        Raises:
+            ValueError: When the file is not directly inside the temp folder of a job.
+        """
+        folder = path.parent
+        if (
+            not JOB_ID.fullmatch(folder.name)
+            or folder.parent.parts[-2:] != TEMP_FOLDER_PARTS
+            or folder.is_symlink()
+            or path.is_symlink()
+        ):
+            raise ValueError(f"not a file in the temp folder of a job: {path}")
+        path.unlink(missing_ok=True)
+
     def remove_job_log(self, path: Path) -> None:
         """Delete the log of one job for good (R-LG-01).
 

@@ -112,6 +112,38 @@ def auto_plan(
     return AutoPlan(new=tuple(new), missing=tuple(missing), decide_first=tuple(decide))
 
 
+def question_count(plan: AutoPlan) -> int:
+    """Return how many downloads a plan would start, now or once dates decide (D-095).
+
+    The videos that wait for their exact date count too: they start by themselves
+    once the date arrives, so a large start would be silent without them.
+    """
+    return len(plan.new) + len(plan.missing) + len(plan.decide_first)
+
+
+def missing_count(videos: Sequence[Video]) -> int:
+    """Return how many files of a channel are missing, the queued ones included (R-MI-06).
+
+    D-092: those waiting to be downloaded again count too.
+
+    A missing file that was put in line keeps its file name while it waits or
+    runs; a video that was never mirrored has none.
+    """
+    return sum(
+        1
+        for video in videos
+        if not video.excluded
+        and not video.gone
+        and (
+            video.status is VideoStatus.FILE_MISSING
+            or (video.status in _ON_ITS_WAY and video.file_name is not None)
+        )
+    )
+
+
+_ON_ITS_WAY = frozenset({VideoStatus.QUEUED, VideoStatus.DOWNLOADING, VideoStatus.PROCESSING})
+
+
 def eligible(video: Video, busy: Collection[str], now: int) -> bool:
     """Return whether a video is one auto-mirror would queue, apart from the date limit.
 

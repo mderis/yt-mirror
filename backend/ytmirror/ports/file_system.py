@@ -315,6 +315,21 @@ class FileSystem(Protocol):
         """
         ...
 
+    def remove_partial_file(self, path: Path) -> None:
+        """Delete one partial file of a download from the temp folder of its job (D-091).
+
+        For the parts of formats a download no longer fetches. Only a file
+        directly inside the temp folder of a job is ever deleted. One that is not
+        there is fine.
+
+        Args:
+            path: The file.
+
+        Raises:
+            ValueError: When the file is not directly inside the temp folder of a job.
+        """
+        ...
+
     def remove_job_log(self, path: Path) -> None:
         """Delete the log of one job for good (R-LG-01).
 

@@ -241,6 +241,15 @@ class FakeFileSystem:
             folder for folder in self.folders if folder != path and not folder.is_relative_to(path)
         }
 
+    def remove_partial_file(self, path: Path) -> None:
+        """Delete a file of a job's temp folder, or refuse any other file."""
+        folder = path.parent
+        if not JOB_ID.fullmatch(folder.name) or folder.parent.parts[-2:] != TEMP_FOLDER_PARTS:
+            raise ValueError(f"not a file in the temp folder of a job: {path}")
+        if path in self.files and self.files[path].placed:
+            self.destroyed.append(path)
+        self.files.pop(path, None)
+
     def remove_job_log(self, path: Path) -> None:
         """Delete a job log, or refuse any other file."""
         if (

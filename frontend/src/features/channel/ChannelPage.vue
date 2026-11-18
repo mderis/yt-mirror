@@ -165,7 +165,7 @@ watch(
         </p>
         <p class="text-meta">{{ t('channel.missing.text') }}</p>
         <template #action>
-          <AppButton icon="download" @press="ui.run(channels.mirrorMissing(channel.id))">
+          <AppButton icon="download" @press="ui.run(channels.mirrorThemAgain(channel.id))">
             {{ t('channel.missing.mirror') }}
           </AppButton>
           <AppButton variant="ghost" @press="ui.run(channels.leaveMissing(channel.id))">

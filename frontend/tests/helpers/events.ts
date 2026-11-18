@@ -69,6 +69,11 @@ export class FakeEventSource {
     this.emit('video.updated', { channel_id: channelId, video })
   }
 
+  /** Play the summary of many videos of a channel that changed at once (R-FB-03). */
+  videosChanged(channelId: string, count: number): void {
+    this.emit('videos.changed', { channel_id: channelId, count })
+  }
+
   /** Play the event that tells how far a download is (R-QU-04). */
   jobProgress(download: Download): void {
     this.emit('job.progress', { download })

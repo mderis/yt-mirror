@@ -275,4 +275,34 @@ describe('auto-mirror', () => {
       expect(app.requests()).toContain(`POST /api/channels/${CHANNEL_ID}/missing/leave`),
     )
   })
+
+  it('R-MI-06, D-092: "Mirror them again" queues the missing files, not the whole channel', async () => {
+    const app = await openWith(
+      [video(1)],
+      { auto_mirror: true, missing_held: 6 },
+      {
+        [`POST /api/channels/${CHANNEL_ID}/missing/mirror`]: jsonResponse({ jobs: [] }, 202),
+      },
+    )
+
+    const banner = part('[data-banner="missing-held"]')
+    await fireEvent.click(within(banner).getByRole('button', { name: 'Mirror them again' }))
+
+    await waitFor(() =>
+      expect(app.requests()).toContain(`POST /api/channels/${CHANNEL_ID}/missing/mirror`),
+    )
+    expect(app.requests()).not.toContain(`POST /api/channels/${CHANNEL_ID}/mirror-missing`)
+  })
+
+  it('R-FB-03: many videos changed at once load the list of the open channel again', async () => {
+    const app = await openWith([video(1)])
+    const loads = (): number =>
+      app.requests().filter((request) => request === `GET /api/channels/${CHANNEL_ID}/videos`)
+        .length
+    const before = loads()
+
+    app.stream().videosChanged(CHANNEL_ID, 300)
+
+    await waitFor(() => expect(loads()).toBe(before + 1))
+  })
 })

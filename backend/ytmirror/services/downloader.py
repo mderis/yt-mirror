@@ -56,6 +56,7 @@ from ytmirror.core.jobs import (
     Replacing,
     Stage,
     SubtitlesFailedError,
+    VideosChanged,
     VideoUpdated,
 )
 from ytmirror.core.media import MediaFacts, verification_problem
@@ -100,6 +101,10 @@ DISK_CHECK_S = 5.0
 """How often a running download looks at the free space of its disk (R-QU-10)."""
 
 _GONE = "removed from YouTube"
+_WRITE_AT_ONCE = 500
+"""How many new jobs of one action are stored in one transaction."""
+_TELL_EACH_AT_MOST = 20
+"""Up to this many changed videos of a channel are told one by one; more are one summary."""
 """The reason a queued download of a video removed from YouTube ends (R-CH-14)."""
 """The statuses from which "Mirror" puts a video in line (ARCHITECTURE section 6.1)."""
 
@@ -263,6 +268,8 @@ class DownloaderService:
         self._asking: set[str] = set()
         """The running jobs that wait for YouTube and have written no file yet."""
         self._abandoned: set[str] = set()
+        # Automatic jobs a worker took whose lookup the budget has not counted yet (D-090).
+        self._reserved: set[str] = set()
         """Jobs that were cancelled while they waited for YouTube, and ended at once.
 
         Their worker still waits for YouTube's answer; when it comes, it is ignored:
@@ -463,7 +470,9 @@ class DownloaderService:
             if job.by_hand:
                 return job
             if room is None:
-                room = self._youtube.download_room()
+                # A lookup reserved by a job taken a moment ago counts already: two workers
+                # never start more automatic downloads than the budget has room for.
+                room = self._youtube.download_room() - len(self._reserved)
             if room > 0:
                 return job
         return None
@@ -515,8 +524,7 @@ class DownloaderService:
                 paced=len(paced),
                 next_start=min(paced.values()),
             )
-        for video_id in changed:
-            self._views.tell_video(video_id)
+        self._tell_many(list(changed))
 
     def work_once(self) -> bool:
         """Run the next waiting job, if there is one. Returns whether one ran."""
@@ -527,6 +535,8 @@ class DownloaderService:
             video = self._repository.video(job.video_id)
             self._running[job.id] = "" if video is None else video.channel_id
             self._thread_of[job.id] = threading.get_ident()
+            if not job.by_hand:
+                self._reserved.add(job.id)
         try:
             with structlog.contextvars.bound_contextvars(job_id=job.id):
                 self._run(job)
@@ -556,6 +566,8 @@ class DownloaderService:
                 self._nothing_placed.discard(job.id)
                 self._asking.discard(job.id)
                 self._abandoned.discard(job.id)
+                # A job that ended before its lookup gives its reservation back.
+                self._reserved.discard(job.id)
                 self._wake.notify_all()
         return True
 
@@ -595,37 +607,13 @@ class DownloaderService:
         Raises:
             AppError: ``NOT_FOUND`` for a video no catalogue has.
         """
-        queued: list[Job] = []
-        chosen: list[str] = []
-        for video_id in video_ids:
-            # Two presses that arrive together must not give two jobs for one video.
-            with self._wake:
-                video = self._known(video_id)
-                active = self._jobs.active_job_of(video_id)
-                if active is not None:
-                    if (
-                        not automatic
-                        and active.state is JobState.WAITING
-                        and active.id not in self._running
-                    ):
-                        if not active.by_hand:
-                            self._jobs.mark_by_hand(active.id)
-                        chosen.append(active.id)
-                    continue
-                allowed = MIRRORABLE | {VideoStatus.FAILED} if failed_too else MIRRORABLE
-                if video.status not in allowed or video.gone or video.excluded:
-                    continue
-                by_hand = not automatic and len(queued) < HAND_JOBS_PER_ACTION
-                reason = "auto-mirror" if automatic else "mirror"
-                job = self._put_in_line(video, reason, by_hand=by_hand)
-                queued.append(job)
-                chosen.append(job.id)
-        if first and chosen:
-            self._to_top(chosen)
-        elif chosen and not queued:
-            self._queue_changed()
-        self._update_paced()
-        return queued
+        return self._queue(
+            video_ids,
+            kind=JobKind.DOWNLOAD,
+            first=first,
+            automatic=automatic,
+            failed_too=failed_too,
+        )
 
     def pause_all(self) -> None:
         """Pause all downloads: no download starts until they are resumed (R-QU-02).
@@ -945,54 +933,145 @@ class DownloaderService:
         Raises:
             AppError: ``NOT_FOUND`` for a video no catalogue has.
         """
+        return self._queue(video_ids, kind=JobKind.REDOWNLOAD)
+
+    def _queue(
+        self,
+        video_ids: Sequence[str],
+        *,
+        kind: JobKind,
+        first: bool = False,
+        automatic: bool = False,
+        failed_too: bool = False,
+    ) -> list[Job]:
+        """Put videos in line for one action, in the order given (R-MI-01, R-QL-06, D-090).
+
+        One decision under the lock of the queue, so that two actions at once never
+        give a video two jobs. The first 20 jobs the action starts or promotes are
+        started by hand, in the order it names the videos: a waiting automatic job
+        it names becomes one started by hand, and one that waits for a retry starts
+        now. The new jobs are stored in a few transactions, and the window hears of
+        them in one summary per channel (review of M5).
+        """
+        ids = list(dict.fromkeys(video_ids))
+        settings = self._settings.current()
         queued: list[Job] = []
-        for video_id in video_ids:
-            with self._wake:
-                video = self._known(video_id)
-                if (
-                    video.status is not VideoStatus.SYNCED
-                    or video.gone
-                    or video.excluded
-                    or self._jobs.active_job_of(video_id) is not None
-                ):
+        chosen: list[str] = []
+        promoted: list[Job] = []
+        entries: list[tuple[Job, Video | None, StatusChange | None]] = []
+        hand_left = 0 if automatic else HAND_JOBS_PER_ACTION
+        reason = (
+            "auto-mirror" if automatic else "redownload" if kind is JobKind.REDOWNLOAD else "mirror"
+        )
+        with self._wake:
+            videos = self._repository.videos_by_id(ids)
+            unknown = [video_id for video_id in ids if video_id not in videos]
+            if unknown:
+                raise AppError(ErrorCode.NOT_FOUND, {"video": unknown[0]})
+            active = self._jobs.active_jobs_of(ids)
+            channels = {channel.id: channel for channel in self._repository.channels()}
+            priority = self._jobs.next_priority()
+            for video_id in ids:
+                video = videos[video_id]
+                job = active.get(video_id)
+                if job is not None:
+                    if automatic or job.state is not JobState.WAITING or job.id in self._running:
+                        continue
+                    if not job.by_hand or job.not_before is not None:
+                        if hand_left == 0:
+                            chosen.append(job.id)
+                            continue
+                        hand_left -= 1
+                        promoted.append(job)
+                    chosen.append(job.id)
                     continue
-                channel = self._repository.channel(video.channel_id)
+                if not self._may_queue(video, kind, failed_too=failed_too):
+                    continue
+                channel = channels.get(video.channel_id)
                 if channel is None or channel.id in self._closed:
-                    continue
+                    # The channel is being removed: nothing of it starts (R-CH-32).
+                    raise AppError(ErrorCode.NOT_FOUND, {"video": video.id})
+                by_hand = hand_left > 0
+                hand_left -= 1 if by_hand else 0
                 job = Job(
                     id=self._new_job_id(),
                     video_id=video.id,
-                    kind=JobKind.REDOWNLOAD,
+                    kind=kind,
                     state=JobState.WAITING,
-                    priority=self._jobs.next_priority(),
-                    quality=effective_quality(
-                        channel.quality, self._settings.current().default_quality
-                    ),
+                    priority=priority,
+                    quality=effective_quality(channel.quality, settings.default_quality),
                     created_at=self._now(),
-                    by_hand=len(queued) < HAND_JOBS_PER_ACTION,
+                    by_hand=by_hand,
                 )
-                self._jobs.record(job)
-                self._state.queued(video.id, channel.id, job.id)
+                priority += 1
+                # An action of the user starts the retries of R-QU-07 afresh.
+                fresh = replace(video, attempts=0) if by_hand else video
+                if kind is JobKind.REDOWNLOAD:
+                    # The video stays synced with its old file (D-093).
+                    entries.append((job, fresh if by_hand else None, None))
+                else:
+                    change = change_status(video.id, video.status, VideoStatus.QUEUED, reason)
+                    entries.append((job, replace(fresh, status=VideoStatus.QUEUED), change))
                 queued.append(job)
+                chosen.append(job.id)
+            for start in range(0, len(entries), _WRITE_AT_ONCE):
+                self._jobs.record_many(entries[start : start + _WRITE_AT_ONCE])
+            if promoted:
+                self._jobs.promote([job.id for job in promoted])
+            self._wake.notify_all()
+        for job in queued:
+            self._state.queued(job.video_id, videos[job.video_id].channel_id, job.id)
             _log.info(
                 "queue.enqueued",
-                msg="Video put in line to be downloaded again",
+                msg="Video put in line",
                 job_id=job.id,
-                video_id=video.id,
-                channel_id=video.channel_id,
+                video_id=job.video_id,
+                channel_id=videos[job.video_id].channel_id,
                 quality=job.quality.value,
-                reason="redownload",
+                reason=reason,
                 by_hand=job.by_hand,
             )
-            self._views.tell_video(video.id)
-            self._views.publish(video.channel_id)
-        if queued:
-            with self._wake:
-                self._wake.notify_all()
-            self._add_workers()
-            self._queue_changed()
+        for job in promoted:
+            self._state.set_retry(job.video_id, None)
+        if first and chosen:
+            self._to_top(chosen)
+        self._add_workers()
+        self._tell_many([job.video_id for job in [*queued, *promoted]])
+        if queued or promoted or chosen:
             self._update_paced()
+            self._queue_changed()
         return queued
+
+    def _may_queue(self, video: Video, kind: JobKind, *, failed_too: bool) -> bool:
+        """Whether a video without a job may be put in line by an action of this kind."""
+        if video.gone or video.excluded:
+            return False
+        if kind is JobKind.REDOWNLOAD:
+            return video.status is VideoStatus.SYNCED
+        allowed = MIRRORABLE | {VideoStatus.FAILED} if failed_too else MIRRORABLE
+        return video.status in allowed
+
+    def _tell_many(self, video_ids: Sequence[str]) -> None:
+        """Tell the window about changed videos: each one, or one summary per channel.
+
+        A few are told one by one. Many are one ``VideosChanged`` per channel, and the
+        window loads the list again: one event instead of one per video (review of M5).
+        """
+        if not video_ids:
+            return
+        videos = self._repository.videos_by_id(list(video_ids))
+        by_channel: dict[str, list[str]] = {}
+        for video_id in video_ids:
+            video = videos.get(video_id)
+            if video is not None:
+                by_channel.setdefault(video.channel_id, []).append(video_id)
+        for channel_id, ids in by_channel.items():
+            if len(ids) <= _TELL_EACH_AT_MOST:
+                for video_id in ids:
+                    self._views.tell_video(video_id)
+            else:
+                self._events.publish(VideosChanged(channel_id, len(ids)))
+            self._views.publish(channel_id)
 
     def cancel(self, job_id: str) -> bool:
         """Cancel a download that waits or runs (R-QU-02, R-ER-03).
@@ -1502,9 +1581,46 @@ class DownloaderService:
         )
 
     def _chosen(self, job: Job, formats: str) -> None:
-        """Keep the formats a download fetches, for when it continues after a stop (D-091)."""
-        if formats != job.formats:
-            self._jobs.set_formats(job.id, formats)
+        """Keep the formats a download fetches, for when it continues after a stop (D-091).
+
+        Told after the lookup of the download: the budget counts it now, so the
+        reservation of the job is given back (D-090).
+        """
+        with self._wake:
+            self._reserved.discard(job.id)
+            work = self._work_of.get(job.id)
+        if formats == job.formats:
+            return
+        if job.formats and work is not None:
+            self._forget_parts(job, formats, work)
+        self._jobs.set_formats(job.id, formats)
+
+    def _forget_parts(self, job: Job, formats: str, work: Path) -> None:
+        """Remove the partial files of formats a continued download no longer fetches (D-091).
+
+        YouTube may no longer offer what the job chose before its stop: it then
+        fetches others, and the parts of the old ones would only take room.
+        """
+        gone = set((job.formats or "").split("+")) - set(formats.split("+"))
+        for name in self._files.file_names(work, hidden=True):
+            if any(f".f{format_id}." in name for format_id in gone if format_id):
+                try:
+                    self._files.remove_partial_file(work / name)
+                except (OSError, ValueError) as error:
+                    _log.warning(
+                        "download.temp_left",
+                        msg="A partial file of a format no longer fetched could not be removed",
+                        job_id=job.id,
+                        file=name,
+                        error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
+                    )
+                else:
+                    _log.info(
+                        "download.resumed",
+                        msg="A partial file of a format no longer offered was removed",
+                        job_id=job.id,
+                        file=name,
+                    )
 
     def _ask(
         self,
@@ -2168,6 +2284,15 @@ class DownloaderService:
         self._store_end(
             waiting, failed, JobState.WAITING, VideoStatus.QUEUED, "retry", keep_marker=keep_marker
         )
+        if job.kind is JobKind.REDOWNLOAD:
+            # The video stays synced; its tries are counted all the same, so a failure that
+            # keeps passing ends after the last delay instead of forever (R-QU-07).
+            current = self._repository.video(video.id)
+            if current is not None:
+                self._jobs.record(
+                    replace(waiting, state=JobState.WAITING, stage=None, finished_at=None),
+                    replace(current, attempts=attempt),
+                )
         self._state.restarted(video.id)
         self._state.set_retry(video.id, now + delay)
         self._views.tell_video(video.id)

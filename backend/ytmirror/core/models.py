@@ -20,7 +20,7 @@ from ytmirror.core.channels import (
 )
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.exact_dates import KeyStateChanged
-from ytmirror.core.jobs import JobProgressed, VideoUpdated
+from ytmirror.core.jobs import JobProgressed, VideosChanged, VideoUpdated
 from ytmirror.core.queue import QueueChanged
 
 APP_NAME = "yt-mirror"
@@ -497,6 +497,7 @@ type AppEvent = (
     | TaskProgressed
     | YouTubePauseChanged
     | VideoUpdated
+    | VideosChanged
     | JobProgressed
     | KeyStateChanged
     | ChecksProgressed
