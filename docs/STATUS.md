@@ -12,7 +12,7 @@ This file is the single source of truth for where the project stands. Read it at
 | M2 | Channels and catalogue | Done | `m2-channels-and-catalogue` | [#3](https://github.com/mderis/yt-mirror/pull/3) | 2026-11-14 |
 | M3 | Downloading one video correctly | Done | `m3-download-one-video` | [#4](https://github.com/mderis/yt-mirror/pull/4) | 2026-11-16 |
 | M4 | Exact dates and automatic checks | Done | `m4-exact-dates-and-checks` | [#5](https://github.com/mderis/yt-mirror/pull/5) | 2026-11-18 |
-| M5 | Queue | In progress | `m5-queue` | | |
+| M5 | Queue | In progress | `m5-queue` | [#6](https://github.com/mderis/yt-mirror/pull/6) | |
 | M6 | Excluding | Not started | | | |
 | M7 | Settings, feedback, activity, help | Not started | | | |
 | M8 | Adopting existing files | Not started | | | |
