@@ -28,17 +28,20 @@ const view = useViewStore()
 const catalogue = useVideosStore()
 const ui = useUiStore()
 
+/** What Mirror acts on: the selected videos that have no file and may be queued (R-MI-05). */
 const toMirror = computed(() =>
   props.videos
     .filter(
       (video) =>
-        !video.gone && (video.status === 'not_downloaded' || video.status === 'file_missing'),
+        !video.gone &&
+        !video.excluded &&
+        (video.status === 'not_downloaded' || video.status === 'file_missing'),
     )
     .map((video) => video.id),
 )
 const toRedownload = computed(() =>
   props.videos
-    .filter((video) => !video.gone && video.status === 'synced' && !video.job_id)
+    .filter((video) => !video.gone && !video.excluded && video.status === 'synced' && !video.job_id)
     .map((video) => video.id),
 )
 
@@ -63,11 +66,21 @@ async function redownload(): Promise<void> {
     <span class="font-medium" role="status">{{
       t('channel.bulk.selected', { count: formatNumber(videos.length) })
     }}</span>
-    <AppButton icon="download" :disabled="toMirror.length === 0" @press="ui.run(mirror())">
-      {{ t('channel.bulk.mirror') }}
+    <AppButton
+      icon="download"
+      :disabled="toMirror.length === 0 || catalogue.queueing"
+      :busy="catalogue.queueing"
+      @press="ui.run(mirror())"
+    >
+      {{ t('channel.bulk.mirror', { count: formatNumber(toMirror.length) }) }}
     </AppButton>
-    <AppButton icon="retry" :disabled="toRedownload.length === 0" @press="ui.run(redownload())">
-      {{ t('channel.bulk.redownload') }}
+    <AppButton
+      icon="retry"
+      :disabled="toRedownload.length === 0 || catalogue.queueing"
+      :busy="catalogue.queueing"
+      @press="ui.run(redownload())"
+    >
+      {{ t('channel.bulk.redownload', { count: formatNumber(toRedownload.length) }) }}
     </AppButton>
     <AppButton variant="ghost" @press="view.clearSelection()">
       {{ t('channel.bulk.clear') }}

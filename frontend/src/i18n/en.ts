@@ -596,8 +596,8 @@ export const en = {
     bulk: {
       label: 'Selected videos',
       selected: '{count} selected',
-      mirror: 'Mirror',
-      redownload: 'Re-download',
+      mirror: 'Mirror {count}',
+      redownload: 'Re-download {count}',
       clear: 'Clear',
     },
     autoMirror: {

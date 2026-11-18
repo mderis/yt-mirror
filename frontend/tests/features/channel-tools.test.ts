@@ -89,7 +89,7 @@ describe('selecting videos', () => {
 
     const bar = await screen.findByRole('region', { name: 'Selected videos' })
     expect(bar.textContent).toContain('3 selected')
-    await fireEvent.click(within(bar).getByRole('button', { name: 'Mirror' }))
+    await fireEvent.click(within(bar).getByRole('button', { name: 'Mirror 3' }))
     await waitFor(() =>
       expect(app.lastBody('/api/videos/mirror')).toEqual({
         ids: [video(1).id, video(2).id, video(3).id],
@@ -112,12 +112,73 @@ describe('selecting videos', () => {
     expect(screen.queryByRole('region', { name: 'Selected videos' })).toBeNull()
   })
 
+  it('R-MI-07, R-MI-01: each button of the bar counts exactly the videos it acts on', async () => {
+    await openWith([
+      video(1),
+      video(2, { status: 'synced', height: 1080 }),
+      video(3, { status: 'failed' }),
+    ])
+
+    await fireEvent.click(within(rowOf(1)).getByRole('checkbox'))
+    await fireEvent.click(within(rowOf(3)).getByRole('checkbox'), { shiftKey: true })
+
+    const bar = await screen.findByRole('region', { name: 'Selected videos' })
+    expect(bar.textContent).toContain('3 selected')
+    expect(within(bar).getByRole('button', { name: 'Mirror 1' })).toBeTruthy()
+    expect(within(bar).getByRole('button', { name: 'Re-download 1' })).toBeTruthy()
+  })
+
+  it('R-MI-07, R-UI-11: the bar is busy while its action runs, and a second press does nothing', async () => {
+    let answer: (response: Response) => void = () => undefined
+    const app = await openWith([video(1), video(2)], undefined, {
+      'POST /api/videos/mirror': () => new Promise<Response>((resolve) => (answer = resolve)),
+    })
+    await fireEvent.click(within(rowOf(1)).getByRole('checkbox'))
+    const bar = await screen.findByRole('region', { name: 'Selected videos' })
+    const mirror = within(bar).getByRole('button', { name: 'Mirror 1' }) as HTMLButtonElement
+
+    await fireEvent.click(mirror)
+    await fireEvent.click(mirror)
+    await fireEvent.keyDown(document.body, { key: 'm' })
+
+    expect(app.requests().filter((request) => request === 'POST /api/videos/mirror')).toHaveLength(
+      1,
+    )
+    expect(mirror.disabled).toBe(true)
+    answer(new Response(JSON.stringify({ jobs: [] }), { status: 202 }))
+  })
+
+  it('R-MI-07: a selected video that leaves the tab is selected no more', async () => {
+    const app = await openWith([video(1), video(2)])
+    await fireEvent.click(screen.getByRole('button', { name: /^Not downloaded/ }))
+    await fireEvent.click(within(rowOf(1)).getByRole('checkbox'))
+    await fireEvent.click(within(rowOf(2)).getByRole('checkbox'))
+    const bar = await screen.findByRole('region', { name: 'Selected videos' })
+    expect(bar.textContent).toContain('2 selected')
+
+    app.stream().videoUpdated(CHANNEL_ID, video(2, { status: 'synced', height: 1080 }))
+
+    await waitFor(() => expect(bar.textContent).toContain('1 selected'))
+    expect(within(bar).getByRole('button', { name: 'Mirror 1' })).toBeTruthy()
+  })
+
+  it('R-UI-13, R-MI-07: the row the arrow keys are on is outlined, not drawn as selected', async () => {
+    await openWith([video(1), video(2)])
+
+    await fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+
+    const current = part('[data-current]')
+    expect(current.className).toContain('outline-accent')
+    expect(current.className).not.toContain('bg-surface-raised')
+    expect(within(current).getByRole('checkbox')).toHaveProperty('checked', false)
+  })
+
   it('R-QL-06: the bulk bar downloads the selected synced videos again', async () => {
     const app = await openWith([video(1, { status: 'synced', height: 720 })])
 
     await fireEvent.click(within(rowOf(1)).getByRole('checkbox'))
     const bar = await screen.findByRole('region', { name: 'Selected videos' })
-    await fireEvent.click(within(bar).getByRole('button', { name: 'Re-download' }))
+    await fireEvent.click(within(bar).getByRole('button', { name: 'Re-download 1' }))
 
     await waitFor(() =>
       expect(app.lastBody('/api/videos/redownload')).toEqual({ ids: [video(1).id] }),

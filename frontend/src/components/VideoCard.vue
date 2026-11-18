@@ -28,6 +28,8 @@ const props = withDefaults(
     open?: boolean
     /** Whether the video is selected (R-MI-07). */
     selected?: boolean
+    /** Whether the arrow keys are on it: an outline, never the look of a selected one. */
+    current?: boolean
   }>(),
   {
     thumbnail: undefined,
@@ -36,6 +38,7 @@ const props = withDefaults(
     detailsLabel: undefined,
     open: false,
     selected: false,
+    current: false,
   },
 )
 
@@ -67,7 +70,10 @@ watch(
   <div
     role="listitem"
     class="flex min-w-0 flex-col gap-2 rounded-lg border border-line p-2"
-    :class="open || selected ? 'bg-surface-raised' : 'bg-surface'"
+    :class="[
+      open || selected ? 'bg-surface-raised' : 'bg-surface',
+      { 'outline-2 -outline-offset-2 outline-accent': current },
+    ]"
     :data-open="open || undefined"
     :data-selected="selected || undefined"
     @contextmenu.prevent="emit('menu', { x: $event.clientX, y: $event.clientY })"

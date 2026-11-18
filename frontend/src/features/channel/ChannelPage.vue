@@ -49,13 +49,23 @@ const view = useViewStore()
 const channel = computed(() => channels.byId.get(props.id))
 /** The element that scrolls the list, for its virtual drawing (R-UI-07). */
 const scroller = ref<HTMLElement | null>(null)
-/** Every video of the channel as it is now, with what the events told. */
-const current = computed(() => videos.videos.map((video) => videos.current(video)))
+/**
+ * Every video of the channel as it is now. Worked out again only when a change can
+ * move a video in the list (``listVersion``), never for each event: a row follows its
+ * own video (D-073, review of M5).
+ */
+const current = computed(() => {
+  void videos.listVersion
+  return videos.videos.map((video) => videos.currentQuietly(video))
+})
 /** The videos of the tab that match the search, in the chosen order (R-UI-04 to R-UI-06). */
 const shown = computed(() => shownVideos(current.value, view.tab, view.search, view.sort))
 const shownIds = computed(() => shown.value.map((video) => video.id))
-/** The selected videos, in the order they are shown (R-MI-07). */
-const selected = computed(() => shown.value.filter((video) => view.selected.has(video.id)))
+watch(shownIds, (ids) => view.showing(ids), { immediate: true })
+/** The selected videos as they are now, in the order they are shown (R-MI-07). */
+const selected = computed(() =>
+  shown.value.filter((video) => view.selected.has(video.id)).map((video) => videos.current(video)),
+)
 useShortcuts(() => props.id, shown)
 
 const ready = computed(

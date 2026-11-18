@@ -180,7 +180,6 @@ onBeforeUnmount(() => {
           :key="row.video.id"
           :row="row"
           :channel-id="channelId"
-          :shown="shown"
           :aria-setsize="rows.length"
           :aria-posinset="line.start + 1"
           data-line
@@ -201,7 +200,6 @@ onBeforeUnmount(() => {
           :key="row.video.id"
           :row="row"
           :channel-id="channelId"
-          :shown="shown"
           grid
           :aria-setsize="rows.length"
           :aria-posinset="line.start + index + 1"

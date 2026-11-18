@@ -55,10 +55,8 @@ const props = withDefaults(
     channelId: string
     /** Whether it is drawn as a card of the grid (R-UI-03). */
     grid?: boolean
-    /** The shown videos in their order, for a Shift-click range (R-MI-07). */
-    shown?: readonly string[]
   }>(),
-  { grid: false, shown: () => [] },
+  { grid: false },
 )
 
 const { t, te } = useI18n()
@@ -197,7 +195,8 @@ function cancel(): void {
     :new-tag="video.is_new ? t('channel.list.newTag') : undefined"
     :details-label="t('channel.list.details', { title: video.title })"
     :open="isOpen"
-    :selected="selected || current"
+    :selected="selected"
+    :current="current"
     :data-current="current || undefined"
     :data-video="video.id"
     :data-status="video.status"
@@ -210,7 +209,7 @@ function cancel(): void {
         :model-value="selected"
         :label="t('channel.list.select', { title: video.title })"
         hide-label
-        @pick="(on: boolean, shift: boolean) => view.pick(video.id, on, shift, shown)"
+        @pick="(on: boolean, shift: boolean) => view.pick(video.id, on, shift, view.order)"
       />
     </template>
     <template #facts>

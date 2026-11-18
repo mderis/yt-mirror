@@ -67,7 +67,7 @@ test('R-MI-01, R-MI-07, R-QU-01: two videos picked with their checkboxes are mir
   await page.getByRole('checkbox', { name: `Select: ${SECOND_TITLE}` }).check()
   const bulk = page.getByRole('region', { name: 'Selected videos' })
   await expect(bulk).toContainText('2 selected')
-  await bulk.getByRole('button', { name: 'Mirror' }).click()
+  await bulk.getByRole('button', { name: 'Mirror 2' }).click()
 
   await expect(bulk).toBeHidden()
   await expect(row(page, FIRST).getByText('Synced · 270p')).toBeVisible({ timeout: 20_000 })
