@@ -263,6 +263,8 @@ Labels are written as macOS writes them: title case, and three dots after an ite
 
 Wording follows [GLOSSARY.md](GLOSSARY.md): "Check", "Mirror", "Channel".
 
+"Full Check" is not an item of the Channel menu: it stays in the channel menu of the interface (open question Q-25, answered with its default in M5, D-094). An item appears with its target (D-066): in M5 the menu bar has every item above except About yt-mirror, Settings..., Show Activity, Channel Settings..., yt-mirror Help and Report a Problem... (M7) and Check for Updates... (M9). Keyboard Shortcuts arrives in M5 with the in-app list it opens.
+
 ### 7.2 About window
 
 Shows the app icon, the name "yt-mirror", the version, the license (MIT), and two links: the website and the repository. The links open in the default browser. No mockup exists yet.

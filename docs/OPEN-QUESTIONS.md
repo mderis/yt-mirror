@@ -86,7 +86,6 @@ Proposed in milestone M2 and decided in the plan of M4. What was settled is now 
 |---|---|---|
 | Q-22 | Contact for the code of conduct and for security reports | GitHub private vulnerability reporting, no email |
 | Q-23 | Should the app check for updates on first run before the user has seen the setting? | Yes, it is one request to GitHub with no personal data |
-| Q-25 | Should "Full Check" also be an item of the Channel menu in the menu bar (R-NA-03, [DESIGN.md](DESIGN.md) section 7.1)? In M2 it is an item of the channel menu inside the interface. Needed by M5 | No. It stays in the channel menu of the interface |
 | Q-28 | Should version 1.0 offer optional crash reports and anonymous usage counts? The proposal is in the section "Proposed: crash reports and usage counts" below. Needed before the first public release | Nothing is sent: no crash reports and no counts, as R-HE-03 says today |
 | Q-26 | Can removing a channel be undone? `States.html` shows a toast "removed, files kept" with Undo, but R-CH-32 deletes the catalogue, the exclude list and the settings of the channel. Needed by M7 | No Undo. The toast only confirms the removal |
 

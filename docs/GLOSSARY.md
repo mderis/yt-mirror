@@ -32,6 +32,9 @@ Use these words, with these meanings, in code, UI text, logs, tests and docs. If
 | **Exact-date fetch** | The background work that gets the exact dates of videos with approximate ones: with the API key from the YouTube API, without it by one lookup per video (R-DT-05) | `DatesService` |
 | **Lookup** | One request for the full facts of one video, through yt-dlp. A lookup of the exact-date fetch and the metadata lookup of a download are the requests that can bring YouTube's "not a bot" check | `exact_date`, the first step of `download` |
 | **Lookup budget** | How many lookups an hour the app allows itself, shared by the exact-date fetch and the downloads: 300, halved after a "not a bot" check (R-DT-06, D-084) | `LookupBudget` |
+| **Started by hand** | A download the user asked for: Mirror, Mirror first, Retry, Mirror again, Mirror everything missing, the bulk bar, a re-download. Only the first 20 downloads of one action count. Never held back by the lookup budget (R-DT-06, D-090) | `by_hand` |
+| **Automatic download** | A download the app starts by itself: auto-mirror, an automatic retry, or one beyond the first 20 of one action. It waits for room in the lookup budget (R-DT-06, D-090) | `by_hand` false |
+| **Paced** | An automatic download that waits for room in the lookup budget. Its row says "Waiting · paced to protect your access to YouTube" and when it may start (D-090) | `held` |
 | **API key** | The optional, free key of the YouTube Data API that the user can enter. Kept in `data/youtube-api-key`, never in the database (R-DT-12, D-085) | `ApiKeyStore` |
 | **Waiting / updating / unavailable** | The three states of an approximate date (R-DT-13): not fetched yet, being fetched, fetching failed or is held back | `DateState` |
 | **Check by itself** | A check the app starts without the user: on open, on selection, on the interval, a retry, or a full check (R-CH-20 to R-CH-26) | `Scheduler`, trigger `schedule` |
