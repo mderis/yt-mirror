@@ -54,6 +54,7 @@ export function video(number: number, changes: Partial<Video> = {}): Video {
     excluded: false,
     gone: false,
     is_new: false,
+    below_target: false,
     ...changes,
   }
 }

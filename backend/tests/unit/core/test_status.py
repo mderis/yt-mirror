@@ -39,7 +39,6 @@ def test_the_allowed_transitions_are_exactly_those_of_the_architecture() -> None
         (S.PROCESSING, S.FAILED),
         (S.FAILED, S.QUEUED),
         (S.SYNCED, S.FILE_MISSING),
-        (S.SYNCED, S.QUEUED),
         (S.FILE_MISSING, S.QUEUED),
         (S.FILE_MISSING, S.SYNCED),
     } == ALLOWED_TRANSITIONS

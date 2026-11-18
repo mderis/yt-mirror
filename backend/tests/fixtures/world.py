@@ -487,6 +487,8 @@ class World:
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
         self.job_numbers = itertools.count(1)
+        self.files_lock = threading.Lock()
+        """The lock of renames, date repairs and the swap of a re-download (R-FN-06)."""
         self.download = FakeDownload(self.files)
         self.gateway.download_with = self.download
         self.downloader = DownloaderService(
@@ -509,6 +511,7 @@ class World:
                 self.clock.monotonic,
                 self.clock.advance,
             ),
+            file_lock=self.files_lock,
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
         )
@@ -531,6 +534,7 @@ class World:
             media=self.media,
             views=self.views,
             settings=self.settings,
+            lock=self.files_lock,
         )
         self.scheduler = Scheduler(
             catalogue=self.catalogue,

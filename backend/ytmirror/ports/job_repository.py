@@ -137,6 +137,14 @@ class JobRepository(Protocol):
         """
         ...
 
+    def clear_replacing(self, video_id: str) -> None:
+        """Forget the marker of a re-download's swap, once it is settled (D-093).
+
+        Args:
+            video_id: The video.
+        """
+        ...
+
     def pending_side_files(self) -> tuple[PendingSideFile, ...]:
         """Return the side files still to be written, oldest first."""
         ...

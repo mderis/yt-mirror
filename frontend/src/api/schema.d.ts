@@ -742,6 +742,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/videos/redownload': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Redownload
+     * @description Download synced videos again; each file is replaced once the new one is verified.
+     */
+    post: operations['redownloadVideos']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/videos/{video_id}': {
     parameters: {
       query?: never
@@ -2138,8 +2158,15 @@ export interface components {
      *             budget may start, or None (R-DT-06, D-090).
      *         retry_at: When a download that failed in a way that passes is tried again by
      *             itself, or None (R-QU-07).
+     *         below_target: Whether the file is lower than the quality its channel asks for
+     *             now (R-QL-07).
      */
     Video: {
+      /**
+       * Below Target
+       * @default false
+       */
+      below_target: boolean
       date?: components['schemas']['DateInfo'] | null
       download?: components['schemas']['Download'] | null
       /** Duration S */
@@ -4409,6 +4436,66 @@ export interface operations {
     }
   }
   mirrorVideos: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['MirrorRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MirrorResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  redownloadVideos: {
     parameters: {
       query?: never
       header?: never

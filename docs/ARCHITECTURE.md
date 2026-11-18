@@ -320,11 +320,11 @@ processing --cancel, before the file is moved into its place--> not_downloaded
 downloading or processing --YouTube's "not a bot" check (R-ER-05)--> queued
 synced --file not found at check--> file_missing --enqueue--> queued
 file_missing --the file is back, with this video's ID inside--> synced
-synced --redownload--> queued (the old file stays until the new one is verified)
 ```
 
 Rules:
 - `excluded`, `gone`, new, approximate date and "below target quality" are flags or derived values, not statuses. They combine with any status.
+- A re-download (from M5, D-093) is a job of the kind `redownload` that never changes the status of its video: it stays `synced` with its old file until the new one is swapped in, and stays `synced` when the re-download fails or is cancelled. Its row shows the job's progress.
 - Every transition goes through one function in `core/status.py` that validates it and returns the event to record. Nothing else may assign `videos.status`.
 - An invalid transition raises a programming error and is logged with both statuses.
 
@@ -555,7 +555,8 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | POST `/videos/{id}/retry` | Put a failed video in line again (R-QU-08). From M3 |
 | GET `/channels/{id}/files-to-trash` | How many files and how much room "Delete the files" moves to the Trash (R-CH-32). From M3 |
 | POST `/videos/exclude` , `/videos/restore` | Exclude and restore (`ids`, `file_action`) |
-| POST `/videos/redownload`, `/videos/repair-metadata` | |
+| POST `/videos/redownload` | Download synced videos again in the quality of their channel; each file is swapped for the new one once that is verified (R-QL-06, D-093). From M5 |
+| POST `/videos/repair-metadata` | From M8 |
 | POST `/videos/{id}/play`, `/videos/{id}/reveal` | By video ID, never a path (R-UI-10). From M3 |
 | GET `/queue` | Full queue: the downloads that run and wait, in their order, and the failed videos (R-QU-02, R-QU-08). From M5 |
 | POST `/queue/pause`, `/queue/resume`, `/queue/reorder`, `/queue/clear-waiting` | Pause and resume all downloads (stored, so a restart keeps it), put the waiting ones in a new order, remove every waiting one (R-QU-02). From M5 |

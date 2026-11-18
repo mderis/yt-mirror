@@ -171,6 +171,18 @@ class FakeFileSystem:
         self.files[target] = self.files.pop(source)
         return True
 
+    def swap(self, first: Path, second: Path) -> None:
+        """Let two files swap places."""
+        if first not in self.files or second not in self.files:
+            raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(first)})
+        self.files[first], self.files[second] = self.files[second], self.files[first]
+
+    def file_id(self, path: Path) -> int:
+        """Return the identity of the file object, which a move or a swap keeps."""
+        if path not in self.files:
+            raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(path)})
+        return id(self.files[path])
+
     def set_dates(self, path: Path, moment: int) -> None:
         """Set both dates, or fail as configured."""
         if path in self.refuse_dates or path not in self.files:

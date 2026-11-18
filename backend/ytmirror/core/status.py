@@ -34,7 +34,6 @@ ALLOWED_TRANSITIONS: frozenset[tuple[VideoStatus, VideoStatus]] = frozenset(
         (_S.PROCESSING, _S.FAILED),
         (_S.FAILED, _S.QUEUED),  # retry
         (_S.SYNCED, _S.FILE_MISSING),  # the file was not found at a check
-        (_S.SYNCED, _S.QUEUED),  # re-download: the old file stays until the new one is verified
         (_S.FILE_MISSING, _S.QUEUED),  # enqueue
         (_S.FILE_MISSING, _S.SYNCED),  # the file is back, with this video's ID inside
     }

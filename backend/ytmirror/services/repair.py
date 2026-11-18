@@ -126,6 +126,7 @@ class RepairService:
         media: MediaTools,
         views: ChannelViews,
         settings: SettingsService,
+        lock: threading.Lock | None = None,
     ) -> None:
         """Create the service.
 
@@ -135,13 +136,16 @@ class RepairService:
             media: Reads the video ID inside a file.
             views: The folder of a channel, and tells the interface about a video.
             settings: Whether every check repairs dates.
+            lock: Held while a synced file is renamed or its dates repaired. The
+                downloader holds the same lock while a re-download swaps its file in,
+                so that neither undoes the other (R-FN-06, D-093).
         """
         self._repository = repository
         self._files = files
         self._media = media
         self._views = views
         self._settings = settings
-        self._lock = threading.Lock()
+        self._lock = lock if lock is not None else threading.Lock()
 
     def after_check(self, channel_id: str) -> None:
         """The work of a check that needs no listing (R-CH-28): renames, then date repair.
@@ -240,7 +244,7 @@ class RepairService:
                     folder=str(folder),
                 )
             for video in videos:
-                if not video.file_name or video.placing_file or video.rename_to:
+                if not video.file_name or video.placing_file or video.rename_to or video.replacing:
                     # A download places this file, or a rename is still to be settled.
                     continue
                 path = folder / video.file_name

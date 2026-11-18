@@ -28,9 +28,12 @@ FAILED_JOB_LOG_DAYS = 14
 
 
 class JobKind(StrEnum):
-    """What a job does. Re-download, repair and adoption arrive in later milestones."""
+    """What a job does. Repair and adoption arrive in later milestones."""
 
     DOWNLOAD = "download"
+    REDOWNLOAD = "redownload"
+    """A synced video downloaded again: it stays synced, and its file is swapped for the
+    new one only once that is complete and verified (R-QL-06, D-093)."""
 
 
 class JobState(StrEnum):

@@ -52,6 +52,7 @@ _ATTR_BIT_MAP_COUNT = 5
 _ATTR_CMN_CRTIME = 0x00000200
 _FSOPT_NOFOLLOW = 0x00000001
 _RENAME_EXCL = 0x00000004
+_RENAME_SWAP = 0x00000002
 
 
 class _AttrList(ctypes.Structure):
@@ -333,6 +334,35 @@ class MacFileSystem:
             return _renamed(source, target)
         except OSError as error:
             raise _error_of(error, target) from error
+
+    def swap(self, first: Path, second: Path) -> None:
+        """Let two files on one volume swap places in one step (R-QL-06, D-093).
+
+        Args:
+            first: A file.
+            second: Another file.
+
+        Raises:
+            AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
+        """
+        if _libc.renamex_np(os.fsencode(first), os.fsencode(second), _RENAME_SWAP) != 0:
+            number = ctypes.get_errno()
+            error = OSError(number, os.strerror(number), str(first))
+            raise _error_of(error, second) from error
+
+    def file_id(self, path: Path) -> int:
+        """Return what identifies a file on its volume (its inode); a move keeps it.
+
+        Args:
+            path: The file.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` when it cannot be read.
+        """
+        try:
+            return path.stat().st_ino
+        except OSError as error:
+            raise _error_of(error, path) from error
 
     def set_dates(self, path: Path, moment: int) -> None:
         """Set the creation and the modification date of a file to one moment (D-077).

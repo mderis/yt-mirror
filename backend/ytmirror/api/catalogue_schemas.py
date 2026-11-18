@@ -390,6 +390,8 @@ class Video(BaseModel):
             budget may start, or None (R-DT-06, D-090).
         retry_at: When a download that failed in a way that passes is tried again by
             itself, or None (R-QU-07).
+        below_target: Whether the file is lower than the quality its channel asks for
+            now (R-QL-07).
     """
 
     id: str
@@ -411,6 +413,7 @@ class Video(BaseModel):
     date: DateInfo | None = None
     paced_until: int | None = None
     retry_at: int | None = None
+    below_target: bool = False
 
     @classmethod
     def of(cls, view: VideoView) -> Video:
@@ -436,6 +439,7 @@ class Video(BaseModel):
             date=DateInfo.of(view.date),
             paced_until=view.paced_until,
             retry_at=view.retry_at,
+            below_target=view.below_target,
         )
 
 

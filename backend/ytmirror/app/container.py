@@ -294,6 +294,8 @@ def build_container(
         dates.wake()
 
     jobs = SqlJobRepository(engine, used_clock)
+    # One lock for renames, date repairs and the swap of a re-download (R-FN-06, D-093).
+    files_lock = threading.Lock()
     media = FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe"))
     downloader = DownloaderService(
         repository=repository,
@@ -313,11 +315,17 @@ def build_container(
         speed=SpeedLimit(
             lambda: settings.current().speed_limit_mbps, used_clock.monotonic, time.sleep
         ),
+        file_lock=files_lock,
         stop_tools=lambda: _stop_tools(used_children, used_tool_box),
         stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
     )
     repair = RepairService(
-        repository=repository, files=used_files, media=media, views=views, settings=settings
+        repository=repository,
+        files=used_files,
+        media=media,
+        views=views,
+        settings=settings,
+        lock=files_lock,
     )
     channels = ChannelsService(
         repository,

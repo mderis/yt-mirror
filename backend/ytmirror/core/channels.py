@@ -495,6 +495,8 @@ class VideoView:
             budget may start, or None (R-DT-06, D-090).
         retry_at: When a download that failed in a way that passes is tried again by
             itself, or None (R-QU-07).
+        below_target: Whether the file of a synced video is lower than the quality its
+            channel asks for now (R-QL-07).
     """
 
     video: Video
@@ -505,3 +507,4 @@ class VideoView:
     date: DateShown | None = None
     paced_until: int | None = None
     retry_at: int | None = None
+    below_target: bool = False

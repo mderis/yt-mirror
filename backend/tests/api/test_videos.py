@@ -57,6 +57,7 @@ def test_the_catalogue_of_a_channel_is_listed_newest_first(
         "date": {"state": "waiting", "reason": None, "retry_at": None},
         "paced_until": None,
         "retry_at": None,
+        "below_target": False,
     }
 
 

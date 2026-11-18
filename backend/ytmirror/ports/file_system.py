@@ -239,6 +239,29 @@ class FileSystem(Protocol):
         """
         ...
 
+    def swap(self, first: Path, second: Path) -> None:
+        """Let two files on one volume swap places in one step (R-QL-06, D-093).
+
+        Args:
+            first: A file.
+            second: Another file.
+
+        Raises:
+            AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
+        """
+        ...
+
+    def file_id(self, path: Path) -> int:
+        """Return what identifies a file on its volume; a move or a swap keeps it.
+
+        Args:
+            path: The file.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` when it cannot be read.
+        """
+        ...
+
     def set_dates(self, path: Path, moment: int) -> None:
         """Set the creation and the modification date of a file to one moment (R-DT-07).
 
