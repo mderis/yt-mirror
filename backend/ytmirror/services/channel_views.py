@@ -29,9 +29,11 @@ from ytmirror.core.channels import (
     ChannelUpdated,
     ChannelView,
     ChecksProgressed,
+    Quality,
     TaskProgress,
     TaskProgressed,
     Video,
+    VideoStatus,
     VideoView,
     YouTubePauseChanged,
 )
@@ -40,10 +42,12 @@ from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.core.exact_dates import DateShown, FetchState, date_shown
 from ytmirror.core.jobs import VideoUpdated
 from ytmirror.core.models import AppEvent
+from ytmirror.core.quality import effective_quality
 from ytmirror.core.schedule import retry_at
 from ytmirror.core.status import NEW_FOR_S, channel_status, is_new, waits_for_youtube
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
+from ytmirror.services.auto_mirror_state import AutoMirrorState
 from ytmirror.services.date_fetch_state import DateFetchState
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
@@ -63,6 +67,7 @@ class ChannelViews:
         downloads: DownloadState | None = None,
         dates: DateFetchState | None = None,
         fetch_states: Callable[[str], Mapping[str, FetchState]] = lambda channel_id: {},
+        auto_mirror: AutoMirrorState | None = None,
     ) -> None:
         """Create the views.
 
@@ -75,6 +80,7 @@ class ChannelViews:
             downloads: The downloads that wait or run.
             dates: How the exact-date fetch stands.
             fetch_states: What the fetch keeps for the videos of a channel.
+            auto_mirror: What auto-mirror waits for the user about.
         """
         self._repository = repository
         self._settings = settings
@@ -84,6 +90,7 @@ class ChannelViews:
         self._downloads = downloads if downloads is not None else DownloadState()
         self._dates = dates if dates is not None else DateFetchState()
         self._fetch_states = fetch_states
+        self._auto_mirror = auto_mirror if auto_mirror is not None else AutoMirrorState()
         events.subscribe(self._on_event)
         self._lock = threading.Lock()
         self._checking: set[str] = set()
@@ -139,8 +146,9 @@ class ChannelViews:
             raise AppError(ErrorCode.NOT_FOUND, {"channel": channel_id})
         now = int(self._clock.now().timestamp())
         states = self._fetch_states(channel_id)
+        target = self._target_height(channel_id)
         return tuple(
-            self._video_view(video, now, states.get(video.id))
+            self._video_view(video, now, states.get(video.id), target)
             for video in self._repository.videos(channel_id)
         )
 
@@ -156,7 +164,12 @@ class ChannelViews:
         states: Mapping[str, FetchState] = (
             {} if video.published_exact else self._fetch_states(video.channel_id)
         )
-        return self._video_view(video, int(self._clock.now().timestamp()), states.get(video.id))
+        return self._video_view(
+            video,
+            int(self._clock.now().timestamp()),
+            states.get(video.id),
+            self._target_height(video.channel_id),
+        )
 
     def tell_video(self, video_id: str) -> None:
         """Tell the interface how a video is now (R-FB-03). An unknown video is not told.
@@ -168,7 +181,9 @@ class ChannelViews:
         if view is not None:
             self._events.publish(VideoUpdated(view))
 
-    def _video_view(self, video: Video, now: int, state: FetchState | None) -> VideoView:
+    def _video_view(
+        self, video: Video, now: int, state: FetchState | None, target: int | None = None
+    ) -> VideoView:
         return VideoView(
             video=video,
             is_new=is_new(video, now),
@@ -178,7 +193,21 @@ class ChannelViews:
             job_id=self._downloads.job_of(video.id),
             progress=self._downloads.progress_of(video.id),
             date=self._date_of(video, now, state),
+            paced_until=self._downloads.paced_until(video.id),
+            retry_at=self._downloads.retry_at(video.id),
+            below_target=target is not None
+            and video.status is VideoStatus.SYNCED
+            and video.height is not None
+            and video.height < target,
         )
+
+    def _target_height(self, channel_id: str) -> int | None:
+        """The height a channel's quality asks for now, or None for "Best available" (R-QL-07)."""
+        channel = self._repository.channel(channel_id)
+        if channel is None:
+            return None
+        quality = effective_quality(channel.quality, self._settings.current().default_quality)
+        return None if quality is Quality.BEST else int(quality.value)
 
     def _date_of(self, video: Video, now: int, state: FetchState | None) -> DateShown | None:
         """Return what an approximate date shows (R-DT-13), or None for an exact one."""
@@ -368,6 +397,7 @@ class ChannelViews:
         exact_dates = self._dates.progress(channel.id)
         dates_wait = self._dates.waits_for_youtube(channel.id)
         hold = self._dates.hold() if dates_wait else None
+        question = self._auto_mirror.question(channel.id)
         return ChannelView(
             channel=channel,
             status=channel_status(
@@ -393,6 +423,10 @@ class ChannelViews:
             key_notice=exact_dates is not None and self._dates.key().failing,
             waiting_until=None if hold is None else hold.until,
             retry_at=retry_at(channel),
+            auto_mirror_question=None
+            if question is None
+            else (question.count, question.estimated_bytes),
+            missing_held=self._auto_mirror.missing_held(channel.id),
         )
 
     def _new_since(self) -> int:

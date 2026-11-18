@@ -8,7 +8,7 @@ section 7.7).
 Tests: backend/tests/integration/db/test_job_repository.py
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import Engine, delete, func, select, update
@@ -46,8 +46,13 @@ DOWNLOAD_FIELDS = (
     "published_exact",
     "published_precision",
     "placing_file",
+    "replacing",
 )
 """The columns of a video that a download writes. A check writes the others."""
+
+
+_CHUNK = 500
+"""How many IDs one query names at most, below the limit of SQLite."""
 
 
 class SqlJobRepository:
@@ -165,6 +170,125 @@ class SqlJobRepository:
             )
             return 1 if highest is None else highest + 1
 
+    def lowest_priority(self) -> int | None:
+        """Return the lowest priority of a job that waits or runs, or None when there is none."""
+        with Session(self._reader) as session:
+            return session.scalar(
+                select(func.min(JobRow.priority)).where(
+                    JobRow.state.in_([state.value for state in ACTIVE_STATES])
+                )
+            )
+
+    def set_priorities(self, priorities: Mapping[str, int]) -> None:
+        """Give waiting jobs new priorities, in one transaction (R-QU-02).
+
+        Args:
+            priorities: The new priority of each job. A job that no longer waits keeps its own.
+        """
+        now = self._now()
+        with Session(self._engine) as session, session.begin():
+            for job_id, priority in priorities.items():
+                session.execute(
+                    update(JobRow)
+                    .where(JobRow.id == job_id, JobRow.state == JobState.WAITING.value)
+                    .values(priority=priority, updated_at=now)
+                )
+
+    def set_formats(self, job_id: str, formats: str) -> None:
+        """Keep the formats a running download chose, for when it continues (D-091).
+
+        Args:
+            job_id: The job.
+            formats: The formats, as yt-dlp names them.
+        """
+        with Session(self._engine) as session, session.begin():
+            session.execute(
+                update(JobRow)
+                .where(JobRow.id == job_id)
+                .values(formats=formats, updated_at=self._now())
+            )
+
+    def promote(self, job_ids: Sequence[str]) -> None:
+        """Count waiting jobs as started by hand, and let a retry start now (D-090).
+
+        Args:
+            job_ids: The jobs. One that no longer waits is left as it is.
+        """
+        with Session(self._engine) as session, session.begin():
+            for start in range(0, len(job_ids), _CHUNK):
+                session.execute(
+                    update(JobRow)
+                    .where(
+                        JobRow.id.in_(job_ids[start : start + _CHUNK]),
+                        JobRow.state == JobState.WAITING.value,
+                    )
+                    .values(by_hand=True, not_before=None, updated_at=self._now())
+                )
+
+    def active_jobs_of(self, video_ids: Sequence[str]) -> Mapping[str, Job]:
+        """Return the jobs that wait or run for some videos, by video.
+
+        Args:
+            video_ids: The videos.
+        """
+        found: dict[str, Job] = {}
+        with Session(self._reader) as session:
+            for start in range(0, len(video_ids), _CHUNK):
+                rows = session.scalars(
+                    select(JobRow).where(
+                        JobRow.video_id.in_(video_ids[start : start + _CHUNK]),
+                        JobRow.state.in_([state.value for state in ACTIVE_STATES]),
+                    )
+                )
+                found.update((row.video_id, _job_of(row)) for row in rows)
+        return found
+
+    def record_many(self, entries: Sequence[tuple[Job, Video | None, StatusChange | None]]) -> None:
+        """Store many new jobs with what they change of their videos, in one transaction.
+
+        Args:
+            entries: The jobs, with their videos and status changes.
+        """
+        now = self._now()
+        with Session(self._engine) as session, session.begin():
+            for job, video, change in entries:
+                session.add(JobRow(**_job_values(job), created_at=job.created_at, updated_at=now))
+                if video is not None:
+                    session.execute(
+                        update(VideoRow)
+                        .where(VideoRow.id == video.id)
+                        .values(**_download_values(video), updated_at=now)
+                    )
+                if change is not None:
+                    session.add(
+                        VideoEventRow(
+                            video_id=change.video_id,
+                            at=now,
+                            from_status=change.from_status.value,
+                            to_status=change.to_status.value,
+                            reason=change.reason,
+                            job_id=job.id,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+
+    def count(self, states: Collection[JobState]) -> int:
+        """Return how many jobs are in some states.
+
+        Args:
+            states: The states.
+        """
+        with Session(self._reader) as session:
+            return (
+                session.scalar(
+                    select(func.count())
+                    .select_from(JobRow)
+                    .where(JobRow.state.in_([state.value for state in states]))
+                )
+                or 0
+            )
+
     def events(self, video_id: str) -> tuple[VideoEvent, ...]:
         """Return the status history of a video, oldest first (R-LG-03).
 
@@ -227,6 +351,19 @@ class SqlJobRepository:
                 .values(placing_file=None, updated_at=self._now())
             )
 
+    def clear_replacing(self, video_id: str) -> None:
+        """Forget the marker of a re-download's swap, once it is settled (D-093).
+
+        Args:
+            video_id: The video.
+        """
+        with Session(self._engine) as session, session.begin():
+            session.execute(
+                update(VideoRow)
+                .where(VideoRow.id == video_id)
+                .values(replacing=None, updated_at=self._now())
+            )
+
     def remove_pending_side_file(self, number: int) -> None:
         """Forget a side file that was written, or is no longer wanted.
 
@@ -255,6 +392,11 @@ class SqlJobRepository:
 
 
 def _job_values(job: Job) -> dict[str, Any]:
+    """Return the columns ``record`` writes.
+
+    The formats are left out: only ``set_formats`` writes them, so no other write
+    of the job loses them (D-091).
+    """
     return {
         "id": job.id,
         "video_id": job.video_id,
@@ -266,13 +408,21 @@ def _job_values(job: Job) -> dict[str, Any]:
         "error_code": None if job.error_code is None else job.error_code.value,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
+        "by_hand": job.by_hand,
+        "not_before": job.not_before,
     }
+
+
+_DATE_FIELDS = ("published_at", "published_exact", "published_precision")
+"""A download writes these only with the exact date it found. Otherwise its copy of them is
+the one it read at its start, and the exact-date fetch may have stored a better one since."""
 
 
 def _download_values(video: Video) -> dict[str, Any]:
     return {
         name: getattr(value, "value", value)
         for name in DOWNLOAD_FIELDS
+        if video.published_exact or name not in _DATE_FIELDS
         for value in (getattr(video, name),)
     }
 
@@ -290,4 +440,7 @@ def _job_of(row: JobRow) -> Job:
         error_code=None if row.error_code is None else ErrorCode(row.error_code),
         started_at=row.started_at,
         finished_at=row.finished_at,
+        by_hand=row.by_hand,
+        not_before=row.not_before,
+        formats=row.formats,
     )

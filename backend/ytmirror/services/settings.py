@@ -1,12 +1,15 @@
-"""Reads the general settings.
+"""Reads the general settings, and changes the ones the interface already offers.
 
-Changing settings through the UI arrives in milestone M7. This module must
-not know how settings are stored.
+The settings screen arrives in milestone M7. Before it, the downloads panel
+changes two settings of the queue: "Pause all downloads" and the speed limit
+(R-QU-02, R-QU-03). This module must not know how settings are stored.
 
 Tests: backend/tests/unit/services/test_settings.py
 """
 
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from ytmirror.core.models import DEFAULT_LIBRARY_FOLDER, Settings
 from ytmirror.ports.settings_repository import SettingsRepository
@@ -29,6 +32,19 @@ class SettingsService:
     def current(self) -> Settings:
         """Return the current general settings."""
         return self._repository.load()
+
+    def change(self, **values: Any) -> Settings:
+        """Store new values of some settings and keep the others (R-SE-01: saved at once).
+
+        Args:
+            values: The new values, by the name of the setting.
+
+        Returns:
+            The settings as they are now.
+        """
+        changed = replace(self.current(), **values)
+        self._repository.save(changed)
+        return changed
 
     def library_folder(self) -> Path:
         """Return the library folder as a real path (R-FI-01).

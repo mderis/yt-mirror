@@ -12,7 +12,7 @@
  * large channel (D-073).
  */
 import { defineStore } from 'pinia'
-import { reactive, ref } from 'vue'
+import { reactive, ref, shallowRef, toRaw } from 'vue'
 
 import {
   api,
@@ -35,14 +35,40 @@ const ACTIVE: ReadonlySet<VideoStatus> = new Set<VideoStatus>([
   'processing',
 ])
 
+/** What of a video decides its tab, the search and the order (R-UI-04 to R-UI-06). */
+function listKey(video: Video): string {
+  return [
+    video.status,
+    video.is_new,
+    video.title,
+    video.duration_s,
+    video.file_size,
+    video.published_at,
+    video.published_around,
+    video.published_precision,
+    video.gone,
+  ].join('\u0000')
+}
+
 export const useVideosStore = defineStore('videos', () => {
   /** The channel whose catalogue is held, or null. */
   const channelId = ref<string | null>(null)
-  const videos = ref<Video[]>([])
+  /** The catalogue as it was loaded. Held shallowly: thousands of rows are never made
+   * reactive one by one; what changed is in ``changed``. */
+  const videos = shallowRef<Video[]>([])
   const status = ref<VideosStatus>('idle')
   const errorCode = ref<ErrorCode | null>(null)
-  /** Videos that changed since the list was loaded, by ID. */
+  /** Videos that changed since the list was loaded, by ID. A row reads its own entry. */
   const changed = reactive(new Map<string, Video>())
+  /**
+   * Grows when a change can move a video into or out of a tab, the search or the
+   * order: only then is the list worked out again. A change of what a row shows, as
+   * its date's state or a download's percent, redraws that row only (D-073).
+   */
+  const listVersion = ref(0)
+  /** Whether an action on many videos runs: the bulk bar is busy meanwhile. */
+  const queueing = ref(false)
+  let loadedById = new Map<string, Video>()
   /** The downloads that run, by video ID (R-QU-04). */
   const downloads = reactive(new Map<string, Download>())
   /** The videos whose download the user cancelled, while it still ends (R-QU-02). */
@@ -55,6 +81,8 @@ export const useVideosStore = defineStore('videos', () => {
   function forgetChanges(): void {
     changed.clear()
     downloads.clear()
+    loadedById = new Map(videos.value.map((video) => [video.id, video]))
+    listVersion.value += 1
   }
 
   async function fetchFor(wanted: string): Promise<void> {
@@ -118,10 +146,22 @@ export const useVideosStore = defineStore('videos', () => {
     return changed.get(video.id) ?? video
   }
 
+  /**
+   * The video as it is now, read without following it: for working out the list,
+   * which follows ``listVersion`` instead of every change.
+   */
+  function currentQuietly(video: Video): Video {
+    return toRaw(changed).get(video.id) ?? video
+  }
+
   /** Take over a video that changed (R-FB-03). Videos of other channels are not held. */
   function applyVideo(ofChannel: string, video: Video): void {
     if (ofChannel !== channelId.value) {
       return
+    }
+    const before = toRaw(changed).get(video.id) ?? loadedById.get(video.id)
+    if (before === undefined || listKey(before) !== listKey(video)) {
+      listVersion.value += 1
     }
     changed.set(video.id, video)
     if (!ACTIVE.has(video.status)) {
@@ -152,6 +192,37 @@ export const useVideosStore = defineStore('videos', () => {
   /** Put a video in line to be downloaded (R-MI-01). */
   async function mirror(videoId: string): Promise<void> {
     await api.mirrorVideos([videoId])
+  }
+
+  /** Put videos in line, in this order: the bulk bar (R-MI-01, R-MI-07). */
+  async function mirrorMany(videoIds: string[]): Promise<void> {
+    await once(() => api.mirrorVideos(videoIds))
+  }
+
+  /**
+   * Run one action on many videos at a time: while one runs, another press does
+   * nothing, from the bulk bar or the keyboard (review of M5).
+   */
+  async function once(action: () => Promise<unknown>): Promise<void> {
+    if (queueing.value) {
+      return
+    }
+    queueing.value = true
+    try {
+      await action()
+    } finally {
+      queueing.value = false
+    }
+  }
+
+  /** Put a video at the top of the line ("Mirror first", R-QU-02). */
+  async function mirrorFirst(videoId: string): Promise<void> {
+    await api.mirrorVideos([videoId], true)
+  }
+
+  /** Download synced videos again in their channel's quality (R-QL-06). */
+  async function redownload(videoIds: string[]): Promise<void> {
+    await once(() => api.redownloadVideos(videoIds))
   }
 
   /** Put a failed video in line again (R-QU-08). */
@@ -216,6 +287,8 @@ export const useVideosStore = defineStore('videos', () => {
   return {
     channelId,
     videos,
+    listVersion,
+    queueing,
     status,
     errorCode,
     openVideoId,
@@ -224,10 +297,14 @@ export const useVideosStore = defineStore('videos', () => {
     reload,
     close,
     current,
+    currentQuietly,
     applyVideo,
     applyDownload,
     downloadOf,
     mirror,
+    mirrorMany,
+    mirrorFirst,
+    redownload,
     retry,
     cancel,
     isCancelling,

@@ -100,13 +100,25 @@ export function useDateOf(): (video: Video) => VideoDate {
   }
 }
 
-/** Returns the rows of a list of videos. They follow the videos and the time zone. */
+/**
+ * Returns the rows of a list of videos. They follow the videos and the time zone.
+ *
+ * A row is worked out once per video as it is, and kept: when the list is worked
+ * out again, only the videos that changed get new rows, and the others keep theirs,
+ * so their components are not drawn again (review of M5).
+ */
 export function useVideoRows(videos: () => readonly Video[]): ComputedRef<VideoListRow[]> {
   const { t } = useI18n()
   const dateOf = useDateOf()
+  let made = new WeakMap<Video, VideoListRow>()
+  let zone = clock.timeZone
 
-  return computed(() =>
-    videos().map((video) => ({
+  function rowOf(video: Video): VideoListRow {
+    const kept = made.get(video)
+    if (kept !== undefined) {
+      return kept
+    }
+    const row = {
       video,
       date: dateOf(video),
       duration: video.duration_s === null ? undefined : formatDuration(video.duration_s),
@@ -114,6 +126,16 @@ export function useVideoRows(videos: () => readonly Video[]): ComputedRef<VideoL
         video.view_count === null
           ? null
           : t('channel.list.views', { count: formatCount(video.view_count) }),
-    })),
-  )
+    }
+    made.set(video, row)
+    return row
+  }
+
+  return computed(() => {
+    if (clock.timeZone !== zone) {
+      zone = clock.timeZone
+      made = new WeakMap()
+    }
+    return videos().map(rowOf)
+  })
 }

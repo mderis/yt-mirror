@@ -54,6 +54,8 @@ export async function openApp(
   const fetchMock = healthyApi({
     'GET /api/state': jsonResponse(appState({ channels, ...options.state })),
     'PUT /api/state/open-channel': jsonResponse(appState({ channels })),
+    // The state for the menu bar, which the shell reports by itself (D-094).
+    'PUT /api/ui/state': () => new Response(null, { status: 204 }),
     [`GET /api/channels/${channels[0]?.id ?? CHANNEL_ID}/videos`]: jsonResponse({
       videos: options.videos ?? [],
     }),

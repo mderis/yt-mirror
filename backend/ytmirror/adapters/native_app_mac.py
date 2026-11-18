@@ -17,8 +17,10 @@ from typing import Any
 
 from ytmirror.core.models import (
     AppIdentity,
+    ItemState,
     Menu,
     MenuAction,
+    MenuCommand,
     MenuItem,
     Shortcut,
     ShownMenu,
@@ -26,6 +28,10 @@ from ytmirror.core.models import (
 )
 
 _SELECTORS: dict[MenuAction, str] = {
+    MenuAction.COMMAND: "runCommand:",
+    MenuAction.CLOSE_WINDOW: "performClose:",
+    MenuAction.MINIMIZE: "performMiniaturize:",
+    MenuAction.ZOOM: "performZoom:",
     MenuAction.HIDE: "hide:",
     MenuAction.HIDE_OTHERS: "hideOtherApplications:",
     MenuAction.SHOW_ALL: "unhideAllApplications:",
@@ -43,6 +49,83 @@ has the keyboard, which is how Undo or Paste reach a text field of the web view.
 _ACTIONS: dict[str, MenuAction] = {selector: action for action, selector in _SELECTORS.items()}
 
 
+def _four_char(code: str) -> int:
+    """Return the number of a four-character code of Apple events, as 'why?'."""
+    return int.from_bytes(code.encode("ascii"), "big")
+
+
+_QUIT_REASON = _four_char("why?")
+"""kAEQuitReason: the parameter of a quit request that says why it is sent."""
+_SESSION_ENDS = frozenset(_four_char(code) for code in ("quia", "rlgo", "rest", "shut"))
+"""kAEQuitAll, kAEReallyLogOut, kAERestart, kAEShutDown: a logout, a restart or a shutdown."""
+
+_target_class: Any = None
+"""The class of the object behind every command item. A class of the Objective-C
+runtime can be registered only once per process, so it is made once."""
+
+
+def _menu_target_class(appkit: Any) -> Any:
+    global _target_class
+    if _target_class is not None:
+        return _target_class
+    objc: Any = importlib.import_module("objc")
+
+    class YTMMenuTarget(appkit.NSObject):  # type: ignore[misc]
+        """Runs and validates the command items of the menu bar (D-094)."""
+
+        state_of: Callable[[MenuCommand], ItemState] | None = None
+        on_command: Callable[[MenuCommand], None] | None = None
+
+        @objc.typedSelector(b"v@:@")
+        def runCommand_(self, sender: Any) -> None:  # noqa: N802 - an Objective-C selector
+            # Returns nothing, as every AppKit handler must (D-052).
+            command = _command_of(sender)
+            if command is not None and self.on_command is not None:
+                self.on_command(command)
+
+        @objc.typedSelector(b"Z@:@")
+        def validateMenuItem_(self, item: Any) -> bool:  # noqa: N802 - an Objective-C selector
+            command = _command_of(item)
+            if command is None or self.state_of is None:
+                return command is not None
+            try:
+                state = self.state_of(command)
+            except Exception:  # noqa: BLE001 - an error inside AppKit would drop its event
+                return False
+            if state.title is not None:
+                item.setTitle_(state.title)
+            item.setState_(
+                appkit.NSControlStateValueOn if state.checked else appkit.NSControlStateValueOff
+            )
+            return state.enabled
+
+    _target_class = YTMMenuTarget
+    return _target_class
+
+
+def session_ends(event: Any) -> bool:
+    """Whether a quit request of macOS says it comes from a logout, a restart or a shutdown.
+
+    Args:
+        event: The Apple event macOS is handling now, or None outside of one, as for
+            Cmd+Q and the menu.
+    """
+    if event is None:
+        return False
+    reason: Any = event.paramDescriptorForKeyword_(_QUIT_REASON)
+    if reason is None:
+        reason = event.attributeDescriptorForKeyword_(_QUIT_REASON)
+    return reason is not None and int(reason.enumCodeValue()) in _SESSION_ENDS
+
+
+def _command_of(item: Any) -> MenuCommand | None:
+    value: Any = item.representedObject()
+    try:
+        return MenuCommand(str(value)) if value is not None else None
+    except ValueError:
+        return None
+
+
 def _appkit() -> Any:
     """Return the AppKit module.
 
@@ -58,6 +141,8 @@ class MacNativeApp:
     def __init__(self) -> None:
         """Create the adapter. Nothing is asked of macOS yet."""
         self._observers: list[Any] = []
+        # A menu item holds its target weakly: the adapter keeps it alive.
+        self._target: Any = None
 
     def identity(self) -> AppIdentity:
         """Return the name and the bundle identifier under which macOS knows this process."""
@@ -66,14 +151,27 @@ class MacNativeApp:
         identifier: Any = appkit.NSBundle.mainBundle().bundleIdentifier()
         return AppIdentity(name=str(name or ""), bundle_identifier=str(identifier or ""))
 
-    def show_menu_bar(self, menus: Sequence[Menu]) -> None:
+    def show_menu_bar(
+        self,
+        menus: Sequence[Menu],
+        state_of: Callable[[MenuCommand], ItemState] | None = None,
+        on_command: Callable[[MenuCommand], None] | None = None,
+    ) -> None:
         """Replace the whole menu bar of the app. Call it on the main thread.
 
         Args:
             menus: The menus, from left to right. The first one is the app menu.
+            state_of: Says whether a command item is enabled, its title and its check mark.
+            on_command: Runs the command of a chosen item.
         """
         appkit = _appkit()
+        target: Any = _menu_target_class(appkit).alloc().init()
+        target.state_of = state_of
+        target.on_command = on_command
+        self._target = target
+        app: Any = appkit.NSApplication.sharedApplication()
         bar: Any = appkit.NSMenu.alloc().init()
+        roles: list[tuple[str, Any]] = []
         for menu in menus:
             holder: Any = appkit.NSMenuItem.alloc().init()
             submenu: Any = appkit.NSMenu.alloc().initWithTitle_(menu.title)
@@ -81,10 +179,18 @@ class MacNativeApp:
                 if index > 0:
                     submenu.addItem_(appkit.NSMenuItem.separatorItem())
                 for item in group:
-                    submenu.addItem_(_native_item(appkit, item))
+                    submenu.addItem_(_native_item(appkit, item, target))
             holder.setSubmenu_(submenu)
             bar.addItem_(holder)
-        appkit.NSApplication.sharedApplication().setMainMenu_(bar)
+            if menu.role is not None:
+                roles.append((menu.role, submenu))
+        app.setMainMenu_(bar)
+        for role, submenu in roles:
+            # macOS fills these: the list of windows, and the search field of Help.
+            if role == "window":
+                app.setWindowsMenu_(submenu)
+            elif role == "help":
+                app.setHelpMenu_(submenu)
 
     def shown_menu_bar(self) -> tuple[ShownMenu, ...]:
         """Return the menu bar as it really is right now. Call it on the main thread."""
@@ -151,6 +257,33 @@ class MacNativeApp:
         """
         _appkit().NSApplication.sharedApplication().terminate_(None)
 
+    def bring_to_front(self) -> None:
+        """Bring the app and its window to the front, also from the Dock or minimized.
+
+        Main thread only. Public calls of AppKit: the app is activated, and each of
+        its windows is restored from the Dock and made the front one.
+        """
+        appkit = _appkit()
+        app: Any = appkit.NSApplication.sharedApplication()
+        for window in app.windows():
+            if window.isMiniaturized():
+                window.deminiaturize_(None)
+            if window.canBecomeKeyWindow():
+                window.makeKeyAndOrderFront_(None)
+        app.unhide_(None)
+        app.activateIgnoringOtherApps_(True)
+
+    def ending_session(self) -> bool:
+        """Tell whether the quit macOS asks for now comes from a logout, a restart or a shutdown.
+
+        The quit request of macOS is an Apple event; its reason parameter says why.
+        Cmd+Q and the menu send no Apple event, and Quit in the Dock sends one
+        without a reason: neither is the end of a session.
+        """
+        foundation: Any = importlib.import_module("Foundation")
+        event: Any = foundation.NSAppleEventManager.sharedAppleEventManager().currentAppleEvent()
+        return session_ends(event)
+
     def show_alert(self, title: str, text: str) -> None:
         """Show a message in a window of its own, and return when the user closed it.
 
@@ -170,10 +303,13 @@ class MacNativeApp:
         alert.runModal()
 
 
-def _native_item(appkit: Any, item: MenuItem) -> Any:
+def _native_item(appkit: Any, item: MenuItem, target: Any) -> Any:
     native: Any = appkit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
         item.title, _SELECTORS[item.action], ""
     )
+    if item.command is not None:
+        native.setTarget_(target)
+        native.setRepresentedObject_(item.command.value)
     if item.shortcut is not None:
         mask: int = appkit.NSEventModifierFlagCommand
         if item.shortcut.option:
@@ -201,4 +337,6 @@ def _shown_item(appkit: Any, item: Any) -> ShownMenuItem:
         action=_ACTIONS.get(str(selector)) if selector else None,
         shortcut=shortcut,
         enabled=bool(item.isEnabled()),
+        command=_command_of(item),
+        checked=int(item.state()) == int(appkit.NSControlStateValueOn),
     )

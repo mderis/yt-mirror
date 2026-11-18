@@ -54,6 +54,23 @@ describe('the remove channel dialog', () => {
     expect(app.requests()).not.toContain(REMOVE)
   })
 
+  it('R-CH-32: while the downloads of the channel stop, the dialog says so and stays open', async () => {
+    const { dialog } = await askToRemove({
+      channels: [channel({ status: 'mirroring' })],
+      videos: [video(1, { status: 'downloading' }), video(2, { status: 'processing' }), video(3)],
+      // The removal waits for the downloads to stop, and has not answered yet.
+      answers: { [REMOVE]: () => new Promise<Response>(() => undefined) },
+    })
+
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove channel' }))
+
+    expect((await within(dialog).findByRole('status')).textContent?.trim()).toBe(
+      'Stopping 2 downloads...',
+    )
+    const cancel = within(dialog).getByRole('button', { name: 'Cancel' }) as HTMLButtonElement
+    expect(cancel.disabled).toBe(true)
+  })
+
   it('R-CH-32: "Delete the files" asks the backend to move the files to the Trash', async () => {
     const { app, dialog } = await askToRemove({
       channels: [channel()],

@@ -88,34 +88,39 @@ Requirements: R-DT-04 to R-DT-06, R-DT-09, R-DT-11 to R-DT-13, R-FN-06, R-CH-20 
 Acceptance: the mandatory date tests in [TESTING.md](TESTING.md) section 5 pass under two time zones. With a fake clock, channels are checked when the app opens, when one is selected after more than 5 minutes, and on the interval. A failed check is retried after 5, 15 and 60 minutes. A full check starts by itself after the set time, one channel at a time. The app works with no API key (R-PL-07). The requirement coverage and the end-to-end tests include the elements postponed from M2.
 
 ## M5. Queue
-Requirements: R-QU-01 to R-QU-12, R-MI-01 (selecting several videos and the bulk bar), R-MI-02 to R-MI-07 (of R-MI-06 only the automatic download again with auto-mirror: the check of missing files is in M4), R-UI-03 to R-UI-13 (remaining), R-QL-05 to R-QL-07, R-NA-03, R-NA-04, R-NA-06, R-NA-09. Partly: R-CH-26 (no full check while the channel downloads), R-CH-28 (verifying that synced files exist with every check), R-DT-13 (the grid), R-UI-14.
+Requirements: R-QU-01 to R-QU-12, R-MI-01 (selecting several videos and the bulk bar), R-MI-02 to R-MI-07 (of R-MI-06 only the automatic download again with auto-mirror: the check of missing files is in M4), R-UI-03 to R-UI-13 (remaining), R-QL-06, R-QL-07, R-NA-03, R-NA-04, R-NA-06, R-NA-09. Partly: R-DT-06 (automatic downloads wait for the lookup budget, D-090), R-CH-26 (no full check while the channel downloads), R-CH-28 (verifying that synced files exist with every check), R-DT-13 (the grid), R-UI-14.
 
 - Worker pool, ordering, reorder, pause and resume, speed limit, retry policy, resume of partial downloads, restart recovery, disk guard, unavailable folder handling.
 - Auto-mirror with the date limit. A video whose approximate date cannot decide the limit gets its exact date first, through the front of the fetch queue of M4 (R-MI-03). Mirror everything missing. File missing status.
 - Sorting by date follows the position on the channel while any date of the channel is approximate (R-UI-06).
-- Quality change with re-download.
+- Re-download (R-QL-06, D-093) and the marker of a height below the target (R-QL-07). The dialog that offers re-downloads after a quality change (R-QL-05, `QualityChange.html`) and end-to-end flow 7 move to M7, with the controls that change a quality (decided 2026-11-18).
+- Auto-mirror never starts a large download silently (D-095), and downloads at most 5 missing files of a channel again by itself (D-092).
+- A quit stops downloads and keeps them; they continue at the next start (D-091).
+- Elements whose targets are built later arrive with them (D-066, decided 2026-11-18): Exclude in the bulk bar, the menus and failed rows, the Excluded tab and the X shortcut with M6; the control of parallel downloads, "change the limit" of the disk guard, "Choose folder" of R-QU-11, the error Details of R-QU-08, undo toasts and Copy link with M7; Repair metadata with M8.
 - Frontend: queue bar and downloads panel, selection and bulk bar, grid view, tabs, search, sort, context menus, virtual scrolling, keyboard shortcuts, quit confirmation. The video menus use the Menu component of M2 and its pattern: a right-click, and the visible "More actions" button on every row and card ([DESIGN.md](DESIGN.md) section 8).
 - Postponed from M2 (D-066): "Mirror everything missing" in the channel menu (`Menus.html`), the Auto-mirror toggle in the channel header (`Main.html`), and the channel statuses "Mirroring X of Y" and "Paused · X of Y" in the sidebar (`States.html`).
 - The quit path, second part (D-052, [ARCHITECTURE.md](ARCHITECTURE.md) section 7.10). M1 built only the shutdown work, and nothing in the app listens to the window's `closing` event. This milestone builds the decision part: the handler of the `closing` event that can hold a quit, the "quit while downloading" confirmation (R-NA-06, R-QU-12), and the reading of the reason of a quit request, so that a logout, a restart and a shutdown are never held for a question. Tests with a real window cover every way of quitting, held and confirmed.
 - Native Mac app, second part: the menu bar ([DESIGN.md](DESIGN.md) section 7.1), now that the actions exist. File, Edit, View (List, Grid, Show Downloads), Channel and Window menus, items enabled only when they apply. One quit path for Cmd+Q, Close Window and the window button, with the quit confirmation. The in-app shortcut list follows the menu bar ([DESIGN.md](DESIGN.md) section 7.3). A menu item whose target does not exist yet is added by the milestone that builds the target, never shown disabled without one.
 
-Acceptance: end-to-end flows 2, 3, 6, 7, 10 and 13 pass. The `large` fixture scrolls smoothly. Every menu item of this milestone does the same as its control in the interface, and Cmd+Q during a download asks for confirmation. The requirement coverage and the end-to-end tests include the elements postponed from M2.
+Acceptance: end-to-end flows 2, 3, 6 (without the error details, M7), 10 and 13 pass. The `large` fixture scrolls smoothly. Every menu item of this milestone does the same as its control in the interface, and Cmd+Q during a download asks for confirmation. The requirement coverage and the end-to-end tests include the elements postponed from M2.
 
 ## M6. Excluding
 Requirements: R-EX-01 to R-EX-09. Partly: R-UI-14.
 
 - Manual exclude and restore with undo. File behaviour setting and dialog. Rules, preview, exceptions.
+- From M5 (D-066): Exclude in the bulk bar, in the video menus and on failed rows, the Excluded tab, and the shortcut X.
 
 Acceptance: end-to-end flows 4 and 5 pass. A property test shows that no path queues an excluded video.
 
 ## M7. Settings, feedback, activity, help
-Requirements: section 10 of the spec, R-SE-*, R-FB-*, R-ER-*, R-AC-*, R-HE-*, R-LG-04, R-LG-05, R-CH-33, R-NA-05. Partly: R-CH-30 (channel settings), R-UI-14. Resolve: Q-07, Q-26.
+Requirements: section 10 of the spec, R-SE-*, R-FB-*, R-ER-*, R-AC-*, R-HE-*, R-LG-04, R-LG-05, R-CH-33, R-NA-05, R-QL-05. Partly: R-CH-30 (channel settings), R-UI-14. Resolve: Q-07, Q-26.
 
 - Settings and channel settings screens with every control wired. Folder move for a channel.
 - The activity log must record every installed tool with the source it came from (R-IN-03, D-057), with a test. Since M1 the source is only in the debug log (`tool.install.finished`), in `./start --doctor` and in the answer of `/api/tools`: the maintainer accepted that for the time before the activity log exists.
 - Banners, toasts, notifications. Error details dialog for every error code, with texts.
+- From M5 (D-066): the dialog that offers re-downloads after a quality change (R-QL-05, `QualityChange.html`) with the quality controls of both settings screens; the control of parallel downloads; "change the limit" in the banner of the disk guard; "Choose folder" in the banner of an unavailable folder (R-QU-11); Details of a failed download (R-QU-08) and the error details part of flow 6; undo toasts (R-UI-12) and Copy link with its toast.
 - Activity log. Help page. Report a problem. Debug report. Health check. The `explain` tool.
-- Native Mac app, third part: the About window, and the menu items whose targets are built here: About yt-mirror, Settings..., Show Activity, yt-mirror Help, Keyboard Shortcuts, Report a Problem....
+- Native Mac app, third part: the About window, and the menu items whose targets are built here: About yt-mirror, Settings..., Show Activity, Channel Settings..., yt-mirror Help, Report a Problem.... Keyboard Shortcuts arrives in M5 with the in-app list it opens.
 - The activity entry of a video that another channel already has (R-CH-17, D-075): it names the video and the channel that has it. Since M2 this is only in the debug log (`check.video_of_other_channel`).
 - Postponed from M2 (D-066):
   - Sidebar (`Main.html`, `Welcome.html`): the entries Activity, Settings, Help and Report a problem.
@@ -124,7 +129,7 @@ Requirements: section 10 of the spec, R-SE-*, R-FB-*, R-ER-*, R-AC-*, R-HE-*, R-
   - Channel header (`Main.html`) and channel menu (`Menus.html`): the Channel settings button and the item "Channel settings".
   - Whole app (`States.html`): the toasts "<channel> added: N videos" and "<channel> removed". Whether the second one can offer Undo is open question Q-26.
 
-Acceptance: end-to-end flow 11 passes. Every error code has user text and a test that renders it. The requirement coverage and the end-to-end tests include every element postponed from M2.
+Acceptance: end-to-end flows 7 and 11 pass, and flow 6 with its error details. Every error code has user text and a test that renders it. The requirement coverage and the end-to-end tests include every element postponed from M2.
 
 ## M8. Adopting existing files
 Requirements: R-AD-01 to R-AD-08, R-MD-06. Partly: R-CH-06 (the offer), R-UI-14.

@@ -32,15 +32,20 @@ from ytmirror.api.catalogue_schemas import (
     Mirroring,
     Pause,
     Progress,
+    Queue,
+    QueueUpdatedEvent,
     TaskProgressEvent,
     Video,
+    VideosChangedEvent,
     VideoUpdatedEvent,
 )
 from ytmirror.api.schemas import Tool, ToolUpdatedEvent
+from ytmirror.api.ui_schemas import MenuCommandEvent, QuitAskedEvent
 from ytmirror.core.channels import ChannelUpdated, ChecksProgressed, TaskProgressed
 from ytmirror.core.exact_dates import KeyStateChanged
-from ytmirror.core.jobs import JobProgressed, VideoUpdated
-from ytmirror.core.models import AppEvent, ToolUpdated
+from ytmirror.core.jobs import JobProgressed, VideosChanged, VideoUpdated
+from ytmirror.core.models import AppEvent, MenuCommanded, QuitAsked, ToolUpdated
+from ytmirror.core.queue import QueueChanged
 from ytmirror.services.events import EventBus
 
 KEEP_ALIVE_S = 15.0
@@ -50,10 +55,14 @@ TOOL_UPDATED = "tool.updated"
 CHANNEL_UPDATED = "channel.updated"
 TASK_PROGRESS = "task.progress"
 VIDEO_UPDATED = "video.updated"
+VIDEOS_CHANGED = "videos.changed"
 JOB_PROGRESS = "job.progress"
 BANNER_CHANGED = "banner.changed"
 API_KEY_CHANGED = "apikey.changed"
 CHECKS_PROGRESS = "checks.progress"
+QUEUE_UPDATED = "queue.updated"
+MENU_COMMAND = "menu.command"
+QUIT_ASKED = "quit.asked"
 
 type EventData = (
     ToolUpdatedEvent
@@ -61,9 +70,13 @@ type EventData = (
     | TaskProgressEvent
     | BannerChangedEvent
     | VideoUpdatedEvent
+    | VideosChangedEvent
     | JobProgressEvent
     | ApiKeyChangedEvent
     | ChecksProgressEvent
+    | QueueUpdatedEvent
+    | MenuCommandEvent
+    | QuitAskedEvent
 )
 """The data of every event of the stream. It is named as the answer of the endpoint,
 so that the generated frontend types know all of them."""
@@ -79,12 +92,18 @@ def encode(name: str, data: BaseModel) -> str:
     return f"event: {name}\ndata: {data.model_dump_json()}\n\n"
 
 
-def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRouter:
+def build_router(
+    events: EventBus,
+    setup_required: Callable[[], bool],
+    window_connected: Callable[[], Callable[[], None]] | None = None,
+) -> APIRouter:
     """Return the router for ``/events``.
 
     Args:
         events: The bus the services publish on.
         setup_required: Tells whether the first-run screen is still needed.
+        window_connected: Counts an open stream as an interface that can be asked
+            before a quit (R-QU-12), until the returned function is called.
 
     Returns:
         The router, to be mounted under ``/api``.
@@ -104,6 +123,9 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
                 channel_id=event.view.video.channel_id, video=Video.of(event.view)
             )
             return encode(VIDEO_UPDATED, data)
+        if isinstance(event, VideosChanged):
+            data = VideosChangedEvent(channel_id=event.channel_id, count=event.count)
+            return encode(VIDEOS_CHANGED, data)
         if isinstance(event, JobProgressed):
             return encode(JOB_PROGRESS, JobProgressEvent(download=Download.of(event.progress)))
         if isinstance(event, ChecksProgressed):
@@ -114,6 +136,12 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
                 else Mirroring(done=progress[0], total=progress[1])
             )
             return encode(CHECKS_PROGRESS, data)
+        if isinstance(event, QueueChanged):
+            return encode(QUEUE_UPDATED, QueueUpdatedEvent(queue=Queue.of(event.summary)))
+        if isinstance(event, MenuCommanded):
+            return encode(MENU_COMMAND, MenuCommandEvent(command=event.command))
+        if isinstance(event, QuitAsked):
+            return encode(QUIT_ASKED, QuitAskedEvent())
         if isinstance(event, KeyStateChanged):
             return encode(API_KEY_CHANGED, ApiKeyChangedEvent(api_key=ApiKey.of(event.key)))
         return encode(BANNER_CHANGED, BannerChangedEvent(youtube_pause=Pause.of(event.pause)))
@@ -126,6 +154,7 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
             loop.call_soon_threadsafe(queue.put_nowait, event)
 
         leave = events.subscribe(pass_on)
+        gone = window_connected() if window_connected is not None else None
         try:
             yield ": connected\n\n"
             while True:
@@ -139,6 +168,8 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
                 yield wire_form(event)
         finally:
             leave()
+            if gone is not None:
+                gone()
 
     def get_events() -> StreamingResponse:
         """Open the event stream of this window."""
@@ -158,8 +189,9 @@ def build_router(events: EventBus, setup_required: Callable[[], bool]) -> APIRou
                 "description": (
                     "A stream of Server-Sent Events. The events ``tool.updated``, "
                     "``channel.updated``, ``task.progress``, ``banner.changed``, "
-                    "``video.updated``, ``job.progress``, ``apikey.changed`` and "
-                    "``checks.progress`` carry "
+                    "``video.updated``, ``videos.changed``, ``job.progress``, ``apikey.changed``, "
+                    "``checks.progress``, ``queue.updated``, ``menu.command`` and "
+                    "``quit.asked`` carry "
                     "these data, in this order."
                 ),
             }

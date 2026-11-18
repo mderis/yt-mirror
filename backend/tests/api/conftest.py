@@ -77,6 +77,9 @@ def services_around(tmp_path: Path, toolchain: ToolchainService, world: World) -
         downloader=world.downloader,
         dates=world.dates,
         repair=world.repair,
+        queue=world.queue,
+        auto_mirror=world.auto_mirror,
+        ui=world.ui,
     )
 
 

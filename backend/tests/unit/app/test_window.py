@@ -6,8 +6,10 @@ from typing import Self
 from tests.fixtures.fakes.native_app import FakeNativeApp
 from ytmirror.app.menus import menu_bar
 from ytmirror.app.window import DEFAULT_SIZE, MINIMUM_SIZE, open_window
+from ytmirror.core.models import ItemState, MenuCommand
 
 URL = "http://127.0.0.1:5000/?token=t"
+MENUS = ["yt-mirror", "File", "Edit", "View", "Channel", "Window", "Help"]
 
 
 class FakeEvent:
@@ -23,12 +25,30 @@ class FakeEvent:
         return self
 
 
+class FakeClosingEvent:
+    """The ``closing`` event: a handler that returns False holds the close."""
+
+    def __init__(self) -> None:
+        """Start without handlers."""
+        self.handlers: list[Callable[[], bool]] = []
+
+    def __iadd__(self, handler: Callable[[], bool]) -> Self:
+        """Add a handler, as pywebview does."""
+        self.handlers.append(handler)
+        return self
+
+    def held(self) -> bool:
+        """Ask every handler, as pywebview does: one False holds."""
+        return any(handler() is False for handler in self.handlers)
+
+
 class FakeEvents:
     """The events of a window."""
 
     def __init__(self) -> None:
-        """Start with the one event the app uses."""
+        """Start with the events the app uses."""
         self.shown = FakeEvent()
+        self.closing = FakeClosingEvent()
 
 
 class FakeWindow:
@@ -71,19 +91,32 @@ class FakeWebview:
         for handler in self.window.events.shown.handlers:
             handler()
         self._native.turn_loop()
-        if self._user == "quits":
+        # pywebview asks the closing event before a close and before every quit of macOS.
+        if self._user == "quits" and not self.window.events.closing.held():
             self._native.request_quit()
 
 
 class Run:
     """One call of ``open_window`` with stand-ins, and what happened in it."""
 
-    def __init__(self, *, debug: bool = False, user: str = "closes the window") -> None:
-        """Open the window and let the user act."""
+    def __init__(
+        self, *, debug: bool = False, user: str = "closes the window", hold: bool = False
+    ) -> None:
+        """Open the window and let the user act.
+
+        Args:
+            debug: Whether the app runs with ``--debug``.
+            user: What the user does: "closes the window" or "quits".
+            hold: Whether the decision holds a quit, as while downloads run.
+        """
         self.native = FakeNativeApp()
         self.webview = FakeWebview(self.native, user=user)
         self.shutdown_runs = 0
         self.shown_runs = 0
+        self.hold = hold
+        self.asked = 0
+        self.passed_signals = 0
+        self.commands: list[MenuCommand] = []
         self.signal_requests: list[Callable[[], None]] = []
         open_window(
             URL,
@@ -93,9 +126,22 @@ class Run:
             menus=menu_bar("yt-mirror"),
             before_quit=self._shutdown,
             when_shown=self._shown,
+            item_state=lambda command: ItemState(
+                enabled=command is not MenuCommand.CHECK_NOW, title=None
+            ),
+            on_command=self.commands.append,
+            may_quit=self._may_quit,
+            signal_quit=self._signal_quit,
             webview=self.webview,
             route_stop_signals=self.signal_requests.append,
         )
+
+    def _may_quit(self) -> bool:
+        self.asked += 1
+        return not self.hold
+
+    def _signal_quit(self) -> None:
+        self.passed_signals += 1
 
     def _shutdown(self) -> None:
         self.shutdown_runs += 1
@@ -137,7 +183,7 @@ def test_once_the_window_is_shown_the_menu_bar_is_the_apps_own() -> None:
     """R-NA-03: the app's menu bar is put in place when the window is up."""
     run = Run()
 
-    assert [menu.title for menu in run.native.shown_menu_bar()] == ["yt-mirror", "Edit"]
+    assert [menu.title for menu in run.native.shown_menu_bar()] == MENUS
     assert run.shown_runs == 1
 
 
@@ -168,7 +214,7 @@ def test_the_menu_bar_waits_for_the_main_thread() -> None:
 
     assert native.shown_menu_bar() == ()
     native.turn_loop()
-    assert [menu.title for menu in native.shown_menu_bar()] == ["yt-mirror", "Edit"]
+    assert [menu.title for menu in native.shown_menu_bar()] == MENUS
 
 
 def test_quitting_runs_the_shutdown_work_before_the_app_ends() -> None:
@@ -198,3 +244,45 @@ def test_a_stop_signal_asks_the_app_to_quit_like_the_menu_does() -> None:
 
     assert run.native.quit_requests == 1
     assert run.shutdown_runs == 1
+
+
+def test_a_quit_asks_the_decision_first_and_is_held_when_it_says_so() -> None:
+    """R-NA-06, R-QU-12: every quit reaches the decision, which can hold it."""
+    run = Run(user="quits", hold=True)
+
+    assert run.asked == 1
+    assert not run.native.ended
+    assert run.shutdown_runs == 0
+
+
+def test_a_quit_the_decision_lets_through_ends_the_app() -> None:
+    """R-NA-06: when nothing holds it, the quit runs the shutdown work as before."""
+    run = Run(user="quits", hold=False)
+
+    assert run.asked == 1
+    assert run.native.ended
+    assert run.shutdown_runs == 1
+
+
+def test_a_stop_signal_is_let_through_before_the_quit_is_asked() -> None:
+    """R-NA-06: Ctrl+C and a termination signal are never held: nobody is there to ask."""
+    run = Run()
+    (on_signal,) = run.signal_requests
+
+    on_signal()
+    run.native.turn_loop()
+
+    assert run.passed_signals == 1
+    assert run.native.quit_requests == 1
+
+
+def test_the_menu_bar_is_validated_and_runs_commands_through_the_window() -> None:
+    """R-NA-04, D-094: command items are enabled from the decision and send their command."""
+    run = Run()
+    items = {item.command: item for menu in run.native.shown_menu_bar() for item in menu.items}
+
+    run.native.choose(MenuCommand.ADD_CHANNEL)
+
+    assert items[MenuCommand.CHECK_NOW].enabled is False
+    assert items[MenuCommand.ADD_CHANNEL].enabled is True
+    assert run.commands == [MenuCommand.ADD_CHANNEL]

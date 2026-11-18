@@ -12,6 +12,7 @@ This module must not read a clock or store anything.
 Tests: backend/tests/unit/core/test_jobs.py
 """
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -28,9 +29,12 @@ FAILED_JOB_LOG_DAYS = 14
 
 
 class JobKind(StrEnum):
-    """What a job does. Re-download, repair and adoption arrive in later milestones."""
+    """What a job does. Repair and adoption arrive in later milestones."""
 
     DOWNLOAD = "download"
+    REDOWNLOAD = "redownload"
+    """A synced video downloaded again: it stays synced, and its file is swapped for the
+    new one only once that is complete and verified (R-QL-06, D-093)."""
 
 
 class JobState(StrEnum):
@@ -71,6 +75,12 @@ class Job:
         error_code: Why a failed job failed, or None.
         started_at: When a worker took it, or None.
         finished_at: When it ended, or None.
+        by_hand: Whether the user started the job by hand. Such a job is never held
+            back by the lookup budget; an automatic one waits for room (R-DT-06, D-090).
+        not_before: The earliest time the job may start, or None. Set for an
+            automatic retry (R-QU-07).
+        formats: The formats the download chose, as yt-dlp names them (for example
+            ``"399+251"``), asked for again when it continues (R-QU-05, D-091).
     """
 
     id: str
@@ -84,6 +94,9 @@ class Job:
     error_code: ErrorCode | None = None
     started_at: int | None = None
     finished_at: int | None = None
+    by_hand: bool = True
+    not_before: int | None = None
+    formats: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +166,21 @@ class VideoUpdated:
 
 
 @dataclass(frozen=True, slots=True)
+class VideosChanged:
+    """Many videos of a channel changed at once, as by a bulk action (R-FB-03, review of M5).
+
+    One event instead of one per video: the window loads the list of the channel again.
+
+    Attributes:
+        channel_id: The channel.
+        count: How many videos changed.
+    """
+
+    channel_id: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
 class JobProgressed:
     """A running download got further (R-QU-04).
 
@@ -218,6 +246,9 @@ class DownloadRequest:
         manual_subtitles: Whether English creator subtitles are embedded (R-MD-03).
         auto_subtitles: Whether auto-generated English subtitles are embedded
             when there are no creator ones (R-MD-03).
+        formats: The formats an earlier run of the same job chose, as yt-dlp names
+            them (``"399+251"``), or None. They are asked for first, so that the
+            download continues from what that run left (R-QU-05, D-091).
     """
 
     video_id: str
@@ -226,6 +257,7 @@ class DownloadRequest:
     log_file: Path
     manual_subtitles: bool = True
     auto_subtitles: bool = True
+    formats: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,3 +356,76 @@ class PendingSideFile:
     video_id: str
     path: str
     data: bytes
+
+
+class ReplaceWay(StrEnum):
+    """How the files of a re-download change places (D-093)."""
+
+    SWAP = "swap"
+    """In one step, where the volume can swap two files."""
+    MOVE = "move"
+    """The old file to a hidden name in its folder, then the new one to the name."""
+
+
+class ReplaceStep(StrEnum):
+    """Where a re-download stands with its two files (D-093)."""
+
+    PLACING = "placing"
+    """The files change places; the stored facts are still those of the old file.
+    A crash here is undone: the old file goes back under its name."""
+    AWAY = "away"
+    """The new file and its facts are stored; the old file is on its way to the Trash.
+    A crash here is finished: the old file goes to the Trash, and the job ends."""
+
+
+@dataclass(frozen=True, slots=True)
+class Replacing:
+    """The marker of a re-download, stored on its video (``videos.replacing``, D-093).
+
+    Attributes:
+        job: The re-download.
+        old: The identity of the old file on its volume (its inode).
+        way: How the files change places.
+        step: Where it stands.
+        hidden: For the way by two moves: the hidden name of the old file in its folder.
+    """
+
+    job: str
+    old: int
+    way: ReplaceWay
+    step: ReplaceStep
+    hidden: str | None = None
+
+    def text(self) -> str:
+        """Return the marker as it is stored."""
+        return json.dumps(
+            {
+                "job": self.job,
+                "old": self.old,
+                "way": self.way.value,
+                "step": self.step.value,
+                "hidden": self.hidden,
+            },
+            sort_keys=True,
+        )
+
+    @staticmethod
+    def of(text: str | None) -> Replacing | None:
+        """Return the marker stored as this text, or None when there is none or it is not one.
+
+        Args:
+            text: The stored text.
+        """
+        if not text:
+            return None
+        try:
+            values = json.loads(text)
+            return Replacing(
+                job=str(values["job"]),
+                old=int(values["old"]),
+                way=ReplaceWay(values["way"]),
+                step=ReplaceStep(values["step"]),
+                hidden=None if values.get("hidden") is None else str(values["hidden"]),
+            )
+        except ValueError, KeyError, TypeError:
+            return None

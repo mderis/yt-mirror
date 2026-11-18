@@ -177,3 +177,16 @@ describe('the first-run screen', () => {
     expect(screen.queryByText('Getting yt-mirror ready')).toBeNull()
   })
 })
+
+describe('the question before a quit', () => {
+  it('R-QU-12, R-NA-06: it shows on the first-run screen too', async () => {
+    firstRun()
+    const stream = fakeEventStream()
+
+    renderWithApp(App)
+    await screen.findByRole('heading', { level: 1, name: 'Getting yt-mirror ready' })
+    stream().quitAsked()
+
+    expect(await screen.findByRole('dialog', { name: 'Quit yt-mirror?' })).toBeTruthy()
+  })
+})

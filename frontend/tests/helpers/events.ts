@@ -1,7 +1,18 @@
 /** A stand-in for the browser's EventSource, so tests can play the event stream. */
 import { vi } from 'vitest'
 
-import type { ApiKey, Channel, Counted, Download, Pause, Progress, Tool, Video } from '@/api/client'
+import type {
+  ApiKey,
+  Channel,
+  Counted,
+  Download,
+  MenuCommand,
+  Pause,
+  Progress,
+  Queue,
+  Tool,
+  Video,
+} from '@/api/client'
 
 type Listener = (message: { data: string }) => void
 
@@ -58,6 +69,11 @@ export class FakeEventSource {
     this.emit('video.updated', { channel_id: channelId, video })
   }
 
+  /** Play the summary of many videos of a channel that changed at once (R-FB-03). */
+  videosChanged(channelId: string, count: number): void {
+    this.emit('videos.changed', { channel_id: channelId, count })
+  }
+
   /** Play the event that tells how far a download is (R-QU-04). */
   jobProgress(download: Download): void {
     this.emit('job.progress', { download })
@@ -70,6 +86,21 @@ export class FakeEventSource {
 
   checksProgress(checkingAll: Counted | null): void {
     this.emit('checks.progress', { checking_all: checkingAll })
+  }
+
+  /** Play the event that tells how the queue stands (R-QU-02). */
+  queueUpdated(queue: Queue): void {
+    this.emit('queue.updated', { queue })
+  }
+
+  /** Play a command chosen in the menu bar (D-094). */
+  menuCommand(command: MenuCommand): void {
+    this.emit('menu.command', { command })
+  }
+
+  /** Play a quit that waits for the question (R-QU-12). */
+  quitAsked(): void {
+    this.emit('quit.asked', {})
   }
 
   breakAndReturn(): void {

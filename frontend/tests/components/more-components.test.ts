@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { h, nextTick } from 'vue'
 
 import AppBadge from '@/components/AppBadge.vue'
+import AppCheckbox from '@/components/AppCheckbox.vue'
 import AppBanner from '@/components/AppBanner.vue'
 import AppButton from '@/components/AppButton.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -280,6 +281,52 @@ describe('the radio group', () => {
     render(RadioGroup, { props: { modelValue: 'after', legend: 'What', options }, slots })
 
     expect(screen.getAllByLabelText('Date')).toHaveLength(1)
+  })
+})
+
+describe('the checkbox', () => {
+  it('R-MI-07, R-UI-14: a real checkbox with its label, that tells a tick and whether Shift was held', async () => {
+    const { emitted } = render(AppCheckbox, {
+      props: { modelValue: false, label: 'Select: Video 1', hideLabel: true },
+    })
+
+    const box = screen.getByRole('checkbox', { name: 'Select: Video 1' })
+    await fireEvent.click(box, { shiftKey: true })
+
+    expect(box.getAttribute('type')).toBe('checkbox')
+    expect(emitted('update:modelValue')).toEqual([[true]])
+    expect(emitted('pick')).toEqual([[true, true]])
+  })
+
+  it('R-MI-07: "select all shown" can be mixed when only some are selected', () => {
+    render(AppCheckbox, {
+      props: { modelValue: false, indeterminate: true, label: 'Select all shown' },
+    })
+
+    const box = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Select all shown' })
+    expect(box.indeterminate).toBe(true)
+    expect(box.getAttribute('aria-checked')).toBe('mixed')
+  })
+
+  it('R-UI-14: a disabled checkbox cannot be ticked', async () => {
+    const { emitted } = render(AppCheckbox, {
+      props: { modelValue: false, disabled: true, label: 'Auto-mirror' },
+    })
+
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Auto-mirror' }))
+
+    expect(emitted('update:modelValue')).toBeUndefined()
+  })
+})
+
+describe('the arrow of the select', () => {
+  it('R-TH-06, R-UI-14: the select draws its arrow from the icon set, not the system', () => {
+    const { container } = render(SelectField, {
+      props: { modelValue: 'best', label: 'Quality', options: [{ value: 'best', label: 'Best' }] },
+    })
+
+    expect(screen.getByRole('combobox', { name: 'Quality' }).className).toContain('appearance-none')
+    expect(container.querySelector('[data-arrow]')).not.toBeNull()
   })
 })
 

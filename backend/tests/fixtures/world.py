@@ -8,9 +8,10 @@ are fakes. Nothing runs in the background by itself: a test says when.
 
 import itertools
 import json
+import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from tests.fixtures.database import migrated_engine
 from tests.fixtures.fakes.api_key_store import InMemoryApiKeyStore
@@ -50,6 +51,8 @@ from ytmirror.core.jobs import (
 from ytmirror.core.models import AppEvent
 from ytmirror.core.pacing import LookupBudget
 from ytmirror.ports.api_key_store import ApiKeyStore
+from ytmirror.services.auto_mirror import AutoMirrorService
+from ytmirror.services.auto_mirror_state import AutoMirrorState
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
@@ -58,25 +61,38 @@ from ytmirror.services.dates import DatesService
 from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
+from ytmirror.services.queue import QueueService
 from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.settings import SettingsService
+from ytmirror.services.speed_limit import SpeedLimit
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
+from ytmirror.services.ui_bridge import UiBridge
 from ytmirror.services.youtube_access import YouTubeAccess
 
 LISTED_AT = "2026-11-14T06:42:00Z"
-type Download = Callable[
-    [
-        DownloadRequest,
-        Callable[[DownloadProgress], None],
-        Callable[[], bool],
-        Callable[[], None],
-    ],
-    DownloadResult,
-]
-"""Downloads a video like the gateway: the request, where progress goes, whether to stop, and
-what to call before the first file is written."""
+
+
+class Download(Protocol):
+    """Downloads a video like the gateway.
+
+    It takes the request, where progress goes, whether to stop, what to call before
+    the first file is written, and who hears the formats.
+    """
+
+    def __call__(
+        self,
+        request: DownloadRequest,
+        on_progress: Callable[[DownloadProgress], None],
+        is_cancelled: Callable[[], bool],
+        start_writing: Callable[[], None],
+        *,
+        on_formats: Callable[[str], None],
+    ) -> DownloadResult:
+        """Download one video."""
+        ...
+
 
 SMALL_ID = "UCsmallsmallsmallsmall01"
 
@@ -202,13 +218,16 @@ class RefusingGateway:
         *,
         start_writing: Callable[[], None] = lambda: None,
         on_lookup_again: Callable[[], None] = lambda: None,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Download, unless downloads are refused, with the stand-in when there is one."""
         self._maybe_refuse("download")
         if self.download_with is not None:
-            return self.download_with(request, on_progress, is_cancelled, start_writing)
+            return self.download_with(
+                request, on_progress, is_cancelled, start_writing, on_formats=on_formats
+            )
         return self._youtube.download(
-            request, on_progress, is_cancelled, start_writing=start_writing
+            request, on_progress, is_cancelled, start_writing=start_writing, on_formats=on_formats
         )
 
 
@@ -245,6 +264,16 @@ class FakeDownload:
         self.info_json: str | None = None
         self.asking: Callable[[], object] = lambda: None
         """What the metadata lookup does before the first file is written."""
+        self.formats = "399+251"
+        """The formats the download says it fetches (D-091)."""
+        self.held: dict[str, threading.Event] = {}
+        """Videos whose lookup waits until their event is set."""
+        self.asked: dict[str, threading.Event] = {}
+        """Set when the lookup of a video began: one event per video, made on first use."""
+        self.during_video: Callable[[Callable[[DownloadProgress], None]], object] = lambda _tell: (
+            None
+        )
+        """What the download reports while its video stream arrives, before the stage ends."""
         """The raw metadata to give, or None for a small valid one."""
 
     def __call__(
@@ -253,19 +282,32 @@ class FakeDownload:
         on_progress: Callable[[DownloadProgress], None],
         is_cancelled: Callable[[], bool],
         start_writing: Callable[[], None] = lambda: None,
+        *,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Download like the gateway, into the temp folder of the job."""
         self.calls.append(request)
         # The metadata lookup: it only reads, and a cancel does not interrupt it.
+        self.asked.setdefault(request.video_id, threading.Event()).set()
+        if request.video_id in self.held:
+            self.held[request.video_id].wait(10)
         self.asking()
         if self.fail is not None:
             raise self.fail
+        on_formats(self.formats)
         start_writing()
+        # As yt-dlp does: the video stream arrives in a partial file of its own.
+        video_format = self.formats.split("+")[0]
+        self._files.add_files(request.work_folder, [f"{request.video_id}.f{video_format}.mp4.part"])
         for stage in (Stage.VIDEO, Stage.AUDIO, Stage.PROCESSING):
             if stage is self.cancel_at:
                 self.on_cancel()
             if is_cancelled():
                 raise DownloadCancelledError(f"cancelled at {stage.value}")
+            if stage is Stage.VIDEO:
+                self.during_video(on_progress)
+                if is_cancelled():
+                    raise DownloadCancelledError("cancelled while the video stream arrived")
             on_progress(DownloadProgress(stage=stage, fraction=1.0, speed_bps=1e6, left_s=0))
         if request.manual_subtitles and self.subtitles_fail_once:
             self.subtitles_fail_once = False
@@ -346,6 +388,8 @@ class World:
         self.meta = InMemoryAppMetaRepository()
         self.settings_repository = InMemorySettingsRepository()
         engine = migrated_engine(folder)
+        self.engine = engine
+        """The database, for tests that set a value no service writes yet."""
         self.repository = SqlCatalogueRepository(engine, self.clock)
         self.jobs = SqlJobRepository(engine, self.clock)
         self.settings = SettingsService(self.settings_repository, self.library)
@@ -360,6 +404,7 @@ class World:
         self.downloads = DownloadState()
         self.date_repository = SqlDateRepository(engine, self.clock)
         self.date_state = DateFetchState()
+        self.auto_mirror_state = AutoMirrorState()
         self.views = ChannelViews(
             self.repository,
             self.settings,
@@ -369,6 +414,7 @@ class World:
             downloads=self.downloads,
             dates=self.date_state,
             fetch_states=self.date_repository.fetch_states,
+            auto_mirror=self.auto_mirror_state,
         )
         self.waited: list[float] = []
         self.during_wait: Callable[[], None] | None = None
@@ -406,6 +452,7 @@ class World:
                 channel_id, self.close_wait_s
             ),
             media=self.media,
+            paused_downloads=lambda channel_id, paused: self._paused(channel_id, paused),
         )
         self.api = FixtureYouTubeApi(self.fixture.api_date)
         self.keys = InMemoryApiKeyStore()
@@ -437,13 +484,30 @@ class World:
             self.youtube,
             api_key=self.dates.key_state,
             channel_opened=self._channel_opened,
+            queue=lambda: self.downloader.queue_summary(),
         )
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
         self.job_numbers = itertools.count(1)
+        self.files_lock = threading.RLock()
+        """The lock of renames, date repairs and the swap of a re-download (R-FN-06)."""
         self.download = FakeDownload(self.files)
         self.gateway.download_with = self.download
-        self.downloader = DownloaderService(
+        self.downloader = self.new_downloader(folder)
+        self._folder = folder
+        self.queue = QueueService(
+            self.repository, self.jobs, self.downloads, self.downloader.queue_summary
+        )
+        self._after_downloader(folder)
+
+    def new_downloader(self, folder: Path | None = None) -> DownloaderService:
+        """Return a downloader over this world's database and files, as a fresh start makes.
+
+        Nothing of an earlier downloader's memory is in it: a test of a quit or a crash
+        starts one of these over what the earlier one left.
+        """
+        folder = folder if folder is not None else self._folder
+        return DownloaderService(
             repository=self.repository,
             jobs=self.jobs,
             youtube=self.youtube,
@@ -457,8 +521,28 @@ class World:
             new_job_id=lambda: job_id(next(self.job_numbers)),
             job_logs=folder / "logs" / "jobs",
             run_in_background=self.background.append,
+            call_later=lambda delay, work: self.later.append((delay, work)),
+            speed=SpeedLimit(
+                lambda: self.settings.current().speed_limit_mbps,
+                self.clock.monotonic,
+                self.clock.advance,
+            ),
+            file_lock=self.files_lock,
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
+        )
+
+    def _after_downloader(self, folder: Path) -> None:
+        self.ui = UiBridge(self.bus, self.downloader.downloading_now)
+        self.auto_mirror = AutoMirrorService(
+            repository=self.repository,
+            jobs=self.jobs,
+            downloader=self.downloader,
+            views=self.views,
+            settings=self.settings,
+            clock=self.clock,
+            state=self.auto_mirror_state,
+            prioritize=lambda video_ids: self.dates.prioritize(video_ids),
         )
         self.repair = RepairService(
             repository=self.repository,
@@ -466,6 +550,7 @@ class World:
             media=self.media,
             views=self.views,
             settings=self.settings,
+            lock=self.files_lock,
         )
         self.scheduler = Scheduler(
             catalogue=self.catalogue,
@@ -483,16 +568,29 @@ class World:
         self.thumbnails.fill(channel_id, renew_avatar=kind is CheckKind.FULL)
         self.channels.write_channel_file(channel_id)
         self.repair.after_check(channel_id)
+        self.downloader.tidy(channel_id)
+        self.auto_mirror.run(channel_id)
+
+    def _paused(self, channel_id: str, paused: bool) -> None:
+        """What the container does when a channel is paused or resumed (R-CH-31)."""
+        self.downloader.channel_paused(channel_id, paused=paused)
+        if not paused:
+            self.auto_mirror.run(channel_id)
 
     def _channel_opened(self, channel_id: str) -> None:
         """What the container does when a channel is opened: a check if old, files looked for."""
         self.scheduler.channel_selected(channel_id)
         self.background.append(lambda: self.repair.channel_opened(channel_id))
+        self.background.append(lambda: self.downloader.tidy(channel_id))
 
     def _found_exact(self, video_id: str) -> None:
         """What the container does when the fetch found an exact time: repair the file."""
         self.found_exact.append(video_id)
         self.repair.repair_video(video_id)
+        video = self.repository.video(video_id)
+        channel = None if video is None else self.repository.channel(video.channel_id)
+        if channel is not None and channel.auto_mirror and channel.mirror_after is not None:
+            self.auto_mirror.run(channel.id)
 
     def download_all(self) -> None:
         """Let every waiting download run, one after another."""

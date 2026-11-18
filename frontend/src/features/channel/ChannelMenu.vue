@@ -10,6 +10,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { Channel } from '@/api/client'
 import AppMenu, { type MenuItem } from '@/components/AppMenu.vue'
+import { hasMissing } from '@/features/shell/useMenuBridge'
 import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
 
@@ -39,8 +40,14 @@ const items = computed<MenuItem[]>(() => {
   const pause: MenuItem = props.channel.paused
     ? { id: 'resume', label: t('channel.menu.resume'), icon: 'resume' }
     : { id: 'pause', label: t('channel.menu.pause'), icon: 'pause' }
+  const channel = props.channel
+  // Something to mirror: videos that are neither synced nor excluded (R-MI-04).
+  const missing: MenuItem[] = hasMissing(channel)
+    ? [{ id: 'mirrorMissing', label: t('channel.menu.mirrorMissing'), icon: 'download' }]
+    : []
   return [
     ...checks,
+    ...missing,
     pause,
     { id: 'openFolder', label: t('channel.menu.openFolder'), icon: 'folder' },
     { id: 'repairDates', label: t('channel.menu.repairDates'), icon: 'clock' },
@@ -68,6 +75,7 @@ function choose(id: string): void {
           .repairDates(channelId)
           .then((result) => ui.showRepaired({ channel: props.channel.title, ...result })),
       ),
+    mirrorMissing: () => ui.run(channels.mirrorMissing(channelId)),
     remove: () => ui.askRemove(channelId),
   }
   // "Open on YouTube" is a link: the browser opens it, nothing is left to do here.

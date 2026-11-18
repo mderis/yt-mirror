@@ -21,6 +21,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import IconButton from '@/components/IconButton.vue'
 import { ICON_NAMES } from '@/components/icons'
 import ProgressBar from '@/components/ProgressBar.vue'
+import AppCheckbox from '@/components/AppCheckbox.vue'
 import RadioGroup from '@/components/RadioGroup.vue'
 import SelectField from '@/components/SelectField.vue'
 import SidebarItem from '@/components/SidebarItem.vue'
@@ -293,6 +294,21 @@ function ref(name: string): string {
                   },
                 ]"
               />
+            </div>
+            <div class="flex flex-col" data-component="checkbox">
+              <AppCheckbox :model-value="false" :label="t('themePreview.sampleCheckbox')" />
+              <AppCheckbox :model-value="true" :label="t('themePreview.sampleCheckbox')" />
+              <AppCheckbox
+                :model-value="false"
+                indeterminate
+                :label="t('themePreview.sampleCheckboxMixed')"
+              />
+              <AppCheckbox
+                :model-value="false"
+                disabled
+                :label="t('themePreview.sampleCheckbox')"
+              />
+              <AppCheckbox :model-value="true" disabled :label="t('themePreview.sampleCheckbox')" />
             </div>
             <div class="relative h-36" data-component="menu">
               <AppMenu

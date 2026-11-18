@@ -187,6 +187,19 @@ def test_a_trash_of_its_own_is_only_for_an_app_on_the_fake_youtube(tmp_path: Pat
     assert tested.trash_dir == tmp_path / "trash"
 
 
+def test_a_free_space_of_a_file_is_only_for_an_app_on_the_fake_youtube(tmp_path: Path) -> None:
+    """R-QU-10: an app on the real YouTube reads the real free space whatever the environment."""
+    free = str(tmp_path / "free")
+
+    real = resolve_paths({"YTM_FAKE_FREE_SPACE_FILE": free})
+    tested = resolve_paths(
+        {"YTM_FAKE_FREE_SPACE_FILE": free, "YTM_FAKE_YOUTUBE": str(tmp_path / "world")}
+    )
+
+    assert real.fake_free_space_file is None
+    assert tested.fake_free_space_file == tmp_path / "free"
+
+
 def test_another_pace_of_lookups_is_only_for_an_app_on_the_fake_youtube(tmp_path: Path) -> None:
     """R-DT-06: an app on the real YouTube keeps to 300 lookups an hour whatever the environment."""
     world = str(tmp_path / "world")

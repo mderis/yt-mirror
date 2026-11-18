@@ -21,6 +21,13 @@ VIDEO_FILE_ENDINGS = (".mkv", ".mp4", ".webm", ".mov", ".m4v", ".avi")
 """What the name of a video file ends in (R-CH-06), compared without regard to case."""
 
 
+class SwapNotSupportedError(Exception):
+    """The volume cannot swap two files in one step (exFAT, many network volumes, D-093).
+
+    Nothing was changed. It never means that a folder cannot be reached.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class Disk:
     """The disk a folder is on (R-UI-01).
@@ -239,6 +246,30 @@ class FileSystem(Protocol):
         """
         ...
 
+    def swap(self, first: Path, second: Path) -> None:
+        """Let two files on one volume swap places in one step (R-QL-06, D-093).
+
+        Args:
+            first: A file.
+            second: Another file.
+
+        Raises:
+            SwapNotSupportedError: The volume cannot swap; nothing was changed.
+            AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
+        """
+        ...
+
+    def file_id(self, path: Path) -> int:
+        """Return what identifies a file on its volume; a move or a swap keeps it.
+
+        Args:
+            path: The file.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` when it cannot be read.
+        """
+        ...
+
     def set_dates(self, path: Path, moment: int) -> None:
         """Set the creation and the modification date of a file to one moment (R-DT-07).
 
@@ -281,6 +312,21 @@ class FileSystem(Protocol):
 
         Raises:
             ValueError: When the folder is not the temp folder of a job.
+        """
+        ...
+
+    def remove_partial_file(self, path: Path) -> None:
+        """Delete one partial file of a download from the temp folder of its job (D-091).
+
+        For the parts of formats a download no longer fetches. Only a file
+        directly inside the temp folder of a job is ever deleted. One that is not
+        there is fine.
+
+        Args:
+            path: The file.
+
+        Raises:
+            ValueError: When the file is not directly inside the temp folder of a job.
         """
         ...
 

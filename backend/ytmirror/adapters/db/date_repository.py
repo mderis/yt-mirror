@@ -38,11 +38,15 @@ class SqlDateRepository:
 
     def pending(self, now: int, *, limit: int, by_api: bool) -> tuple[PendingDate, ...]:
         """Return the next videos the fetch may look up now, in the order of the fetch."""
-        query = _waiting(now, by_api=by_api).add_columns(VideoRow.id).limit(limit)
+        query = (
+            _waiting(now, by_api=by_api)
+            .add_columns(VideoRow.id, DateFetchRow.priority)
+            .limit(limit)
+        )
         with Session(self._reader) as session:
             return tuple(
-                PendingDate(video_id=video_id, channel_id=channel_id)
-                for channel_id, video_id in session.execute(query)
+                PendingDate(video_id=video_id, channel_id=channel_id, urgent=priority == 1)
+                for channel_id, video_id, priority in session.execute(query)
             )
 
     def waiting_channels(self, now: int, *, by_api: bool) -> tuple[str, ...]:

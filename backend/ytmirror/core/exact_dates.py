@@ -76,10 +76,13 @@ class PendingDate:
     Attributes:
         video_id: The video.
         channel_id: Its channel.
+        urgent: Whether a decision waits for its date (R-MI-03): then it is looked up
+            while downloads run too, within the lookup budget (D-090).
     """
 
     video_id: str
     channel_id: str
+    urgent: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -54,6 +54,7 @@ export function video(number: number, changes: Partial<Video> = {}): Video {
     excluded: false,
     gone: false,
     is_new: false,
+    below_target: false,
     ...changes,
   }
 }
@@ -68,6 +69,16 @@ export function appState(changes: Partial<AppState> = {}): AppState {
     can_choose_folder: true,
     youtube_pause: null,
     api_key: { status: 'none', until: null },
+    queue: {
+      downloading: 0,
+      waiting: 0,
+      failed: 0,
+      paused: false,
+      places: 2,
+      speed_limit_mbps: 0,
+      folders_away: [],
+    },
+    view: 'list',
     ...changes,
   }
 }

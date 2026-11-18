@@ -12,7 +12,8 @@ from ytmirror.core.channels import ChannelStatus
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.exact_dates import DateState, KeyStateChanged, KeyStatus
 from ytmirror.core.models import Settings
-from ytmirror.services.dates import IDLE_S, DatesService, next_quota_reset
+from ytmirror.core.pacing import LookupBudget
+from ytmirror.services.dates import IDLE_S, URGENT_RETRY_S, DatesService, next_quota_reset
 
 NEWEST, SECOND, THIRD = "sm000000005", "sm000000004", "sm000000003"
 KEY = "fixture-good-key-0001"
@@ -96,6 +97,31 @@ def test_the_fetch_yields_to_a_download_and_goes_on_when_none_is_left(tmp_path: 
     world.download_all()
     assert world.dates.step() == 0
     assert asked(world) == 1
+
+
+def test_a_date_a_decision_waits_for_is_looked_up_while_downloads_run(tmp_path: Path) -> None:
+    """R-MI-03, R-DT-06, D-090: auto-mirror's decision is not held up until downloads end."""
+    world = listed(tmp_path)
+    world.downloader.mirror([NEWEST])
+    world.dates.prioritize([SECOND])
+
+    assert world.dates.step() == 0
+
+    assert exact(world, SECOND)
+    assert asked(world) == 1
+
+
+def test_an_urgent_date_still_waits_for_room_in_the_budget(tmp_path: Path) -> None:
+    """R-MI-03, D-090: while downloads run, it waits for the budget only."""
+    world = World(tmp_path, budget=LookupBudget(per_hour=1))
+    world.add_and_list()
+    world.downloader.mirror([NEWEST])
+    world.download_all()
+    world.downloader.mirror([THIRD])
+    world.dates.prioritize([SECOND])
+
+    assert world.dates.step() == URGENT_RETRY_S
+    assert asked(world) == 0
 
 
 def test_the_pause_of_youtube_holds_the_fetch_and_the_channel_waits_for_youtube(

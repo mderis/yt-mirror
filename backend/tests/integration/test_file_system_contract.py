@@ -227,6 +227,20 @@ def test_a_move_never_overwrites_a_file(subject: Subject, tmp_path: Path) -> Non
     assert subject.files.size_of(tmp_path / "Trailer.mkv") == 1
 
 
+def test_two_files_swap_places_and_keep_who_they_are(subject: Subject, tmp_path: Path) -> None:
+    """R-QL-06, D-093: a re-download swaps its new file in; each file keeps its identity."""
+    put_files(subject, tmp_path, ["new.mkv"])
+    subject.files.write_file(tmp_path / "old.mkv", b"old file", overwrite=False, inside=tmp_path)
+    old = subject.files.file_id(tmp_path / "old.mkv")
+    new = subject.files.file_id(tmp_path / "new.mkv")
+
+    subject.files.swap(tmp_path / "new.mkv", tmp_path / "old.mkv")
+
+    assert subject.files.file_id(tmp_path / "old.mkv") == new
+    assert subject.files.file_id(tmp_path / "new.mkv") == old
+    assert subject.files.size_of(tmp_path / "new.mkv") == len(b"old file")
+
+
 def test_a_file_is_written_whole_and_replaced_only_when_asked(
     subject: Subject, tmp_path: Path
 ) -> None:
@@ -499,3 +513,11 @@ def test_a_file_in_a_folder_that_cannot_be_searched_is_not_gone(tmp_path: Path) 
         assert not MacFileSystem().is_gone(folder / "Other.mkv")
     finally:
         folder.chmod(0o700)
+
+
+def test_a_test_can_give_every_disk_its_free_space(tmp_path: Path) -> None:
+    """R-QU-10: the disk space guard is tested with a free space of the test's choosing."""
+    files = MacFileSystem(free_bytes=lambda: 9_000_000_000)
+
+    assert files.disk_of(tmp_path).free_bytes == 9_000_000_000
+    assert MacFileSystem(free_bytes=lambda: None).disk_of(tmp_path).free_bytes > 0

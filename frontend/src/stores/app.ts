@@ -14,7 +14,9 @@ import { ref } from 'vue'
 import { api, ApiError, type ErrorCode, type Health } from '@/api/client'
 
 import { useChannelsStore } from './channels'
+import { useQueueStore } from './queue'
 import { useToolsStore } from './tools'
+import { useUiStore } from './ui'
 import { useVideosStore } from './videos'
 
 export type ConnectionStatus = 'connecting' | 'ready' | 'failed'
@@ -42,6 +44,8 @@ export const useAppStore = defineStore('app', () => {
     const tools = useToolsStore()
     const channels = useChannelsStore()
     const videos = useVideosStore()
+    const queue = useQueueStore()
+    const ui = useUiStore()
     closeStream ??= api.openEvents({
       toolUpdated: (event) => tools.apply(event.tool),
       channelUpdated: (channel) => {
@@ -53,9 +57,23 @@ export const useAppStore = defineStore('app', () => {
       taskProgress: (progress) => channels.applyProgress(progress),
       pauseChanged: (pause) => channels.setPause(pause),
       videoUpdated: (channelId, video) => videos.applyVideo(channelId, video),
-      jobProgress: (download) => videos.applyDownload(download),
+      videosChanged: (channelId) => {
+        // One summary instead of an event per video: the open list is loaded again.
+        if (videos.channelId === channelId) {
+          void videos.reload()
+        }
+      },
+      jobProgress: (download) => {
+        videos.applyDownload(download)
+        queue.applyDownload(download)
+      },
       apiKeyChanged: (key) => channels.setApiKey(key),
       checksProgress: (progress) => channels.setCheckingAll(progress),
+      queueUpdated: (summary) => queue.apply(summary),
+      menuCommand: (command) => ui.receiveCommand(command),
+      quitAsked: () => {
+        ui.quitAsked = true
+      },
       reconnected: reload,
     })
   }

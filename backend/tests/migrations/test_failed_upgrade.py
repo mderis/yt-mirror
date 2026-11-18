@@ -46,6 +46,7 @@ def test_a_failure_late_in_a_chain_of_migrations_undoes_the_whole_chain(
     fill(engine)
     before = contents(engine)
     columns_before = {column["name"] for column in inspect(engine).get_columns("channels")}
+    tables_before = set(inspect(engine).get_table_names())
     add_a_failing_migration(tmp_path, monkeypatch)
     schema = AlembicSchema(engine, tmp_path / "yt-mirror.db")
 
@@ -55,4 +56,4 @@ def test_a_failure_late_in_a_chain_of_migrations_undoes_the_whole_chain(
     assert schema.current_version() == start
     assert contents(engine) == before
     assert {column["name"] for column in inspect(engine).get_columns("channels")} == columns_before
-    assert "pending_side_files" not in inspect(engine).get_table_names()
+    assert set(inspect(engine).get_table_names()) == tables_before

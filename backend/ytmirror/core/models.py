@@ -20,7 +20,8 @@ from ytmirror.core.channels import (
 )
 from ytmirror.core.errors import ErrorCode
 from ytmirror.core.exact_dates import KeyStateChanged
-from ytmirror.core.jobs import JobProgressed, VideoUpdated
+from ytmirror.core.jobs import JobProgressed, VideosChanged, VideoUpdated
+from ytmirror.core.queue import QueueChanged
 
 APP_NAME = "yt-mirror"
 """The name of the app everywhere a user reads it (R-NA-01)."""
@@ -41,6 +42,13 @@ class LogDetail(StrEnum):
 
     NORMAL = "normal"
     VERBOSE = "verbose"
+
+
+class ViewKind(StrEnum):
+    """How a channel's videos are shown: as a list or as a grid (R-UI-03)."""
+
+    LIST = "list"
+    GRID = "grid"
 
 
 class InstallKind(StrEnum):
@@ -75,6 +83,16 @@ class Settings:
         fetch_exact_dates: Whether exact dates are looked up in the background
             without a key (R-DT-05).
         repair_dates: Whether every check repairs the dates of synced files (R-DT-09).
+        parallel_downloads: How many downloads run at the same time, one of
+            ``PARALLEL_DOWNLOADS`` (R-QU-01).
+        speed_limit_mbps: The limit of all downloads together in MB/s, one of
+            ``SPEED_LIMITS_MBPS``; 0 means unlimited (R-QU-03).
+        disk_guard_gb: The queue pauses when the free space of a channel folder's
+            volume falls below this many GB (R-QU-10).
+        downloads_paused: Whether the user paused all downloads (R-QU-02, spec
+            section 10 "Pause all downloads").
+        default_view: Whether a channel shows its videos as a list or a grid. The
+            choice of the toggle is stored here, for the whole app (R-UI-03).
     """
 
     log_detail: LogDetail = LogDetail.NORMAL
@@ -88,6 +106,21 @@ class Settings:
     full_check_days: int = 7
     fetch_exact_dates: bool = True
     repair_dates: bool = True
+    parallel_downloads: int = 2
+    speed_limit_mbps: int = 0
+    disk_guard_gb: int = 10
+    downloads_paused: bool = False
+    default_view: ViewKind = ViewKind.LIST
+
+
+PARALLEL_DOWNLOADS = range(1, 6)
+"""How many downloads may run at the same time: 1 to 5 (R-QU-01)."""
+
+SPEED_LIMITS_MBPS = (0, 5, 2, 1)
+"""The speed limits the downloads panel offers, in MB/s; 0 is unlimited (R-QU-03)."""
+
+DISK_GUARD_GB = range(0, 10_001)
+"""The free space, in GB, below which the queue pauses (R-QU-10)."""
 
 
 RECHECK_INTERVALS_MIN = (30, 60, 180, 0)
@@ -164,8 +197,13 @@ class AppIdentity:
 
 
 class MenuAction(StrEnum):
-    """What a menu item does. In milestone M1 only the standard macOS actions (R-NA-03)."""
+    """What a menu item does: a standard macOS action, or a command of the app (R-NA-03)."""
 
+    COMMAND = "command"
+    """A command of the app: the interface runs what its own control runs (D-094)."""
+    CLOSE_WINDOW = "close_window"
+    MINIMIZE = "minimize"
+    ZOOM = "zoom"
     HIDE = "hide"
     HIDE_OTHERS = "hide_others"
     SHOW_ALL = "show_all"
@@ -176,6 +214,79 @@ class MenuAction(StrEnum):
     COPY = "copy"
     PASTE = "paste"
     SELECT_ALL = "select_all"
+
+
+class MenuCommand(StrEnum):
+    """A command of the menu bar, which the interface runs as its own control does (D-094)."""
+
+    ADD_CHANNEL = "add_channel"
+    VIEW_LIST = "view_list"
+    VIEW_GRID = "view_grid"
+    SHOW_DOWNLOADS = "show_downloads"
+    RELOAD = "reload"
+    CHECK_NOW = "check_now"
+    CHECK_ALL = "check_all"
+    MIRROR_MISSING = "mirror_missing"
+    TOGGLE_PAUSE = "toggle_pause"
+    OPEN_FOLDER = "open_folder"
+    SHORTCUTS = "shortcuts"
+
+
+@dataclass(frozen=True, slots=True)
+class UiState:
+    """What the interface tells the app about itself, for the menu bar (R-NA-04, D-094).
+
+    Attributes:
+        channel_open: Whether a channel is open.
+        paused: Whether the open channel is paused.
+        checking: Whether a check of the open channel waits or runs.
+        has_missing: Whether the open channel has videos without a file to mirror.
+        folder_available: Whether the folder of the open channel can be reached.
+        view: Whether channels show a list or a grid.
+        any_unpaused: Whether at least one channel is not paused.
+    """
+
+    channel_open: bool = False
+    paused: bool = False
+    checking: bool = False
+    has_missing: bool = False
+    folder_available: bool = True
+    view: ViewKind = ViewKind.LIST
+    any_unpaused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ItemState:
+    """How a menu item stands right now (R-NA-04).
+
+    Attributes:
+        enabled: Whether it can be chosen.
+        title: Its text when it changes with the state, as "Resume Channel", or None.
+        checked: Whether it has a check mark, as the view that is shown.
+    """
+
+    enabled: bool
+    title: str | None = None
+    checked: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MenuCommanded:
+    """Event: a command of the menu bar was chosen (D-094).
+
+    Attributes:
+        command: The command.
+    """
+
+    command: MenuCommand
+
+
+@dataclass(frozen=True, slots=True)
+class QuitAsked:
+    """Event: a quit was held because downloads run; the interface asks (R-QU-12, R-NA-06).
+
+    The interface knows from the queue how many run and wait.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +317,7 @@ class MenuItem:
     title: str
     action: MenuAction
     shortcut: Shortcut | None = None
+    command: MenuCommand | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +331,8 @@ class Menu:
 
     title: str
     groups: tuple[tuple[MenuItem, ...], ...]
+    role: str | None = None
+    """``window`` for the menu macOS adds the window list to, ``help`` for the Help menu."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +351,8 @@ class ShownMenuItem:
     action: MenuAction | None
     shortcut: Shortcut | None
     enabled: bool
+    command: MenuCommand | None = None
+    checked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,8 +497,12 @@ type AppEvent = (
     | TaskProgressed
     | YouTubePauseChanged
     | VideoUpdated
+    | VideosChanged
     | JobProgressed
     | KeyStateChanged
     | ChecksProgressed
+    | QueueChanged
+    | MenuCommanded
+    | QuitAsked
 )
 """Every event the services publish for the interface. Each milestone adds its own."""

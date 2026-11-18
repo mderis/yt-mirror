@@ -82,7 +82,7 @@ export default defineConfig({
     {
       // The real launcher on a fresh data folder: also proves that a clone starts (R-IN-02).
       // The stand-ins of the downloadable tools are packed first: the app reads their manifest.
-      command: `rm -rf ${DATA_DIR} && node fixtures/tools/tools.mjs build ${TOOLS_FIXTURE_DIR} ${TOOLS_PORT} && ../start`,
+      command: `rm -rf ${DATA_DIR} && mkdir -p ${DATA_DIR} && echo 500000000000 > ${DATA_DIR}/shared-free-space && node fixtures/tools/tools.mjs build ${TOOLS_FIXTURE_DIR} ${TOOLS_PORT} && ../start`,
       url: `${APP_URL}/`,
       env: {
         YTM_NO_WINDOW: '1',
@@ -98,6 +98,8 @@ export default defineConfig({
         YTM_TRASH_DIR: resolve(`${DATA_DIR}/shared-trash`),
         // No exact-date lookups without a key: the dates stay as the tests recorded them.
         YTM_FAKE_LOOKUPS_PER_HOUR: '0',
+        // The disk space guard sees plenty of room, never the free space of the Mac (R-QU-10).
+        YTM_FAKE_FREE_SPACE_FILE: resolve(`${DATA_DIR}/shared-free-space`),
       },
       reuseExistingServer: false,
       // The first start downloads uv, Python and packages, and builds the interface.

@@ -10,6 +10,7 @@ Tests: backend/tests/api/test_channels.py, test_state.py and test_videos.py
 
 from pydantic import BaseModel
 
+from ytmirror.core.auto_mirror import AutoMirrorAnswer
 from ytmirror.core.channels import (
     ChannelStatus,
     ChannelView,
@@ -32,7 +33,15 @@ from ytmirror.core.exact_dates import (
     KeyStatus,
 )
 from ytmirror.core.jobs import JobProgress, Stage
+from ytmirror.core.models import ViewKind
 from ytmirror.core.progress import PartKind, PartProgress
+from ytmirror.core.queue import (
+    NO_QUEUE,
+    FailedEntry,
+    QueueEntry,
+    QueueSummary,
+    QueueView,
+)
 from ytmirror.services.channels import ChannelLookup, ChosenFolder, KeptFile, KeptReason
 from ytmirror.services.downloader import VideoDetails
 from ytmirror.services.state import AppState
@@ -62,6 +71,18 @@ class Progress(BaseModel):
             done=progress.done,
             total=progress.total,
         )
+
+
+class AutoMirrorQuestionInfo(BaseModel):
+    """Auto-mirror waits for the user before a large start (R-MI-02, D-095).
+
+    Attributes:
+        count: How many videos it would download.
+        estimated_bytes: About how much room they take.
+    """
+
+    count: int
+    estimated_bytes: int
 
 
 class Channel(BaseModel):
@@ -101,6 +122,10 @@ class Channel(BaseModel):
             wait (R-DT-12): "the API key is not working, using the slow way".
         waiting_until: When the exact dates go on, while they wait for YouTube.
         retry_at: When a failed check is tried again by itself (R-CH-25), or None.
+        auto_mirror_question: What auto-mirror would start and waits for an answer
+            about (D-095), or None.
+        missing_held: How many missing files auto-mirror waits for an answer about
+            (D-092), or None.
     """
 
     id: str
@@ -133,6 +158,8 @@ class Channel(BaseModel):
     key_notice: bool = False
     waiting_until: int | None = None
     retry_at: int | None = None
+    auto_mirror_question: AutoMirrorQuestionInfo | None = None
+    missing_held: int | None = None
 
     @classmethod
     def of(cls, view: ChannelView) -> Channel:
@@ -171,6 +198,13 @@ class Channel(BaseModel):
             key_notice=view.key_notice,
             waiting_until=view.waiting_until,
             retry_at=view.retry_at,
+            auto_mirror_question=None
+            if view.auto_mirror_question is None
+            else AutoMirrorQuestionInfo(
+                count=view.auto_mirror_question[0],
+                estimated_bytes=view.auto_mirror_question[1],
+            ),
+            missing_held=view.missing_held,
         )
 
 
@@ -353,6 +387,12 @@ class Video(BaseModel):
         file_size: The size of its file in bytes, or None.
         error_code: Why the last download failed (R-QU-08), or None.
         date: What an approximate date shows (R-DT-13), or None for an exact date.
+        paced_until: When an automatic download that waits for room in the lookup
+            budget may start, or None (R-DT-06, D-090).
+        retry_at: When a download that failed in a way that passes is tried again by
+            itself, or None (R-QU-07).
+        below_target: Whether the file is lower than the quality its channel asks for
+            now (R-QL-07).
     """
 
     id: str
@@ -372,6 +412,9 @@ class Video(BaseModel):
     file_size: int | None = None
     error_code: ErrorCode | None = None
     date: DateInfo | None = None
+    paced_until: int | None = None
+    retry_at: int | None = None
+    below_target: bool = False
 
     @classmethod
     def of(cls, view: VideoView) -> Video:
@@ -395,6 +438,9 @@ class Video(BaseModel):
             file_size=video.file_size,
             error_code=video.last_error_code,
             date=DateInfo.of(view.date),
+            paced_until=view.paced_until,
+            retry_at=view.retry_at,
+            below_target=view.below_target,
         )
 
 
@@ -403,9 +449,11 @@ class MirrorRequest(BaseModel):
 
     Attributes:
         ids: The videos to put in line, in this order.
+        first: Whether they go to the top of the line ("Mirror first", R-QU-02).
     """
 
     ids: list[str]
+    first: bool = False
 
 
 class QueuedJob(BaseModel):
@@ -583,6 +631,63 @@ class DiskSpace(BaseModel):
     free_bytes: int
 
 
+class DiskGuard(BaseModel):
+    """The queue is paused because a disk has too little free space (R-QU-10).
+
+    Attributes:
+        disk: The name of the volume.
+        free_bytes: Its free space when the guard saw it.
+        limit_bytes: The free space below which the queue pauses.
+    """
+
+    disk: str
+    free_bytes: int
+    limit_bytes: int
+
+
+class Queue(BaseModel):
+    """How the queue stands, for the queue bar (R-QU-01, R-QU-02).
+
+    Attributes:
+        downloading: How many downloads run now.
+        waiting: How many wait in line.
+        failed: How many videos failed (R-QU-08).
+        paused: Whether the user paused all downloads.
+        places: How many downloads may run at once.
+        speed_limit_mbps: The limit of all downloads together, 0 for none (R-QU-03).
+        disk_guard: The pause of the disk space guard, or None (R-QU-10).
+        folders_away: The channels whose folder cannot be reached (R-QU-11).
+    """
+
+    downloading: int
+    waiting: int
+    failed: int
+    paused: bool
+    places: int
+    speed_limit_mbps: int = 0
+    disk_guard: DiskGuard | None = None
+    folders_away: list[str] = []
+
+    @classmethod
+    def of(cls, summary: QueueSummary) -> Queue:
+        """Return the wire form of a summary of the queue."""
+        guard = summary.disk_guard
+        return cls(
+            downloading=summary.downloading,
+            waiting=summary.waiting,
+            failed=summary.failed,
+            paused=summary.paused,
+            places=summary.places,
+            speed_limit_mbps=summary.speed_limit_mbps,
+            disk_guard=None
+            if guard is None
+            else DiskGuard(
+                disk=guard.disk, free_bytes=guard.free_bytes, limit_bytes=guard.limit_bytes
+            ),
+            folders_away=list(summary.folders_away),
+        )
+
+
 class StateResponse(BaseModel):
     """The answer of ``GET /api/state``: the app as the window draws it.
 
@@ -596,6 +701,8 @@ class StateResponse(BaseModel):
         api_key: How the optional API key stands (R-DT-12).
         checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
             or None (R-CH-20).
+        queue: How the queue of downloads stands (R-QU-02).
+        view: Whether channels show their videos as a list or a grid (R-UI-03).
     """
 
     channels: list[Channel]
@@ -606,6 +713,8 @@ class StateResponse(BaseModel):
     youtube_pause: Pause | None
     api_key: ApiKey
     checking_all: Mirroring | None = None
+    queue: Queue = Queue.of(NO_QUEUE)
+    view: ViewKind = ViewKind.LIST
 
     @classmethod
     def of(cls, state: AppState) -> StateResponse:
@@ -621,7 +730,175 @@ class StateResponse(BaseModel):
             checking_all=None
             if state.checking_all is None
             else Mirroring(done=state.checking_all[0], total=state.checking_all[1]),
+            queue=Queue.of(state.queue),
+            view=state.view,
         )
+
+
+class QueueItem(BaseModel):
+    """One download that waits or runs, as the downloads panel shows it (R-QU-02).
+
+    Attributes:
+        job_id: The job.
+        video_id: The video.
+        channel_id: Its channel.
+        channel_title: The name of the channel.
+        title: The title of the video.
+        duration_s: Its length in seconds, or None.
+        quality: The quality it is downloaded in.
+        by_hand: Whether the user started it by hand (R-DT-06, D-090).
+        download: How far it is, when it runs and reported already, else None.
+        paced_until: When it may start, while it waits for room in the lookup
+            budget (D-090), else None.
+    """
+
+    job_id: str
+    video_id: str
+    channel_id: str
+    channel_title: str
+    title: str
+    duration_s: int | None
+    quality: Quality
+    by_hand: bool
+    download: Download | None = None
+    paced_until: int | None = None
+
+    @classmethod
+    def of(cls, entry: QueueEntry) -> QueueItem:
+        """Return the wire form of a queue entry."""
+        return cls(
+            job_id=entry.job.id,
+            video_id=entry.video.id,
+            channel_id=entry.video.channel_id,
+            channel_title=entry.channel_title,
+            title=entry.video.title,
+            duration_s=entry.video.duration_s,
+            quality=entry.job.quality,
+            by_hand=entry.job.by_hand,
+            download=None if entry.progress is None else Download.of(entry.progress),
+            paced_until=entry.paced_until,
+        )
+
+
+class FailedItem(BaseModel):
+    """One failed video, as the downloads panel shows it (R-QU-08).
+
+    Attributes:
+        video_id: The video.
+        channel_id: Its channel.
+        channel_title: The name of the channel.
+        title: The title of the video.
+        error_code: Why it failed, or None.
+        attempts: How many automatic attempts were made since it last succeeded.
+        gone: Whether YouTube no longer has it: then it offers no Retry (R-CH-14).
+    """
+
+    video_id: str
+    channel_id: str
+    channel_title: str
+    title: str
+    error_code: ErrorCode | None
+    attempts: int
+    gone: bool
+
+    @classmethod
+    def of(cls, entry: FailedEntry) -> FailedItem:
+        """Return the wire form of a failed video."""
+        return cls(
+            video_id=entry.video.id,
+            channel_id=entry.video.channel_id,
+            channel_title=entry.channel_title,
+            title=entry.video.title,
+            error_code=entry.video.last_error_code,
+            attempts=entry.video.attempts,
+            gone=entry.video.gone,
+        )
+
+
+class QueueResponse(BaseModel):
+    """The answer of ``GET /api/queue``: the whole queue (R-QU-02).
+
+    Attributes:
+        queue: How it stands.
+        running: The downloads that run.
+        waiting: The downloads that wait, in their order.
+        failed: The failed videos, newest failure first.
+    """
+
+    queue: Queue
+    running: list[QueueItem]
+    waiting: list[QueueItem]
+    failed: list[FailedItem]
+
+    @classmethod
+    def of(cls, view: QueueView) -> QueueResponse:
+        """Return the wire form of the queue."""
+        return cls(
+            queue=Queue.of(view.summary),
+            running=[QueueItem.of(entry) for entry in view.running],
+            waiting=[QueueItem.of(entry) for entry in view.waiting],
+            failed=[FailedItem.of(entry) for entry in view.failed],
+        )
+
+
+class ReorderRequest(BaseModel):
+    """The body of ``POST /api/queue/reorder`` (R-QU-02).
+
+    Attributes:
+        job_ids: The waiting jobs in the order the user wants.
+    """
+
+    job_ids: list[str]
+
+
+class SpeedLimitRequest(BaseModel):
+    """The body of ``POST /api/queue/speed-limit`` (R-QU-03).
+
+    Attributes:
+        mbps: The limit of all downloads together in MB/s: 0 (unlimited), 5, 2 or 1.
+    """
+
+    mbps: int
+
+
+class TryFolderResponse(BaseModel):
+    """The answer of ``POST /api/queue/folders/{channel_id}/try-again`` (R-QU-11).
+
+    Attributes:
+        available: Whether the folder can be reached now: then its downloads go on.
+    """
+
+    available: bool
+
+
+class ClearWaitingResponse(BaseModel):
+    """The answer of ``POST /api/queue/clear-waiting`` (R-QU-02).
+
+    Attributes:
+        removed: How many waiting downloads were removed.
+    """
+
+    removed: int
+
+
+class QueueUpdatedEvent(BaseModel):
+    """The data of the event ``queue.updated``: the queue changed (R-FB-03).
+
+    Attributes:
+        queue: How it stands now.
+    """
+
+    queue: Queue
+
+
+class ViewRequest(BaseModel):
+    """The body of ``PUT /api/state/view`` (R-UI-03).
+
+    Attributes:
+        view: List or grid.
+    """
+
+    view: ViewKind
 
 
 class OpenChannelRequest(BaseModel):
@@ -840,6 +1117,20 @@ class ChannelUpdatedEvent(BaseModel):
     channel: Channel
 
 
+class VideosChangedEvent(BaseModel):
+    """The data of the ``videos.changed`` event: many videos of a channel changed at once.
+
+    The window loads the list of the channel again (R-FB-03).
+
+    Attributes:
+        channel_id: The channel.
+        count: How many videos changed.
+    """
+
+    channel_id: str
+    count: int
+
+
 class VideoUpdatedEvent(BaseModel):
     """The data of the ``video.updated`` event of ``GET /api/events`` (R-FB-03).
 
@@ -949,3 +1240,23 @@ class RepairDatesResponse(BaseModel):
     checked: int
     repaired: int
     failed: int
+
+
+class AutoMirrorRequest(BaseModel):
+    """The body of ``PUT /api/channels/{id}/auto-mirror`` (R-MI-02).
+
+    Attributes:
+        on: Whether auto-mirror is on.
+    """
+
+    on: bool
+
+
+class AutoMirrorAnswerRequest(BaseModel):
+    """The body of ``POST /api/channels/{id}/auto-mirror/answer`` (D-095).
+
+    Attributes:
+        answer: Mirror all, only new videos from now on, or turn auto-mirror off.
+    """
+
+    answer: AutoMirrorAnswer

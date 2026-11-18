@@ -55,7 +55,14 @@ def build_router(
 
     def mirror(body: MirrorRequest) -> MirrorResponse:
         """Put videos in line to be downloaded, in the order given (R-MI-01)."""
-        jobs = downloader.mirror(body.ids)
+        jobs = downloader.mirror(body.ids, first=body.first)
+        return MirrorResponse(
+            jobs=[QueuedJob(job_id=job.id, video_id=job.video_id) for job in jobs]
+        )
+
+    def redownload(body: MirrorRequest) -> MirrorResponse:
+        """Download synced videos again; each file is replaced once the new one is verified."""
+        jobs = downloader.redownload(body.ids)
         return MirrorResponse(
             jobs=[QueuedJob(job_id=job.id, video_id=job.video_id) for job in jobs]
         )
@@ -93,6 +100,14 @@ def build_router(
         response_model=MirrorResponse,
         status_code=_ACCEPTED,
         operation_id="mirrorVideos",
+    )
+    router.add_api_route(
+        "/videos/redownload",
+        redownload,
+        methods=["POST"],
+        response_model=MirrorResponse,
+        status_code=_ACCEPTED,
+        operation_id="redownloadVideos",
     )
     router.add_api_route(
         "/videos/{video_id}",

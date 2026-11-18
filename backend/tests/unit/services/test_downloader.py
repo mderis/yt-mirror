@@ -25,6 +25,7 @@ from ytmirror.core.jobs import (
     VideoUpdated,
 )
 from ytmirror.core.models import Settings
+from ytmirror.core.queue import RETRY_DELAYS_S
 
 PUBLISHED = 1_793_379_761
 FIRST = "sm000000005"
@@ -331,7 +332,7 @@ def test_a_failed_download_says_why_and_leaves_nothing_behind(world: World) -> N
 
 def test_a_failed_video_can_be_retried(world: World) -> None:
     """R-QU-08, R-ER-03: Retry puts a failed video in line again, and it can then sync."""
-    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE)
+    world.download.fail = AppError(ErrorCode.VIDEO_PRIVATE)
     world.downloader.mirror([FIRST])
     world.download_all()
     world.download.fail = None
@@ -352,14 +353,17 @@ def test_only_a_failed_video_can_be_retried(world: World) -> None:
 
 
 def test_a_file_that_fails_verification_is_never_put_in_place(world: World) -> None:
-    """R-QA-06: a file without audio fails verification and never looks finished."""
+    """R-QA-06, R-QU-07: a file without audio fails verification and never looks finished.
+
+    The failure can pass, so the download waits to be tried again.
+    """
     work = folder_of(world) / ".yt-mirror" / "tmp" / JOB1 / f"{FIRST}.mkv"
     world.media.facts[work] = dataclasses.replace(GOOD, acodec=None)
     world.downloader.mirror([FIRST])
 
     world.download_all()
 
-    assert status_of(world, FIRST) is VideoStatus.FAILED
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
     assert world.repository.video(FIRST).last_error_code is ErrorCode.VERIFY_FAILED  # pyright: ignore[reportOptionalMemberAccess]
     assert visible(world) == []
 
@@ -375,7 +379,7 @@ def test_a_file_whose_dates_cannot_be_set_never_reaches_the_folder(world: World)
     video = world.repository.video(FIRST)
     assert video is not None
     assert (video.last_error_code, video.file_name) == (ErrorCode.DATES_NOT_APPLIED, None)
-    assert everything(world) == []
+    assert visible(world) == []
 
 
 def test_dates_that_read_back_different_fail_the_job(world: World) -> None:
@@ -483,31 +487,46 @@ def test_cancel_after_the_merge_and_before_the_move_leaves_nothing(world: World)
     assert everything(world) == before
 
 
-def test_quitting_during_a_download_leaves_the_same_clean_state(world: World) -> None:
-    """R-PL-13, R-QA-06: a quit cancels the running download and deletes its temp files."""
-    world.downloader.mirror([FIRST])
+def test_a_quit_during_a_download_puts_it_back_in_line_with_its_partial_files(
+    world: World,
+) -> None:
+    """R-QU-02, R-QU-05, D-091: a quit is not a cancel; the download continues later."""
+    [job] = world.downloader.mirror([FIRST])
     world.download.cancel_at = Stage.AUDIO
     world.download.on_cancel = lambda: world.downloader.stop(wait_s=0)
 
     world.download_all()
 
-    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
-    assert everything(world) == []
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    assert world.jobs.job(job.id).state is JobState.WAITING  # type: ignore[union-attr]
+    assert world.jobs.job(job.id).formats == "399+251"  # type: ignore[union-attr]
+    work = folder_of(world) / ".yt-mirror" / "tmp" / job.id
+    assert world.files.file_names(work, hidden=True) == [f"{FIRST}.f399.mp4.part"]
+    assert visible(world) == []
 
 
-def test_a_start_cleans_up_what_a_crash_left(world: World) -> None:
-    """R-QA-06: jobs a crash left running or waiting are cleaned up at the next start."""
+def test_a_start_puts_back_in_line_what_a_crash_left_running(world: World) -> None:
+    """R-QU-05, R-QU-06, D-091: a job a crash left running waits again, with its partial file."""
     video = world.repository.video(FIRST)
     assert video is not None
     job = Job(CRASHED, FIRST, JobKind.DOWNLOAD, JobState.RUNNING, 1, Quality.BEST, world.now())
     world.jobs.record(job, dataclasses.replace(video, status=VideoStatus.DOWNLOADING))
+    world.jobs.set_formats(CRASHED, "137+140")
     work = folder_of(world) / ".yt-mirror" / "tmp" / CRASHED
-    world.files.add_files(work, [f"{FIRST}.f397.mp4.part"])
+    world.files.add_files(work, [f"{FIRST}.f137.mp4.part"])
 
     world.downloader.start()
 
-    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
-    assert world.jobs.job(CRASHED).state is JobState.CANCELLED  # pyright: ignore[reportOptionalMemberAccess]
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
+    assert world.jobs.job(CRASHED).state is JobState.WAITING  # pyright: ignore[reportOptionalMemberAccess]
+    assert world.files.exists(work / f"{FIRST}.f137.mp4.part")
+
+    with capture_logs() as logs:
+        world.download_all()
+
+    assert world.download.calls[-1].formats == "137+140"
+    assert log_lines(logs, "download.resumed")[0]["job_id"] == CRASHED
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
     assert world.files.exists(work) is False
 
 
@@ -574,10 +593,10 @@ def test_a_crash_between_the_move_and_the_end_of_the_job_leaves_no_unknown_file(
     assert world.files.trashed == [folder_of(world) / name]
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.file_name) == (VideoStatus.NOT_DOWNLOADED, None)
-    world.downloader.mirror([FIRST])
+    assert (video.status, video.file_name) == (VideoStatus.QUEUED, None)
     world.download_all()
     assert visible(world) == [name]
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
 
 
 def test_two_jobs_for_one_video_do_not_stop_the_queue(world: World) -> None:
@@ -596,7 +615,7 @@ def test_two_jobs_for_one_video_do_not_stop_the_queue(world: World) -> None:
 
 def test_a_second_press_of_mirror_or_retry_gives_no_second_job(world: World) -> None:
     """R-MI-01, R-QU-08: a job per video, however often it is pressed."""
-    world.download.fail = AppError(ErrorCode.NETWORK_UNREACHABLE)
+    world.download.fail = AppError(ErrorCode.VIDEO_PRIVATE)
     world.downloader.mirror([FIRST])
     world.download_all()
 
@@ -693,7 +712,7 @@ def test_dates_that_cannot_even_be_read_take_the_file_out_again(world: World) ->
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.FAILED, None, None)
+    assert (video.status, video.file_name, video.placing_file) == (VideoStatus.QUEUED, None, None)
     assert video.last_error_code is ErrorCode.DATES_NOT_APPLIED
     assert visible(world) == []
 
@@ -743,8 +762,10 @@ def test_a_trash_that_refuses_at_start_never_stops_the_app(world: World) -> None
         world.downloader.start()
 
     assert log_lines(logs, "file.trash_failed")[0]["error_code"] == "PERMISSION_DENIED"
-    assert world.jobs.jobs([JobState.WAITING, JobState.RUNNING]) == ()
-    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
+    assert [job.state for job in world.jobs.jobs([JobState.WAITING, JobState.RUNNING])] == [
+        JobState.WAITING
+    ]
+    assert status_of(world, FIRST) is VideoStatus.QUEUED
 
 
 def test_a_start_trashes_only_a_file_the_app_was_placing_and_that_is_its_own(
@@ -887,7 +908,7 @@ def test_the_worker_goes_on_after_an_unexpected_error(world: World) -> None:
 
 
 def test_quitting_stops_the_tools_so_a_running_download_ends_at_once(world: World) -> None:
-    """R-PL-13, R-QA-06: the ffmpeg of a running job is stopped, and the job is cleaned up."""
+    """R-PL-13, R-QU-05: the ffmpeg of a running job is stopped, and the job waits again."""
     world.downloader.mirror([FIRST])
     held, go = held_at_audio(world)
     world.stop_tools = go.set
@@ -898,7 +919,7 @@ def test_quitting_stops_the_tools_so_a_running_download_ends_at_once(world: Worl
     worker.join(10)
 
     assert go.is_set()
-    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.WAITING]
     assert world.files.file_names(folder_of(world)) == []
 
 
@@ -971,7 +992,7 @@ def test_metadata_that_cannot_be_written_fails_before_the_file_is_moved(world: W
     assert world.files.trashed == []
 
 
-# --- a quit is a cancel (second review of M3, M2)
+# --- a quit stops a download, never as a failure (second review of M3, M2; D-091)
 
 
 def killed_at(world: World, stage: Stage, error: Exception) -> threading.Event:
@@ -1003,7 +1024,7 @@ def killed_at(world: World, stage: Stage, error: Exception) -> threading.Event:
 def test_quitting_while_ffmpeg_runs_cancels_and_never_fails_or_retries(
     world: World, error: Exception
 ) -> None:
-    """R-PL-13, R-QU-02: the error of the stopped ffmpeg is a cancel, never FAILED nor a retry."""
+    """R-PL-13, R-QU-02, D-091: the error of the stopped ffmpeg is a stop, never FAILED."""
     world.downloader.mirror([FIRST])
     held = killed_at(world, Stage.PROCESSING, error)
     worker = in_a_thread(world.downloader.work_once)
@@ -1014,15 +1035,15 @@ def test_quitting_while_ffmpeg_runs_cancels_and_never_fails_or_retries(
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
-    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+    assert (video.status, video.last_error_code) == (VideoStatus.QUEUED, None)
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.WAITING]
     assert len(world.download.calls) == 1
 
 
 def test_quitting_while_the_finished_file_is_checked_cancels_and_never_fails(
     world: World,
 ) -> None:
-    """R-PL-13, R-QU-02: ffprobe stopped by a quit fails the check; that is the cancel."""
+    """R-PL-13, R-QU-02, D-091: ffprobe stopped by a quit fails the check; that is the stop."""
     world.downloader.mirror([FIRST])
     held, killed = threading.Event(), threading.Event()
 
@@ -1041,8 +1062,8 @@ def test_quitting_while_the_finished_file_is_checked_cancels_and_never_fails(
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.last_error_code) == (VideoStatus.NOT_DOWNLOADED, None)
-    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.CANCELLED]
+    assert (video.status, video.last_error_code) == (VideoStatus.QUEUED, None)
+    assert [job.state for job in world.jobs.jobs(list(JobState))] == [JobState.WAITING]
 
 
 # --- a video removed from YouTube is not downloaded (R-CH-14)
@@ -1320,7 +1341,7 @@ def test_cancel_stops_the_ffmpeg_of_its_own_job(world: World) -> None:
 
 
 def test_a_marker_stays_until_its_folder_can_be_reached(world: World) -> None:
-    """R-QA-06: a drive that is not connected at start keeps the marker; a later start cleans up."""
+    """R-QA-06: a drive that is not connected at start keeps the marker; the job cleans up."""
     world.downloader.mirror([FIRST])
     name = f"{title_of(world, FIRST)}.mkv"
     ours(world, name)
@@ -1343,16 +1364,18 @@ def test_a_marker_stays_until_its_folder_can_be_reached(world: World) -> None:
     assert world.files.trashed == []
 
     world.files.folder_exists = exists  # type: ignore[method-assign]
-    world.downloader.start()
+    world.download_all()
 
     assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
     assert world.files.trashed == [folder / name]
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
 
 
 def kept_marker(world: World) -> str:
     """Leave a marker that a start could not clean up: the file is placed, its drive was away.
 
-    Returns the name of the placed file. The folder can be reached again afterwards.
+    Returns the name of the placed file. The folder can be reached again afterwards,
+    and the job waits in line again (D-091).
     """
     world.downloader.mirror([FIRST])
     name = f"{title_of(world, FIRST)}.mkv"
@@ -1400,10 +1423,10 @@ def test_a_new_download_cleans_up_a_kept_marker_first(world: World) -> None:
     assert visible(world) == [name]
 
 
-def test_a_download_while_a_kept_marker_cannot_be_reached_fails_and_keeps_it(
+def test_a_download_while_a_kept_marker_cannot_be_reached_waits_and_keeps_it(
     world: World,
 ) -> None:
-    """R-QA-06: Mirror while the drive is away fails clearly; the marker waits for the drive."""
+    """R-QA-06, R-QU-11: while the drive is away the download waits; the marker waits with it."""
     name = kept_marker(world)
     asked = len(world.download.calls)
 
@@ -1413,18 +1436,18 @@ def test_a_download_while_a_kept_marker_cannot_be_reached_fails_and_keeps_it(
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.last_error_code) == (
-        VideoStatus.FAILED,
-        ErrorCode.FOLDER_UNAVAILABLE,
-    )
+    assert (video.status, video.last_error_code) == (VideoStatus.QUEUED, None)
     assert video.placing_file == name
     assert len(world.download.calls) == asked
     assert world.files.trashed == []
+    assert world.downloader.queue_summary().folders_away == (SMALL_ID,)
 
-    world.downloader.start()
+    assert world.downloader.try_folder_again(SMALL_ID) is True
+    world.download_all()
 
     assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
     assert world.files.trashed == [folder_of(world) / name]
+    assert status_of(world, FIRST) is VideoStatus.SYNCED
 
 
 def test_cancelling_a_waiting_download_keeps_a_kept_marker(world: World) -> None:
@@ -1432,7 +1455,8 @@ def test_cancelling_a_waiting_download_keeps_a_kept_marker(world: World) -> None
     name = kept_marker(world)
 
     with drive_away(world):
-        [job] = world.downloader.mirror([FIRST])
+        job = world.jobs.active_job_of(FIRST)
+        assert job is not None
         world.downloader.cancel(job.id)
 
     assert world.repository.video(FIRST).placing_file == name  # type: ignore[union-attr]
@@ -1451,6 +1475,7 @@ def test_a_file_that_cannot_be_moved_back_keeps_its_marker(world: World) -> None
             raise AppError(ErrorCode.PERMISSION_DENIED, {"file": str(source)})
         return move(source, target)
 
+    read_dates = world.files.read_dates
     world.files.move = stuck_on_the_way_back  # type: ignore[method-assign]
     world.files.read_dates = lambda path: (_ for _ in ()).throw(OSError("unreadable"))  # type: ignore[method-assign]
 
@@ -1458,13 +1483,18 @@ def test_a_file_that_cannot_be_moved_back_keeps_its_marker(world: World) -> None
 
     video = world.repository.video(FIRST)
     assert video is not None
-    assert (video.status, video.placing_file) == (VideoStatus.FAILED, name)
+    assert (video.status, video.placing_file) == (VideoStatus.QUEUED, name)
     assert world.files.exists(folder / name)
 
-    world.downloader.start()
+    world.files.move = move  # type: ignore[method-assign]
+    world.files.read_dates = read_dates  # type: ignore[method-assign]
+    world.clock.advance(RETRY_DELAYS_S[0] + 1)
+    world.download_all()
 
-    assert world.repository.video(FIRST).placing_file is None  # type: ignore[union-attr]
     assert world.files.trashed == [folder / name]
+    video = world.repository.video(FIRST)
+    assert video is not None
+    assert (video.status, video.placing_file, video.file_name) == (VideoStatus.SYNCED, None, name)
 
 
 def test_a_name_another_video_is_being_placed_under_stays_taken(world: World) -> None:

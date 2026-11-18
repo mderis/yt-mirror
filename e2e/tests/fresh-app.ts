@@ -34,9 +34,14 @@ export interface FreshApp {
   finishSetup: () => Promise<void>
   /** Stop the app and start it again on the same folders. */
   restart: () => Promise<void>
+  /** Give every disk of this app another free space, in bytes (R-QU-10). */
+  setFreeSpace: (bytes: number) => void
 }
 
 const TOKEN = 'fresh-app-token-not-a-secret'
+
+/** The free space every disk of a test app has, unless the test says otherwise: 500 GB. */
+const PLENTY_OF_ROOM = 500_000_000_000
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -102,6 +107,9 @@ export const test = base.extend<{
     const port = await freePort()
     const url = `http://127.0.0.1:${port}`
     const manifest = join(folder, 'manifest.json')
+    // The disk space guard sees this free space, never the one of the Mac (R-QU-10).
+    const freeSpace = join(folder, 'free-space')
+    writeFileSync(freeSpace, String(PLENTY_OF_ROOM))
     writeFileSync(manifest, await (await fetch(`${TOOLS_URL}/manifest/${name}`)).text())
     const env = {
       ...process.env,
@@ -118,6 +126,7 @@ export const test = base.extend<{
       YTM_TRASH_DIR: join(folder, 'trash'),
       YTM_FAKE_LOOKUPS_PER_HOUR: String(lookupsPerHour),
       YTM_FAKE_HOLD_DOWNLOADS: holdDownloads ? '1' : '0',
+      YTM_FAKE_FREE_SPACE_FILE: freeSpace,
     }
     const headers = { Authorization: `Bearer ${TOKEN}` }
     const send = async (method: string, path: string, body?: unknown): Promise<unknown> => {
@@ -165,6 +174,9 @@ export const test = base.extend<{
       restart: async () => {
         await stop(app)
         app = await start()
+      },
+      setFreeSpace: (bytes) => {
+        writeFileSync(freeSpace, String(bytes))
       },
     })
     await stop(app)

@@ -134,6 +134,18 @@ export function useStatusLine(): (channel: Channel) => StatusLine {
         tone: 'progress',
       }
     }
+    if (channel.status === 'paused' && channel.mirroring) {
+      // A paused channel's downloads wait in line (R-CH-31, States.html "Paused · X of Y").
+      const done = Math.min(channel.mirroring.done + 1, channel.mirroring.total)
+      return {
+        text: t('channelStatus.pausedMirroring', {
+          done: formatNumber(done),
+          total: formatNumber(channel.mirroring.total),
+        }),
+        icon: 'pause',
+        tone: 'muted',
+      }
+    }
     if (channel.status === 'paused') {
       return { text: t('channelStatus.paused'), icon: 'pause', tone: 'muted' }
     }

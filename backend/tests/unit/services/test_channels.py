@@ -761,7 +761,7 @@ def test_a_channel_file_that_cannot_be_read_is_not_taken_for_an_empty_one(tmp_pa
     read_bytes = world.files.read_bytes
     world.files.read_bytes = lambda p: None if p == path else read_bytes(p)  # type: ignore[method-assign]
     world.channels.write_channel_file(SMALL_ID)
-    world.repository.save_channel(replace(world.repository.channel(SMALL_ID), title="New"))  # type: ignore[arg-type]
+    world.repository.update_channel(SMALL_ID, title="New")
 
     world.channels.write_channel_file(SMALL_ID)
     world.channels.remove(SMALL_ID, keep_files=False)

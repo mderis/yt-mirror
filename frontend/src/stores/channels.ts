@@ -14,6 +14,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import {
+  type AutoMirrorAnswer,
   api,
   type AddedChannel,
   type ApiKey,
@@ -32,6 +33,9 @@ import {
   type FilesToTrash,
   type RemovedChannel,
 } from '@/api/client'
+
+import { useQueueStore } from './queue'
+import { useViewStore } from './view'
 
 export const useChannelsStore = defineStore('channels', () => {
   const channels = ref<Channel[]>([])
@@ -60,6 +64,8 @@ export const useChannelsStore = defineStore('channels', () => {
     youtubePause.value = state.youtube_pause
     apiKey.value = state.api_key
     checkingAll.value = state.checking_all ?? null
+    useQueueStore().setSummary(state.queue)
+    useViewStore().setView(state.view)
     loaded.value = true
   }
 
@@ -145,6 +151,31 @@ export const useChannelsStore = defineStore('channels', () => {
   /** Pause or resume a channel (R-CH-31). */
   async function setPaused(channelId: string, paused: boolean): Promise<void> {
     apply(await api.setChannelPaused(channelId, paused))
+  }
+
+  /** Turn auto-mirror of a channel on or off (R-MI-02). It may ask first (D-095). */
+  async function setAutoMirror(channelId: string, on: boolean): Promise<void> {
+    apply(await api.setAutoMirror(channelId, on))
+  }
+
+  /** Answer the question before a large start of auto-mirror (D-095). */
+  async function answerAutoMirror(channelId: string, answer: AutoMirrorAnswer): Promise<void> {
+    apply(await api.answerAutoMirror(channelId, answer))
+  }
+
+  /** Queue every video of a channel without a file, once (R-MI-04). */
+  async function mirrorMissing(channelId: string): Promise<void> {
+    await api.mirrorMissing(channelId)
+  }
+
+  /** Queue the missing files of a channel again, and nothing else (R-MI-06, D-092). */
+  async function mirrorThemAgain(channelId: string): Promise<void> {
+    await api.mirrorThemAgain(channelId)
+  }
+
+  /** Leave the missing files of a channel missing, until more are missing (D-092). */
+  async function leaveMissing(channelId: string): Promise<void> {
+    apply(await api.leaveMissing(channelId))
   }
 
   /**
@@ -236,6 +267,11 @@ export const useChannelsStore = defineStore('channels', () => {
     remove,
     filesToTrash,
     setPaused,
+    setAutoMirror,
+    answerAutoMirror,
+    mirrorMissing,
+    mirrorThemAgain,
+    leaveMissing,
     check,
     cancelCheck,
     checkAll,

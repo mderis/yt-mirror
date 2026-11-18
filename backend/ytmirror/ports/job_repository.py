@@ -10,7 +10,7 @@ CatalogueRepository, so the two never undo each other.
 Tests: backend/tests/integration/db/test_job_repository.py
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Protocol
 
 from ytmirror.core.channels import Video
@@ -69,6 +69,68 @@ class JobRepository(Protocol):
         """Return a priority behind every job that waits or runs."""
         ...
 
+    def lowest_priority(self) -> int | None:
+        """Return the lowest priority of a job that waits or runs, or None when there is none."""
+        ...
+
+    def set_priorities(self, priorities: Mapping[str, int]) -> None:
+        """Give waiting jobs new priorities, in one transaction (R-QU-02).
+
+        A job that no longer waits keeps its priority.
+
+        Args:
+            priorities: The new priority of each job.
+        """
+        ...
+
+    def set_formats(self, job_id: str, formats: str) -> None:
+        """Keep the formats a running download chose, for when it continues (D-091).
+
+        ``record`` never writes them: only this does, so no other write of the job
+        can lose them.
+
+        Args:
+            job_id: The job.
+            formats: The formats, as yt-dlp names them.
+        """
+        ...
+
+    def promote(self, job_ids: Sequence[str]) -> None:
+        """Count waiting jobs as started by hand from now on, and let a retry start now.
+
+        Implements the promotion of D-090. A job that no longer waits is left as it is.
+
+        Args:
+            job_ids: The jobs.
+        """
+        ...
+
+    def active_jobs_of(self, video_ids: Sequence[str]) -> Mapping[str, Job]:
+        """Return the jobs that wait or run for some videos, by video.
+
+        Args:
+            video_ids: The videos.
+        """
+        ...
+
+    def record_many(self, entries: Sequence[tuple[Job, Video | None, StatusChange | None]]) -> None:
+        """Store many new jobs, each with what it changes of its video, in one transaction.
+
+        For the bulk actions of the user (review of M5): one write instead of one per job.
+
+        Args:
+            entries: The jobs, with their videos and status changes as ``record`` takes them.
+        """
+        ...
+
+    def count(self, states: Collection[JobState]) -> int:
+        """Return how many jobs are in some states.
+
+        Args:
+            states: The states.
+        """
+        ...
+
     def events(self, video_id: str) -> tuple[VideoEvent, ...]:
         """Return the status history of a video, oldest first (R-LG-03).
 
@@ -89,6 +151,14 @@ class JobRepository(Protocol):
 
     def clear_placing_file(self, video_id: str) -> None:
         """Forget the marker of a placed file, once its cleanup is done (R-QA-06).
+
+        Args:
+            video_id: The video.
+        """
+        ...
+
+    def clear_replacing(self, video_id: str) -> None:
+        """Forget the marker of a re-download's swap, once it is settled (D-093).
 
         Args:
             video_id: The video.

@@ -13,6 +13,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { Channel } from '@/api/client'
 import AppButton from '@/components/AppButton.vue'
+import AppCheckbox from '@/components/AppCheckbox.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import IconButton from '@/components/IconButton.vue'
 import type { IconName } from '@/components/icons'
@@ -139,6 +140,13 @@ const fullCheck = computed(() =>
         </p>
       </template>
     </div>
+    <AppCheckbox
+      v-if="!listing"
+      :model-value="channel.auto_mirror"
+      :label="t('channel.autoMirror.label')"
+      data-auto-mirror
+      @update:model-value="(on: boolean) => ui.run(channels.setAutoMirror(channel.id, on))"
+    />
     <AppButton
       v-if="!listing && !channel.paused"
       icon="retry"

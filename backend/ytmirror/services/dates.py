@@ -60,6 +60,9 @@ _log: FilteringBoundLogger = structlog.get_logger(__name__)
 IDLE_S = 60 * 60.0
 """How long the fetch waits when nothing is to be done, unless it is woken earlier."""
 
+URGENT_RETRY_S = 60.0
+"""How soon the fetch looks again when a date a decision waits for finds no room."""
+
 _API_FIRST_BACKOFF_S = 60
 _API_LONGEST_BACKOFF_S = 30 * 60
 _QUOTA_ZONE = zoneinfo.ZoneInfo("America/Los_Angeles")
@@ -278,11 +281,18 @@ class DatesService:
             return self._backoff[1] - now
         self._hold(None)
         if self._downloads.busy():
-            return None
-        wait_s = self._youtube.exact_date_wait_s()
-        if wait_s > 0:
-            return wait_s
-        batch = self._dates.pending(now, limit=1, by_api=False)
+            # Downloads go first. Only a date a decision waits for is looked up meanwhile,
+            # when the budget has room, so that the decision is not held up (R-MI-03, D-090).
+            batch = self._dates.pending(now, limit=1, by_api=False)
+            if not batch or not batch[0].urgent:
+                return None
+            if self._youtube.download_room() <= 0:
+                return URGENT_RETRY_S
+        else:
+            wait_s = self._youtube.exact_date_wait_s()
+            if wait_s > 0:
+                return wait_s
+            batch = self._dates.pending(now, limit=1, by_api=False)
         if not batch:
             self._refresh(now, by_api=False)
             return IDLE_S

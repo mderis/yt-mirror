@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from ytmirror.core.catalogue import CheckChanges
-from ytmirror.core.channels import Channel, ChannelTotals, Video
+from ytmirror.core.channels import Channel, ChannelTotals, Video, VideoStatus
 from ytmirror.core.status import StatusChange
 
 
@@ -39,13 +39,21 @@ class CatalogueRepository(Protocol):
         """
         ...
 
-    def save_channel(self, channel: Channel) -> None:
-        """Store the current values of a channel that was added before.
+    def update_channel(self, channel_id: str, **fields: object) -> bool:
+        """Change some columns of a stored channel, and nothing else.
 
-        A channel that is not stored (any more) is left alone: nothing is created.
+        A writer names only the columns it owns, never the whole channel it read
+        earlier: another writer may have changed the others since (review of M5).
 
         Args:
-            channel: The channel as it is now.
+            channel_id: The channel.
+            **fields: The columns and their new values, named as the fields of ``Channel``.
+
+        Returns:
+            False when the channel is not stored (any more): nothing is created.
+
+        Raises:
+            ValueError: For a name that is not a field of ``Channel``, or the ID.
         """
         ...
 
@@ -81,6 +89,30 @@ class CatalogueRepository(Protocol):
         """
         ...
 
+    def videos_by_id(self, video_ids: Sequence[str]) -> Mapping[str, Video]:
+        """Return the videos with these IDs, by ID. An unknown ID is left out.
+
+        Args:
+            video_ids: The video IDs.
+        """
+        ...
+
+    def videos_with_status(self, status: VideoStatus) -> tuple[Video, ...]:
+        """Return the videos of every channel that have a status, newest failure first.
+
+        Args:
+            status: The status.
+        """
+        ...
+
+    def count_with_status(self, status: VideoStatus) -> int:
+        """Return how many videos of every channel have a status.
+
+        Args:
+            status: The status.
+        """
+        ...
+
     def owners_of(self, video_ids: Sequence[str], *, other_than: str) -> Mapping[str, str]:
         """Return which of the videos belong to another channel, with that channel (R-CH-17).
 
@@ -96,12 +128,14 @@ class CatalogueRepository(Protocol):
     def apply_check(self, channel: Channel, changes: CheckChanges) -> bool:
         """Store the result of a successful check in one transaction.
 
-        The channel takes its new values and the videos are inserted and
-        updated together, or nothing is stored. A video whose ID another
-        channel already has is left out.
+        The channel takes the new values of the columns a check owns
+        (``CHECK_CHANNEL_FIELDS``) and the videos are inserted and updated together,
+        or nothing is stored. Every other column of the channel stays as it is now,
+        whatever the check read at its start. A video whose ID another channel
+        already has is left out.
 
         Args:
-            channel: The channel as it is after the check.
+            channel: The channel as the check leaves it.
             changes: The videos to insert and to update.
 
         Returns:

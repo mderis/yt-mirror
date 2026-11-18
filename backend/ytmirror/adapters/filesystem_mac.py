@@ -35,6 +35,7 @@ from ytmirror.ports.file_system import (
     VIDEO_FILE_ENDINGS,
     Disk,
     FileDates,
+    SwapNotSupportedError,
 )
 
 type Run = Callable[[Sequence[str]], object]
@@ -52,6 +53,10 @@ _ATTR_BIT_MAP_COUNT = 5
 _ATTR_CMN_CRTIME = 0x00000200
 _FSOPT_NOFOLLOW = 0x00000001
 _RENAME_EXCL = 0x00000004
+_RENAME_SWAP = 0x00000002
+_UNSUPPORTED = frozenset({errno.ENOTSUP, errno.EOPNOTSUPP, errno.EINVAL})
+"""What a volume answers to a flag of renamex_np it does not have: exFAT answers ENOTSUP,
+some network volumes EINVAL. Never a folder that cannot be reached."""
 
 
 class _AttrList(ctypes.Structure):
@@ -84,16 +89,25 @@ _libc.renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
 class MacFileSystem:
     """Works on the real file system of the Mac."""
 
-    def __init__(self, run: Run | None = None, trash: Trash | None = None) -> None:
+    def __init__(
+        self,
+        run: Run | None = None,
+        trash: Trash | None = None,
+        free_bytes: Callable[[], int | None] | None = None,
+    ) -> None:
         """Create the adapter.
 
         Args:
             run: A stand-in for starting a program of macOS. For tests.
             trash: A stand-in for the Trash of macOS. For tests, so that no
                 test fills the Trash of the person who runs it.
+            free_bytes: A stand-in for the free space of every disk, when it gives
+                a number. For tests of the disk space guard, so that they never
+                depend on the Mac that runs them (R-QU-10).
         """
         self._run = run if run is not None else _start
         self._trash = trash if trash is not None else _to_trash
+        self._free_bytes = free_bytes
 
     def make_folder(self, folder: Path, *, inside: Path | None = None) -> None:
         """Create a folder and its parents. An existing folder is left as it is.
@@ -185,7 +199,9 @@ class MacFileSystem:
         existing = folder
         while not existing.exists() and existing != existing.parent:
             existing = existing.parent
-        return Disk(name=_volume_name(existing), free_bytes=shutil.disk_usage(existing).free)
+        given = None if self._free_bytes is None else self._free_bytes()
+        free = shutil.disk_usage(existing).free if given is None else given
+        return Disk(name=_volume_name(existing), free_bytes=free)
 
     def file_names(self, folder: Path, *, hidden: bool = False) -> list[str]:
         """Return the names of the files and folders directly in a folder, sorted.
@@ -334,6 +350,38 @@ class MacFileSystem:
         except OSError as error:
             raise _error_of(error, target) from error
 
+    def swap(self, first: Path, second: Path) -> None:
+        """Let two files on one volume swap places in one step (R-QL-06, D-093).
+
+        Args:
+            first: A file.
+            second: Another file.
+
+        Raises:
+            SwapNotSupportedError: The volume cannot swap (exFAT, many network volumes).
+            AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
+        """
+        if _libc.renamex_np(os.fsencode(first), os.fsencode(second), _RENAME_SWAP) != 0:
+            number = ctypes.get_errno()
+            if number in _UNSUPPORTED:
+                raise SwapNotSupportedError(str(second))
+            error = OSError(number, os.strerror(number), str(first))
+            raise _error_of(error, second) from error
+
+    def file_id(self, path: Path) -> int:
+        """Return what identifies a file on its volume (its inode); a move keeps it.
+
+        Args:
+            path: The file.
+
+        Raises:
+            AppError: ``FOLDER_UNAVAILABLE`` when it cannot be read.
+        """
+        try:
+            return path.stat().st_ino
+        except OSError as error:
+            raise _error_of(error, path) from error
+
     def set_dates(self, path: Path, moment: int) -> None:
         """Set the creation and the modification date of a file to one moment (D-077).
 
@@ -414,6 +462,25 @@ class MacFileSystem:
             raise ValueError(f"not the temp folder of a job: {folder}")
         shutil.rmtree(folder, ignore_errors=True)
 
+    def remove_partial_file(self, path: Path) -> None:
+        """Delete one partial file of a download from the temp folder of its job (D-091).
+
+        Args:
+            path: The file.
+
+        Raises:
+            ValueError: When the file is not directly inside the temp folder of a job.
+        """
+        folder = path.parent
+        if (
+            not JOB_ID.fullmatch(folder.name)
+            or folder.parent.parts[-2:] != TEMP_FOLDER_PARTS
+            or folder.is_symlink()
+            or path.is_symlink()
+        ):
+            raise ValueError(f"not a file in the temp folder of a job: {path}")
+        path.unlink(missing_ok=True)
+
     def remove_job_log(self, path: Path) -> None:
         """Delete the log of one job for good (R-LG-01).
 
@@ -460,13 +527,40 @@ class MacFileSystem:
 
 
 def _renamed(source: Path, target: Path) -> bool:
-    """Rename in one step unless the target exists. Returns whether it was renamed."""
+    """Rename in one step unless the target exists. Returns whether it was renamed.
+
+    A volume without a rename that refuses to overwrite (exFAT, many network
+    volumes) gets the name reserved with an exclusive create, which every volume
+    has, and the file renamed over that empty placeholder (D-093). The callers chose
+    the name as free, comparing without case and in NFC, under the files lock; the
+    placeholder keeps another program from taking it meanwhile, except by writing into
+    the empty placeholder itself in the moment before the rename. The result is
+    checked: the file under the name must be the one that was moved.
+    """
     if _libc.renamex_np(os.fsencode(source), os.fsencode(target), _RENAME_EXCL) == 0:
         return True
     number = ctypes.get_errno()
     if number == errno.EEXIST:
         return False
-    raise OSError(number, os.strerror(number), str(target))
+    if number not in _UNSUPPORTED:
+        raise OSError(number, os.strerror(number), str(target))
+    try:
+        placeholder = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    os.close(placeholder)
+    moved = source.stat().st_ino
+    try:
+        source.rename(target)
+        if target.stat().st_ino != moved or source.exists():
+            raise OSError(errno.EIO, "the file under the name is not the one moved", str(target))
+    except OSError:
+        # The empty placeholder is ours: it goes, so the name is free again.
+        with contextlib.suppress(OSError):
+            if target.stat().st_size == 0:
+                target.unlink()
+        raise
+    return True
 
 
 def _error_of(error: OSError, path: Path) -> AppError:
@@ -475,6 +569,9 @@ def _error_of(error: OSError, path: Path) -> AppError:
         code = ErrorCode.PERMISSION_DENIED
     elif error.errno in _FULL:
         code = ErrorCode.DISK_FULL
+    elif error.errno in _UNSUPPORTED:
+        # The volume cannot do this. That never means its folder cannot be reached.
+        code = ErrorCode.INTERNAL
     else:
         code = ErrorCode.FOLDER_UNAVAILABLE
     return AppError(code, {"file": str(path), "reason": str(error)})

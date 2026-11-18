@@ -27,6 +27,9 @@ from ytmirror.services.channels import NewChannel
 
 pytestmark = pytest.mark.media
 
+PLENTY_OF_ROOM = 500 * 10**9
+"""The free space the disk guard sees, so the test never depends on this Mac's disk (R-QU-10)."""
+
 FAKE_YOUTUBE = Path(__file__).resolve().parents[4] / "e2e" / "fixtures" / "youtube"
 
 
@@ -60,7 +63,7 @@ def app(paths: AppPaths, tmp_path: Path) -> Container:
 
     container = build_container(
         dataclasses.replace(paths, fake_youtube=FAKE_YOUTUBE, tool_dir=ffmpeg_dir().parent),
-        files=MacFileSystem(trash=to_trash),
+        files=MacFileSystem(trash=to_trash, free_bytes=lambda: PLENTY_OF_ROOM),
     )
     container.schema.bring_up_to_date()
     return container

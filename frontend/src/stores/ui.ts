@@ -9,7 +9,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { ApiError, type ErrorCode, type KeptFile } from '@/api/client'
+import { ApiError, type ErrorCode, type KeptFile, type MenuCommand } from '@/api/client'
 
 const UNKNOWN_ERROR: ErrorCode = 'INTERNAL'
 
@@ -42,6 +42,12 @@ export const useUiStore = defineStore('ui', () => {
   const removeChannelId = ref<string | null>(null)
   /** The channel whose menu is open, and where. */
   const menu = ref<MenuPlace | null>(null)
+  /** Whether the list of keyboard shortcuts is open (R-UI-13, design: Shortcuts.html). */
+  const shortcutsOpen = ref(false)
+  /** Runs the commands of the menu bar while the shell is shown (D-094). */
+  let commandRunner: ((command: MenuCommand) => void) | null = null
+  /** Whether the app waits for the answer to "Quit yt-mirror?" (R-QU-12). */
+  const quitAsked = ref(false)
   /** The channel that was added before and was opened instead of added again (R-CH-04). */
   const existingChannelId = ref<string | null>(null)
   /** The code of the last action that failed, until the user dismisses it (R-ER-02). */
@@ -133,10 +139,32 @@ export const useUiStore = defineStore('ui', () => {
     }
   }
 
+  /**
+   * Run the commands of the menu bar with this function, one by one as they arrive (D-094).
+   * Returns a function that stops it.
+   */
+  function runCommandsWith(runner: (command: MenuCommand) => void): () => void {
+    commandRunner = runner
+    return () => {
+      if (commandRunner === runner) {
+        commandRunner = null
+      }
+    }
+  }
+
+  /** Take a command of the menu bar. Without a shell to run it, it is dropped. */
+  function receiveCommand(command: MenuCommand): void {
+    commandRunner?.(command)
+  }
+
   return {
     addChannelText,
     removeChannelId,
     menu,
+    shortcutsOpen,
+    runCommandsWith,
+    receiveCommand,
+    quitAsked,
     existingChannelId,
     actionError,
     filesLeft,

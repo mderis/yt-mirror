@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ytmirror.adapters.db.engine import for_reading
 from ytmirror.adapters.db.job_repository import DOWNLOAD_FIELDS
 from ytmirror.adapters.db.tables import ChannelRow, VideoEventRow, VideoRow
-from ytmirror.core.catalogue import CheckChanges
+from ytmirror.core.catalogue import CHECK_CHANNEL_FIELDS, CheckChanges
 from ytmirror.core.channels import (
     Channel,
     ChannelTotals,
@@ -73,14 +73,24 @@ class SqlCatalogueRepository:
         with Session(self._engine) as session, session.begin():
             session.add(ChannelRow(**_values_of(channel), created_at=now, updated_at=now))
 
-    def save_channel(self, channel: Channel) -> None:
-        """Store the current values of a channel that was added before.
+    def update_channel(self, channel_id: str, **fields: object) -> bool:
+        """Change some columns of a stored channel, and nothing else.
 
         Args:
-            channel: The channel as it is now.
+            channel_id: The channel.
+            **fields: The columns and their new values.
+
+        Returns:
+            False when the channel is not stored (any more).
+
+        Raises:
+            ValueError: For a name that is not a column a writer may change.
         """
+        unknown = set(fields) - _CHANNEL_FIELDS
+        if unknown:
+            raise ValueError(f"not a field of a channel: {sorted(unknown)}")
         with Session(self._engine) as session, session.begin():
-            self._save_channel(session, channel)
+            return self._update_channel(session, channel_id, fields)
 
     def remove_channel(self, channel_id: str) -> None:
         """Remove a channel and its whole catalogue (R-CH-32).
@@ -126,6 +136,52 @@ class SqlCatalogueRepository:
             row = session.get(VideoRow, video_id)
             return None if row is None else _video_of(row)
 
+    def videos_by_id(self, video_ids: Sequence[str]) -> Mapping[str, Video]:
+        """Return the videos with these IDs, by ID. An unknown ID is left out.
+
+        Args:
+            video_ids: The video IDs.
+        """
+        found: dict[str, Video] = {}
+        ids = list(video_ids)
+        with Session(self._reader) as session:
+            for start in range(0, len(ids), _CHUNK):
+                rows = session.scalars(
+                    select(VideoRow).where(VideoRow.id.in_(ids[start : start + _CHUNK]))
+                )
+                found.update((row.id, _video_of(row)) for row in rows)
+        return found
+
+    def videos_with_status(self, status: VideoStatus) -> tuple[Video, ...]:
+        """Return the videos of every channel that have a status, newest failure first.
+
+        Args:
+            status: The status.
+        """
+        with Session(self._reader) as session:
+            rows = session.scalars(
+                select(VideoRow)
+                .where(VideoRow.status == status.value)
+                .order_by(VideoRow.last_error_at.desc(), VideoRow.id)
+            )
+            return tuple(_video_of(row) for row in rows)
+
+    def count_with_status(self, status: VideoStatus) -> int:
+        """Return how many videos of every channel have a status.
+
+        Args:
+            status: The status.
+        """
+        with Session(self._reader) as session:
+            return (
+                session.scalar(
+                    select(func.count())
+                    .select_from(VideoRow)
+                    .where(VideoRow.status == status.value)
+                )
+                or 0
+            )
+
     def owners_of(self, video_ids: Sequence[str], *, other_than: str) -> Mapping[str, str]:
         """Return which of the videos belong to another channel, with that channel (R-CH-17).
 
@@ -157,7 +213,8 @@ class SqlCatalogueRepository:
         """
         now = self._now()
         with Session(self._engine) as session, session.begin():
-            if not self._save_channel(session, channel):
+            owned = {name: getattr(channel, name) for name in CHECK_CHANNEL_FIELDS}
+            if not self._update_channel(session, channel.id, owned):
                 return False
             taken = _ids_of_other_channels(session, channel.id, changes.inserted)
             fresh = [
@@ -297,12 +354,15 @@ class SqlCatalogueRepository:
                 )
             }
 
-    def _save_channel(self, session: Session, channel: Channel) -> bool:
-        row = session.get(ChannelRow, channel.id)
+    def _update_channel(
+        self, session: Session, channel_id: str, fields: Mapping[str, object]
+    ) -> bool:
+        row = session.get(ChannelRow, channel_id)
         if row is None:
             return False
         changed = False
-        for name, value in _values_of(channel).items():
+        for name, given in fields.items():
+            value = getattr(given, "value", given)
             if getattr(row, name) != value:
                 setattr(row, name, value)
                 changed = True
@@ -312,6 +372,10 @@ class SqlCatalogueRepository:
 
     def _now(self) -> int:
         return int(self._clock.now().timestamp())
+
+
+_CHANNEL_FIELDS = frozenset(field.name for field in dataclasses.fields(Channel)) - {"id"}
+"""The columns of a channel a writer may change; its ID never changes."""
 
 
 def _ids_of_other_channels(session: Session, channel_id: str, videos: Sequence[Video]) -> set[str]:
@@ -376,6 +440,8 @@ def _channel_of(row: ChannelRow) -> Channel:
         position=row.position,
         folder_created=row.folder_created,
         check_retries=row.check_retries,
+        missing_left=row.missing_left,
+        auto_mirror_asked=row.auto_mirror_asked,
     )
 
 
@@ -415,4 +481,5 @@ def _video_of(row: VideoRow) -> Video:
         placing_file=row.placing_file,
         rename_from=row.rename_from,
         rename_to=row.rename_to,
+        replacing=row.replacing,
     )

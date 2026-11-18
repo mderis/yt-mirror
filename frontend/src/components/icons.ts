@@ -17,6 +17,8 @@ export const ICONS = {
   plus: ['M12 5v14', 'M5 12h14'],
   folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
+  /** The handle of something that can be dragged into another place. */
+  grip: ['M9 6h.01', 'M15 6h.01', 'M9 12h.01', 'M15 12h.01', 'M9 18h.01', 'M15 18h.01'],
   close: ['M6 6l12 12', 'M18 6L6 18'],
   pause: ['M9 5v14', 'M15 5v14'],
   resume: ['M7 5l12 7-12 7z'],
@@ -30,6 +32,10 @@ export const ICONS = {
   stop: ['M6 6h12v12H6z'],
   play: ['M8 5l11 7-11 7z'],
   reveal: ['M11 4a7 7 0 1 0 0 14a7 7 0 0 0 0-14z', 'M20 20l-4-4'],
+  chevron: ['M6 9l6 6 6-6'],
+  list: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
+  grid: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
+  search: ['M11 4a7 7 0 1 0 0 14a7 7 0 0 0 0-14z', 'M20 20l-4-4'],
 } as const
 
 /** The name of an icon of the set. */

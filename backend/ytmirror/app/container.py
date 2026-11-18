@@ -9,6 +9,7 @@ Tests: backend/tests/integration/app/test_container.py
 
 import os
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +54,8 @@ from ytmirror.ports.native_app import NativeApp
 from ytmirror.ports.system_probe import SystemProbe
 from ytmirror.ports.tool_box import ToolBox
 from ytmirror.ports.youtube_gateway import YouTubeGateway
+from ytmirror.services.auto_mirror import AutoMirrorService
+from ytmirror.services.auto_mirror_state import AutoMirrorState
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService
@@ -63,13 +66,16 @@ from ytmirror.services.download_state import DownloadState
 from ytmirror.services.downloader import DownloaderService
 from ytmirror.services.events import EventBus
 from ytmirror.services.job_logs import JobLogsService
+from ytmirror.services.queue import QueueService
 from ytmirror.services.repair import RepairService
 from ytmirror.services.scheduler import Scheduler
 from ytmirror.services.schema import SchemaService
 from ytmirror.services.settings import SettingsService
+from ytmirror.services.speed_limit import SpeedLimit
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.toolchain import ToolchainService
+from ytmirror.services.ui_bridge import UiBridge
 from ytmirror.services.youtube_access import YouTubeAccess
 
 
@@ -95,7 +101,10 @@ class Container:
         channels: Looks channels up, adds, pauses and removes them.
         state: The snapshot of the app for the window.
         videos: Reads the catalogue of a channel.
-        downloader: Downloads videos, one job after another (milestone M3).
+        downloader: Downloads videos, as many at once as the setting allows (R-QU-01).
+        queue: The queue as the downloads panel shows it (R-QU-02).
+        auto_mirror: Queues the videos of channels with auto-mirror on (R-MI-02).
+        ui: The state the interface reports for the menu bar, and the quit question (D-094).
         job_logs: Deletes the logs of jobs that are no longer kept.
         dates: Looks up exact dates in the background, and keeps the API key.
         scheduler: Starts checks by themselves and runs the exact-date fetch.
@@ -121,6 +130,9 @@ class Container:
     state: StateService
     videos: SqlCatalogueRepository
     downloader: DownloaderService
+    queue: QueueService
+    auto_mirror: AutoMirrorService
+    ui: UiBridge
     job_logs: JobLogsService
     dates: DatesService
     scheduler: Scheduler
@@ -246,6 +258,7 @@ def build_container(
     downloads = DownloadState()
     date_repository = SqlDateRepository(engine, used_clock)
     date_state = DateFetchState()
+    auto_mirror_state = AutoMirrorState()
     views = ChannelViews(
         repository,
         settings,
@@ -255,6 +268,7 @@ def build_container(
         downloads=downloads,
         dates=date_state,
         fetch_states=date_repository.fetch_states,
+        auto_mirror=auto_mirror_state,
     )
     thumbnails = ThumbnailService(
         repository, youtube, FileImageCache(paths.cache_dir), views, _in_a_thread
@@ -275,10 +289,16 @@ def build_container(
         channels.write_channel_file(channel_id)
         # Renames and date repair need no listing (R-CH-28, R-FN-06, R-DT-09).
         repair.after_check(channel_id)
+        # A drive that came back: what earlier runs left there is cleaned up (R-QA-06).
+        downloader.tidy(channel_id)
+        # Auto-mirror queues what is new, after every check (R-MI-02).
+        auto_mirror.run(channel_id)
         # New videos wait for their exact dates (ARCHITECTURE 7.1 step 9).
         dates.wake()
 
     jobs = SqlJobRepository(engine, used_clock)
+    # One lock for renames, date repairs and the swap of a re-download (R-FN-06, D-093).
+    files_lock = threading.RLock()
     media = FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe"))
     downloader = DownloaderService(
         repository=repository,
@@ -294,11 +314,21 @@ def build_container(
         new_job_id=lambda: str(ULID()),
         job_logs=paths.logs_dir / JOB_LOG_FOLDER,
         run_in_background=_in_a_thread,
+        call_later=_later,
+        speed=SpeedLimit(
+            lambda: settings.current().speed_limit_mbps, used_clock.monotonic, time.sleep
+        ),
+        file_lock=files_lock,
         stop_tools=lambda: _stop_tools(used_children, used_tool_box),
         stop_job_tools=lambda folder: _stop_tools(used_children, used_tool_box, folder),
     )
     repair = RepairService(
-        repository=repository, files=used_files, media=media, views=views, settings=settings
+        repository=repository,
+        files=used_files,
+        media=media,
+        views=views,
+        settings=settings,
+        lock=files_lock,
     )
     channels = ChannelsService(
         repository,
@@ -313,7 +343,15 @@ def build_container(
         _in_a_thread,
         close_downloads=downloader.channel_closed,
         media=media,
+        paused_downloads=lambda channel_id, paused: _paused(channel_id, paused),
     )
+
+    def _paused(channel_id: str, paused: bool) -> None:
+        # A paused channel's downloads stop; a resumed one's go on (R-CH-31).
+        downloader.channel_paused(channel_id, paused=paused)
+        if not paused:
+            auto_mirror.run(channel_id)
+
     secrets = Secrets()
     dates = DatesService(
         dates=date_repository,
@@ -328,9 +366,28 @@ def build_container(
         register_secret=secrets.register,
         tell_video=views.tell_video,
         tell_channel=views.publish,
-        found_exact=lambda video_id: repair.repair_video(video_id),
+        found_exact=lambda video_id: _found_exact(video_id),
         look_up=pace != 0,
     )
+    auto_mirror = AutoMirrorService(
+        repository=repository,
+        jobs=jobs,
+        downloader=downloader,
+        views=views,
+        settings=settings,
+        clock=used_clock,
+        state=auto_mirror_state,
+        prioritize=dates.prioritize,
+    )
+
+    def _found_exact(video_id: str) -> None:
+        # A synced file gets the exact date (R-DT-10); a decision that waited is taken (R-MI-03).
+        repair.repair_video(video_id)
+        video = repository.video(video_id)
+        channel = None if video is None else repository.channel(video.channel_id)
+        if channel is not None and channel.auto_mirror and channel.mirror_after is not None:
+            auto_mirror.run(channel.id)
+
     state = StateService(
         views,
         settings,
@@ -340,12 +397,19 @@ def build_container(
         youtube,
         api_key=dates.key_state,
         channel_opened=lambda channel_id: _channel_opened(channel_id),
+        queue=downloader.queue_summary,
     )
 
     def _channel_opened(channel_id: str) -> None:
         # A check when the last is old (R-CH-21), and the files looked for (R-MI-06).
         scheduler.channel_selected(channel_id)
-        _in_a_thread(lambda: repair.channel_opened(channel_id))
+
+        def look_at_files() -> None:
+            repair.channel_opened(channel_id)
+            # A drive that came back: what earlier runs left there is cleaned up (R-QA-06).
+            downloader.tidy(channel_id)
+
+        _in_a_thread(look_at_files)
 
     scheduler = Scheduler(
         catalogue=catalogue,
@@ -376,6 +440,9 @@ def build_container(
         state=state,
         videos=repository,
         downloader=downloader,
+        queue=QueueService(repository, jobs, downloads, downloader.queue_summary),
+        auto_mirror=auto_mirror,
+        ui=UiBridge(events, downloader.downloading_now),
         job_logs=JobLogsService(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),
@@ -413,10 +480,23 @@ def _stop_tools(children: ChildProcesses, tools: ToolBox, job: Path | None = Non
 
 
 def _file_system(paths: AppPaths) -> FileSystem:
-    """Return the file system of macOS, with a folder of its own as the Trash when tests ask."""
+    """Return the file system of macOS, with test stand-ins when tests ask.
+
+    A folder of its own stands for the Trash, and a file for the free space of every disk.
+    """
     trash_dir = paths.trash_dir
+    free_file = paths.fake_free_space_file
+
+    def free_bytes() -> int | None:
+        if free_file is None:
+            return None
+        try:
+            return int(free_file.read_text(encoding="utf-8").strip())
+        except OSError, ValueError:
+            return None
+
     if trash_dir is None:
-        return MacFileSystem()
+        return MacFileSystem(free_bytes=free_bytes)
 
     def to_folder(path: Path) -> None:
         trash_dir.mkdir(parents=True, exist_ok=True)
@@ -427,7 +507,7 @@ def _file_system(paths: AppPaths) -> FileSystem:
             target = trash_dir / f"{path.name} {number}"
         path.rename(target)
 
-    return MacFileSystem(trash=to_folder)
+    return MacFileSystem(trash=to_folder, free_bytes=free_bytes)
 
 
 def _exact_date_source(gateway: YouTubeGateway) -> ExactDateSource:

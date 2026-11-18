@@ -10,7 +10,15 @@
  * place (R-QU-02; Main.html shows no Cancel while processing), Retry a failed one
  * still on YouTube (R-QU-08, R-CH-14), Play
  * and Show in Finder a synced one (R-UI-10). The title opens the details
- * (R-UI-08). Selecting several videos arrives with milestone M5.
+ * (R-UI-08). Its checkbox selects it, with Shift a range (R-MI-07); its menu
+ * opens by a right-click and by "More actions" (R-UI-09). In the grid it is a
+ * card (R-UI-03).
+ *
+ * A download that waits for room in the lookup budget says until when
+ * (R-DT-06, D-090), one that failed in a way that passes when it is tried again
+ * (R-QU-07). A synced file below the quality of its channel is marked
+ * (R-QL-07); while it is downloaded again it stays synced and shows the
+ * progress (R-QL-06, D-093).
  *
  * A thumbnail that is not cached yet is asked for again, once, each time
  * more pictures of the channel are cached (R-CH-16). Only a row whose
@@ -22,30 +30,64 @@ import { useI18n } from 'vue-i18n'
 
 import { pictures, type Video } from '@/api/client'
 import AppButton from '@/components/AppButton.vue'
+import AppCheckbox from '@/components/AppCheckbox.vue'
 import DateLabel from '@/components/DateLabel.vue'
 import IconButton from '@/components/IconButton.vue'
 import ProgressBar from '@/components/ProgressBar.vue'
 import StatusChip from '@/components/StatusChip.vue'
+import VideoCard from '@/components/VideoCard.vue'
 import VideoRow from '@/components/VideoRow.vue'
-import { formatBytes, formatBytesOf, roughTime } from '@/format'
+import { formatBytes, formatBytesOf, formatTime, roughTime } from '@/format'
+import { clock } from '@/format/clock'
 import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
 import { useVideosStore } from '@/stores/videos'
+import { useViewStore } from '@/stores/view'
 
+import VideoMenu from './VideoMenu.vue'
 import { useDateOf, type VideoListRow } from './videoRows'
 
-const props = defineProps<{
-  /** The video and its texts, as the list was loaded. */
-  row: VideoListRow
-  /** The channel of the video. */
-  channelId: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** The video and its texts, as the list was loaded. */
+    row: VideoListRow
+    /** The channel of the video. */
+    channelId: string
+    /** Whether it is drawn as a card of the grid (R-UI-03). */
+    grid?: boolean
+  }>(),
+  { grid: false },
+)
 
 const { t, te } = useI18n()
 const channels = useChannelsStore()
 const videos = useVideosStore()
 const ui = useUiStore()
+const view = useViewStore()
 const dateOf = useDateOf()
+
+/** The menu of the video, while it is open: at the pointer, or under its button. */
+const menu = ref<{ at?: { x: number; y: number } } | null>(null)
+const selected = computed(() => view.selected.has(props.row.video.id))
+/** Whether the arrow keys are on this video (R-UI-13). */
+const current = computed(() => view.cursor === props.row.video.id)
+
+/** The waiting download is paced by the lookup budget, until this time (D-090). */
+const pacedText = computed(() =>
+  video.value.paced_until
+    ? t('channel.list.paced', { time: formatTime(video.value.paced_until, clock.timeZone) })
+    : null,
+)
+/** A failure that passes is tried again at this time (R-QU-07). */
+const retryText = computed(() =>
+  video.value.retry_at && video.value.status === 'queued'
+    ? t('channel.list.retryAt', { time: formatTime(video.value.retry_at, clock.timeZone) })
+    : null,
+)
+/** A synced video that is downloaded again: it stays synced meanwhile (D-093). */
+const redownloading = computed(
+  () => video.value.status === 'synced' && Boolean(video.value.job_id) && !cancelling.value,
+)
 
 /** The video as it is now. */
 const video = computed<Video>(() => videos.current(props.row.video))
@@ -81,7 +123,8 @@ const downloadingText = computed(() => {
  */
 const progressFacts = computed(() => {
   const running = download.value
-  if (running === null || video.value.status !== 'downloading' || cancelling.value) {
+  const busy = video.value.status === 'downloading' || redownloading.value
+  if (running === null || !busy || cancelling.value) {
     return null
   }
   const parts: string[] = []
@@ -144,18 +187,31 @@ function cancel(): void {
 </script>
 
 <template>
-  <VideoRow
+  <component
+    :is="grid ? VideoCard : VideoRow"
     :title="video.title"
     :thumbnail="thumbnail"
     :duration="row.duration"
     :new-tag="video.is_new ? t('channel.list.newTag') : undefined"
     :details-label="t('channel.list.details', { title: video.title })"
     :open="isOpen"
+    :selected="selected"
+    :current="current"
+    :data-current="current || undefined"
     :data-video="video.id"
     :data-status="video.status"
     @picture-missing="onPictureMissing"
     @details="ui.run(videos.openDetails(video.id))"
+    @menu="(at: { x: number; y: number }) => (menu = { at })"
   >
+    <template #select>
+      <AppCheckbox
+        :model-value="selected"
+        :label="t('channel.list.select', { title: video.title })"
+        hide-label
+        @pick="(on: boolean, shift: boolean) => view.pick(video.id, on, shift, view.order)"
+      />
+    </template>
     <template #facts>
       <DateLabel
         :text="date.text"
@@ -179,10 +235,22 @@ function cancel(): void {
         <span aria-hidden="true">{{ t('app.separator') }}</span>
         <span class="text-err-text" data-reason>{{ reason }}</span>
       </template>
+      <template v-if="pacedText">
+        <span aria-hidden="true">{{ t('app.separator') }}</span>
+        <span data-paced>{{ pacedText }}</span>
+      </template>
+      <template v-else-if="retryText">
+        <span aria-hidden="true">{{ t('app.separator') }}</span>
+        <span data-retry-at>{{ retryText }}</span>
+      </template>
     </template>
     <template #progress>
       <ProgressBar
-        v-if="(video.status === 'downloading' || video.status === 'processing') && !cancelling"
+        v-if="
+          (video.status === 'downloading' || video.status === 'processing' || redownloading) &&
+          !cancelling &&
+          (video.status !== 'synced' || download !== null)
+        "
         class="mt-1 max-w-90"
         thin
         :value="video.status === 'processing' ? null : (download?.fraction ?? null)"
@@ -206,6 +274,16 @@ function cancel(): void {
         <StatusChip v-else-if="video.status === 'processing'" tone="progress" icon="retry">
           {{ t('channel.list.processing') }}
         </StatusChip>
+        <StatusChip v-else-if="redownloading && download" tone="progress" icon="download">
+          {{
+            percent === null
+              ? t('channel.list.redownloadingStarting')
+              : t('channel.list.redownloading', { percent })
+          }}
+        </StatusChip>
+        <StatusChip v-else-if="redownloading" tone="neutral" icon="clock">
+          {{ t('channel.list.redownloadQueued') }}
+        </StatusChip>
         <StatusChip v-else-if="video.status === 'synced'" tone="ok" icon="check">
           {{
             video.height
@@ -221,6 +299,9 @@ function cancel(): void {
         </StatusChip>
         <StatusChip v-if="video.gone" tone="progress" icon="warning">
           {{ t('channel.list.removed') }}
+        </StatusChip>
+        <StatusChip v-if="video.below_target" tone="neutral" icon="warning" data-below-target>
+          {{ t('channel.list.belowTarget') }}
         </StatusChip>
       </div>
     </template>
@@ -250,7 +331,8 @@ function cancel(): void {
           v-else-if="
             (video.status === 'queued' ||
               video.status === 'downloading' ||
-              video.status === 'processing') &&
+              video.status === 'processing' ||
+              redownloading) &&
             video.job_id
           "
           variant="ghost"
@@ -272,7 +354,16 @@ function cancel(): void {
             @press="ui.run(videos.reveal(video.id))"
           />
         </template>
+        <!-- A press on the button must not count as a click beside the menu, which closes it. -->
+        <div class="relative" @mousedown.stop>
+          <IconButton
+            icon="more"
+            :label="t('channel.list.moreActions', { title: video.title })"
+            @press="menu = menu ? null : {}"
+          />
+          <VideoMenu v-if="menu" :video="video" :at="menu.at" @close="menu = null" />
+        </div>
       </div>
     </template>
-  </VideoRow>
+  </component>
 </template>

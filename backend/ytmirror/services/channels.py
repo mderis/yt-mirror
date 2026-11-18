@@ -10,7 +10,7 @@ Tests: backend/tests/unit/services/test_channels.py
 import threading
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
@@ -210,6 +210,7 @@ class ChannelsService:
         ),
         *,
         media: MediaTools,
+        paused_downloads: Callable[[str, bool], None] = lambda _channel_id, _paused: None,
     ) -> None:
         """Create the service.
 
@@ -227,12 +228,15 @@ class ChannelsService:
             close_downloads: Cancels the downloads of a channel, waits for them to
                 end, and lets no new one start while the channel is removed.
             media: Reads the video ID inside a file before it goes to the Trash.
+            paused_downloads: Told when a channel is paused or resumed: its downloads
+                stop or go on (R-CH-31).
         """
         self._repository = repository
         self._youtube = youtube
         self._files = files
         self._picker = picker
         self._close_downloads = close_downloads
+        self._paused_downloads = paused_downloads
         self._media = media
         self._settings = settings
         self._views = views
@@ -374,6 +378,9 @@ class ChannelsService:
             quality=new.quality,
             auto_mirror=new.auto_mirror,
             mirror_after=new.mirror_after,
+            # Added with auto-mirror, it is asked before a large start after its first
+            # listing: the add dialog shows no size (D-095).
+            auto_mirror_asked=not new.auto_mirror,
             position=1 + max((other.position for other in self._repository.channels()), default=-1),
         )
         self._repository.add_channel(channel)
@@ -414,12 +421,13 @@ class ChannelsService:
         """
         channel = self._known(channel_id)
         if channel.paused != paused:
-            self._repository.save_channel(replace(channel, paused=paused))
+            self._repository.update_channel(channel.id, paused=paused)
             _log.info(
                 "channel.paused" if paused else "channel.resumed",
                 msg="Channel paused" if paused else "Channel resumed",
                 channel_id=channel_id,
             )
+            self._paused_downloads(channel_id, paused)
             if paused:
                 self._catalogue.forget(channel_id)
             elif channel.first_listed_at is None:

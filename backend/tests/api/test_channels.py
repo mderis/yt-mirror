@@ -632,3 +632,26 @@ def test_repair_dates_of_an_unknown_channel_is_not_found(client: TestClient) -> 
     answer = client.post("/api/channels/UCnothereatallnothere001/repair-dates")
 
     assert answer.status_code == 404
+
+
+def test_auto_mirror_is_turned_on_and_answered_through_the_api(api: Api) -> None:
+    """R-MI-02, R-MI-04, D-095: the toggle, the answer and "Mirror everything missing"."""
+    assert api.world is not None
+    api.world.add_and_list()
+    client = api.signed_in_client()
+
+    turned_on = client.put(f"/api/channels/{SMALL_ID}/auto-mirror", json={"on": True}).json()
+    assert turned_on["auto_mirror"] is True
+    assert turned_on["auto_mirror_question"] is None  # 5 videos start without a question
+
+    turned_off = client.put(f"/api/channels/{SMALL_ID}/auto-mirror", json={"on": False}).json()
+    assert turned_off["auto_mirror"] is False
+    answered = client.post(
+        f"/api/channels/{SMALL_ID}/auto-mirror/answer", json={"answer": "turn_off"}
+    )
+    assert answered.status_code == 200
+    client.post("/api/queue/clear-waiting")
+    jobs = client.post(f"/api/channels/{SMALL_ID}/mirror-missing").json()["jobs"]
+    assert len(jobs) == 5
+    left = client.post(f"/api/channels/{SMALL_ID}/missing/leave").json()
+    assert left["missing_held"] is None

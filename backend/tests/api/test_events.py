@@ -268,3 +268,31 @@ def test_a_download_reaches_the_window_as_video_updates_and_progress(
     assert channels[0]["status"] == "mirroring"  # type: ignore[index]
     assert channels[0]["mirroring"] == {"done": 0, "total": 1}  # type: ignore[index]
     assert channels[-1]["status"] == "up_to_date"  # type: ignore[index]
+
+
+def test_the_queue_reaches_the_window_when_it_changes(
+    client: TestClient, bus: WatchedBus, tmp_path: Path
+) -> None:
+    """R-FB-03, R-QU-02: the queue bar hears how the queue stands after each change."""
+    folder = tmp_path / "queue-world"
+    folder.mkdir()
+    world = World(folder, bus=bus)
+    world.add_and_list()
+    stream = Stream(client, bus)
+
+    world.downloader.mirror(["sm000000005"])
+    bus.close()
+
+    queues = [data["queue"] for name, data in stream.events() if name == "queue.updated"]
+    assert queues == [
+        {
+            "downloading": 0,
+            "waiting": 1,
+            "failed": 0,
+            "paused": False,
+            "places": 2,
+            "speed_limit_mbps": 0,
+            "disk_guard": None,
+            "folders_away": [],
+        }
+    ]

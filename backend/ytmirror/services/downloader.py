@@ -6,24 +6,29 @@ R-FN-01 to R-FN-05 (the file name), R-MD-01 to R-MD-05 (metadata, subtitles,
 thumbnails), R-DT-01, R-DT-07, R-DT-10 (the file dates), R-LG-02 (the job ID
 in every log line) and R-LG-03 (every status change recorded).
 
-Jobs wait in one line and are taken in the order of their priority. The
-worker is built so that more than one can run (R-QU-01, milestone M5): a
-worker takes the next job under a lock, and everything about a job is kept
-by its ID. Milestone M3 runs one worker.
+Jobs wait in one line and are taken in the order of their priority. As many
+run at once as the setting "Parallel downloads" allows (R-QU-01): each worker
+takes the next job under one lock, and everything about a job is kept by its
+ID. A download cancelled while it only asks YouTube takes no place among them:
+its worker is replaced at once, and ends when YouTube's answer comes (R-QU-02).
 
 Cancel ends a download at its next step. A download is past the point of no
 return once its file is moved into the channel folder: then it ends synced.
-After a cancel, a failure or a quit, nothing of the job is left but its log:
-its temp folder is deleted, and no file of another video is touched.
+After a cancel or a failure, nothing of the job is left but its log: its temp
+folder is deleted, and no file of another video is touched. A quit, a crash,
+"Pause all" and YouTube's "not a bot" check stop a download instead: it goes
+back in line with its temp folder, and continues from its partial files the
+next time it runs (R-QU-05, R-QU-06, D-091).
 
 Tests: backend/tests/unit/services/test_downloader.py,
+backend/tests/unit/services/test_downloader_queue.py,
 backend/tests/integration/test_download_end_to_end.py
 """
 
 import json
 import threading
 from collections.abc import Callable, Generator, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
@@ -46,17 +51,32 @@ from ytmirror.core.jobs import (
     JobProgress,
     JobProgressed,
     JobState,
+    ReplaceStep,
+    ReplaceWay,
+    Replacing,
     Stage,
     SubtitlesFailedError,
+    VideosChanged,
     VideoUpdated,
 )
 from ytmirror.core.media import MediaFacts, verification_problem
 from ytmirror.core.naming import HIDDEN_DIR, TEMP_DIR, video_file_name
 from ytmirror.core.quality import effective_quality
+from ytmirror.core.queue import (
+    GB,
+    HAND_JOBS_PER_ACTION,
+    RETRY_DELAYS_S,
+    DiskGuardPause,
+    QueueChanged,
+    QueueSummary,
+    priorities_first,
+    priorities_in_order,
+    retry_delay,
+)
 from ytmirror.core.status import InvalidTransitionError, StatusChange, change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
-from ytmirror.ports.file_system import JOB_ID, FileSystem
+from ytmirror.ports.file_system import JOB_ID, FileSystem, SwapNotSupportedError
 from ytmirror.ports.job_repository import JobRepository
 from ytmirror.ports.media_tools import MediaTools
 from ytmirror.services.channel_views import ChannelViews
@@ -64,7 +84,8 @@ from ytmirror.services.download_state import DownloadState
 from ytmirror.services.events import EventBus
 from ytmirror.services.repair import verify_dates
 from ytmirror.services.settings import SettingsService
-from ytmirror.services.youtube_access import YouTubeAccess
+from ytmirror.services.speed_limit import SpeedLimit
+from ytmirror.services.youtube_access import CallLater, YouTubeAccess
 
 _log: FilteringBoundLogger = structlog.get_logger(__name__)
 
@@ -73,7 +94,17 @@ PROGRESS_EVERY_S = 0.25
 
 MIRRORABLE = frozenset({VideoStatus.NOT_DOWNLOADED, VideoStatus.FILE_MISSING})
 
+LONGEST_WAIT_S = 60.0
+"""The longest a worker waits before it looks again whether a paced download may start."""
+
+DISK_CHECK_S = 5.0
+"""How often a running download looks at the free space of its disk (R-QU-10)."""
+
 _GONE = "removed from YouTube"
+_WRITE_AT_ONCE = 500
+"""How many new jobs of one action are stored in one transaction."""
+_TELL_EACH_AT_MOST = 20
+"""Up to this many changed videos of a channel are told one by one; more are one summary."""
 """The reason a queued download of a video removed from YouTube ends (R-CH-14)."""
 """The statuses from which "Mirror" puts a video in line (ARCHITECTURE section 6.1)."""
 
@@ -147,7 +178,9 @@ class DownloaderService:
         new_job_id: Callable[[], str],
         job_logs: Path,
         run_in_background: Callable[[Callable[[], None]], None],
-        workers: int = 1,
+        call_later: CallLater,
+        speed: SpeedLimit | None = None,
+        file_lock: AbstractContextManager[object] | None = None,
         stop_tools: Callable[[], None] = lambda: None,
         stop_job_tools: Callable[[Path], None] = lambda _folder: None,
     ) -> None:
@@ -167,7 +200,12 @@ class DownloaderService:
             new_job_id: Gives a new ULID for each job.
             job_logs: The folder of the logs of jobs.
             run_in_background: Runs a worker without blocking.
-            workers: How many downloads run at once. One in milestone M3.
+            call_later: Runs work after a delay: the last progress report that
+                came too soon after the one before (R-QU-04).
+            speed: The limit of all downloads together (R-QU-03). None: unlimited.
+            file_lock: Held while a synced file is renamed or its dates repaired; a
+                re-download holds it while it swaps its file in, so a rename between
+                its start and its end is never undone (R-FN-06).
             stop_tools: Stops the ffmpeg and the other tools the app started,
                 when the app quits (R-PL-13).
             stop_job_tools: Stops the ffmpeg of one job, by its temp folder,
@@ -188,17 +226,50 @@ class DownloaderService:
         self._run_in_background = run_in_background
         self._stop_tools = stop_tools
         self._stop_job_tools = stop_job_tools
+        self._call_later = call_later
+        self._speed = speed
+        self._file_lock: AbstractContextManager[object] = (
+            file_lock if file_lock is not None else threading.RLock()
+        )
         self._work_of: dict[str, Path] = {}
-        self._workers = workers
+        self._folders: dict[str, Path] = {}
+        """The channel folder of each running job, for the disk space guard."""
+        self._arrived: dict[str, int] = {}
+        """How many bytes each running job had told, for the speed limit."""
+        self._disk_checked: dict[str, float] = {}
+        self._guard: DiskGuardPause | None = None
+        """The pause of the disk space guard, or None (R-QU-10)."""
+        self._guard_ignored: set[str] = set()
+        """Disks the user resumed anyway: the guard leaves them until they had room again."""
+        self._folders_away: set[str] = set()
+        """Channels whose folder cannot be reached: their downloads wait (R-QU-11)."""
         self._wake = threading.Condition()
+        self._started = False
+        self._workers = 0
+        """How many workers wait for jobs or run one, not counting retired ones."""
+        self._worker_threads: set[int] = set()
+        self._retired: set[int] = set()
+        """Workers whose job was abandoned while it asked YouTube. Each ends with that job."""
+        self._thread_of: dict[str, int] = {}
+        """The thread that runs each running job."""
+        self._side_files = threading.Lock()
+        """Held while side files that waited are written: by one worker at a time."""
+        self._held_reports: dict[str, JobProgress] = {}
+        """The newest progress report of each job that came too soon to be told (R-QU-04)."""
         self._running: dict[str, str] = {}
         """The jobs that run, with the channel of each."""
         self._videos: dict[str, Video] = {}
         """The video of each running job, as it is now."""
         self._cancelled: set[str] = set()
+        """Re-downloads whose temp folder holds the old file after the swap: never removed
+        with it, so a cut-off swap can be undone and the old file goes to the Trash (D-093)."""
+        self._stopping: set[str] = set()
+        """Running jobs that stop and go back in line, keeping their temp folder (D-091)."""
         self._asking: set[str] = set()
         """The running jobs that wait for YouTube and have written no file yet."""
         self._abandoned: set[str] = set()
+        # Automatic jobs a worker took whose lookup the budget has not counted yet (D-090).
+        self._reserved: set[str] = set()
         """Jobs that were cancelled while they waited for YouTube, and ended at once.
 
         Their worker still waits for YouTube's answer; when it comes, it is ignored:
@@ -218,16 +289,26 @@ class DownloaderService:
     # --- the life of the app
 
     def start(self) -> None:
-        """Clean up what a quit left, and start the workers.
+        """Take up what the last run left, and start the workers.
 
-        A job that waited or ran when the app ended is cancelled, its temp
-        folder deleted and its video back to "not downloaded": nothing half
-        written stays (R-QA-06). Milestone M5 resumes these instead (R-QU-05,
-        R-QU-06).
+        Jobs that waited stay in line, in their order (R-QU-06). A job that a
+        crash left running goes back in line with its temp folder, so that it
+        continues from its partial files (R-QU-05, D-091). A file it was moving
+        into the channel folder goes to the Trash when it is that download
+        (R-QA-06).
         """
-        for job in self._jobs.jobs(ACTIVE_STATES):
+        try:
+            self._settle_replacing()
+        except Exception:  # noqa: BLE001  (a cleanup never stops the start)
+            _log.error(
+                "download.failed",
+                msg="A cut-off re-download could not be looked at. The start goes on",
+                error_code=ErrorCode.INTERNAL.value,
+                exc_info=True,
+            )
+        for job in self._jobs.jobs([JobState.RUNNING]):
             try:
-                self._end_left_over(job)
+                self._take_back(job)
             except Exception:  # noqa: BLE001  (one broken job must not stop the start)
                 _log.error(
                     "download.failed",
@@ -238,7 +319,7 @@ class DownloaderService:
                 )
         for cleanup in (self._clean_markers, self._sweep_temp_folders):
             try:
-                cleanup()
+                cleanup(None)
             except Exception:  # noqa: BLE001  (a cleanup never stops the start)
                 _log.error(
                     "download.failed",
@@ -247,66 +328,215 @@ class DownloaderService:
                     exc_info=True,
                 )
         self._retry_side_files_quietly()
+        for job in self._jobs.jobs([JobState.WAITING]):
+            if job.not_before is not None and job.not_before > self._now():
+                self._state.set_retry(job.video_id, job.not_before)
         self._youtube.when_asking_again(self._wake_up)
-        for _ in range(self._workers):
-            self._run_in_background(self._work_until_stopped)
+        with self._wake:
+            self._started = True
+        self._add_workers()
 
     def _wake_up(self) -> None:
         with self._wake:
             self._wake.notify_all()
 
+    def _add_workers(self) -> None:
+        """Start workers until as many run as the setting allows (R-QU-01).
+
+        The setting is read each time, so a change takes effect without a restart:
+        more workers start here, and the ones that are too many end when idle.
+        """
+        with self._wake:
+            if not self._started or self._stopped:
+                return
+            missing = max(0, self._capacity() - self._workers)
+            self._workers += missing
+        for _ in range(missing):
+            self._run_in_background(self._work_until_stopped)
+
+    def _capacity(self) -> int:
+        """How many downloads may run at once (R-QU-01)."""
+        return self._settings.current().parallel_downloads
+
+    def downloading_now(self) -> int:
+        """Return how many downloads run now, from memory, without waiting for anything.
+
+        For the quit question (R-QU-12, D-096), which macOS waits for on the main
+        thread. The lock of the queue is not taken: it is held while the disks are
+        looked at, which can take long on a slow drive. A copy of a dict or a set
+        is taken in one step, so the count is never torn.
+        """
+        running = self._running.copy()
+        abandoned = self._abandoned.copy()
+        return sum(1 for job_id in running if job_id not in abandoned)
+
+    def _busy(self) -> int:
+        """How many places running jobs take. An abandoned lookup takes none (R-QU-02)."""
+        return sum(1 for job_id in self._running if job_id not in self._abandoned)
+
     def stop(self, wait_s: float = 2.0) -> None:
-        """Stop: a running download is cancelled and cleaned up before this returns.
+        """Stop: every running download stops and goes back in line, to continue later.
+
+        A quit is not a cancel (R-QU-02, D-091): each job keeps its temp folder
+        and continues from its partial files at the next start (R-QU-05).
 
         Args:
-            wait_s: How long to wait for a running download to end. The ffmpeg
-                and the other tools the app started are stopped first, so that
-                the job ends at once. The wait is short, so a logout is
-                never held (D-052); a job that has not ended by then is cleaned up
-                at the next start.
+            wait_s: How long to wait, for all of them together. The ffmpeg and the
+                other tools the app started are stopped first, so that the jobs
+                end at once. The wait is short, so a logout is never held (D-052);
+                a job that has not ended by then is taken back at the next start.
+                A job abandoned while it asked YouTube is not waited for.
         """
         with self._wake:
             self._stopped = True
             self._wake.notify_all()
-        # A running ffmpeg step is stopped, so that its job ends and cleans up now.
+        # The running ffmpeg steps are stopped, so that their jobs end now.
         self._stop_tools()
         with self._wake:
-            self._wake.wait_for(lambda: not self._running, timeout=wait_s)
+            self._wake.wait_for(lambda: self._busy() == 0, timeout=wait_s)
 
     def _work_until_stopped(self) -> None:
-        while True:
+        me = threading.get_ident()
+        with self._wake:
+            self._worker_threads.add(me)
+        try:
+            while True:
+                with self._wake:
+                    while not (self._stopped or self._too_many() or self._next_job() is not None):
+                        if not self._wake.wait(timeout=self._wait_for_room_s()):
+                            # Time passed: room in the budget or on the disk may have come back.
+                            self._update_paced()
+                            self.look_at_disks_again()
+                    if self._stopped or self._too_many():
+                        self._workers -= 1
+                        return
+                try:
+                    self.work_once()
+                except Exception:  # noqa: BLE001  (a worker must never die)
+                    # A worker must never die: the queue would stop until the next start.
+                    _log.error(
+                        "download.failed",
+                        msg="A download worker hit an unexpected error and goes on",
+                        error_code=ErrorCode.INTERNAL.value,
+                        exc_info=True,
+                    )
+                with self._wake:
+                    if me in self._retired:
+                        # Its job was abandoned, and another worker took its place.
+                        self._retired.discard(me)
+                        return
+        finally:
             with self._wake:
-                self._wake.wait_for(lambda: self._stopped or self._has_waiting())
-                if self._stopped:
-                    return
-            try:
-                self.work_once()
-            except Exception:  # noqa: BLE001  (the one worker must never die)
-                # The one worker must never die: the queue would stop until the next start.
-                _log.error(
-                    "download.failed",
-                    msg="The download worker hit an unexpected error and goes on",
-                    error_code=ErrorCode.INTERNAL.value,
-                    exc_info=True,
-                )
+                self._worker_threads.discard(me)
 
-    def _has_waiting(self) -> bool:
-        """Whether a job can start now. While YouTube is paused, waiting jobs wait (R-ER-05)."""
-        return self._youtube.pause() is None and bool(self._jobs.jobs([JobState.WAITING]))
+    def _too_many(self) -> bool:
+        """Whether more workers run than the setting allows: one of them ends (R-QU-01)."""
+        return self._workers > self._capacity()
+
+    def _next_job(self) -> Job | None:
+        """The waiting job a worker takes next, or None when none may start now.
+
+        Nothing starts while YouTube is paused (R-ER-05), while all downloads are
+        paused (R-QU-02) or while every place is taken (R-QU-01). A job started by
+        hand starts in its turn; an automatic one only when the lookup budget has
+        room, and while it waits a later job started by hand goes ahead (D-090).
+        A job that a worker took already is never taken twice.
+        """
+        if (
+            self._stopped
+            or self._youtube.pause() is not None
+            or self._settings.current().downloads_paused
+            or self._guard is not None
+            or self._busy() >= self._capacity()
+        ):
+            return None
+        room: int | None = None
+        now = self._now()
+        waiting = self._jobs.jobs([JobState.WAITING])
+        held = set(self._folders_away) | {
+            channel.id for channel in self._repository.channels() if channel.paused
+        }
+        away: set[str] = set()
+        if held and waiting:
+            # A paused channel's downloads do not run (R-CH-31), nor those of a channel
+            # whose folder cannot be reached (R-QU-11): they stay in line.
+            videos = self._repository.videos_by_id([job.video_id for job in waiting])
+            away = {video_id for video_id, video in videos.items() if video.channel_id in held}
+        for job in waiting:
+            if job.id in self._running or (job.not_before is not None and job.not_before > now):
+                continue
+            if job.video_id in away:
+                continue
+            if job.by_hand:
+                return job
+            if room is None:
+                # A lookup reserved by a job taken a moment ago counts already: two workers
+                # never start more automatic downloads than the budget has room for.
+                room = self._youtube.download_room() - len(self._reserved)
+            if room > 0:
+                return job
+        return None
+
+    def _wait_for_room_s(self) -> float | None:
+        """How long a worker waits before it looks again (D-090).
+
+        Until the budget has room when a paced download waits, else until it is woken.
+        """
+        waiting = [
+            job for job in self._jobs.jobs([JobState.WAITING]) if job.id not in self._running
+        ]
+        now = self._clock.now().timestamp()
+        moments: list[float] = [
+            job.not_before for job in waiting if job.not_before and job.not_before > now
+        ]
+        if any(not job.by_hand for job in waiting):
+            until = self._youtube.paced_until(1)[0]
+            if until is not None:
+                moments.append(until)
+        if self._guard is not None:
+            moments.append(now + LONGEST_WAIT_S)
+        if not moments:
+            return None
+        return min(LONGEST_WAIT_S, max(1.0, min(moments) - now))
+
+    def _update_paced(self) -> None:
+        """Note when each automatic download that waits for the budget may start (D-090).
+
+        Its row then says so, with that time, so that it never looks stuck. The
+        rows whose time changed are told again.
+        """
+        automatic = [
+            job
+            for job in self._jobs.jobs([JobState.WAITING])
+            if not job.by_hand and job.id not in self._running
+        ]
+        times = self._youtube.paced_until(len(automatic))
+        paced = {
+            job.video_id: int(until)
+            for job, until in zip(automatic, times, strict=True)
+            if until is not None
+        }
+        changed = self._state.set_paced(paced)
+        if paced and changed:
+            _log.info(
+                "queue.held",
+                msg="Automatic downloads wait for room in the lookup budget",
+                paced=len(paced),
+                next_start=min(paced.values()),
+            )
+        self._tell_many(list(changed))
 
     def work_once(self) -> bool:
         """Run the next waiting job, if there is one. Returns whether one ran."""
         with self._wake:
-            if self._stopped or self._youtube.pause() is not None:
-                return False
-            job = next(
-                (job for job in self._jobs.jobs([JobState.WAITING]) if job.id not in self._running),
-                None,
-            )
+            job = self._next_job()
             if job is None:
                 return False
             video = self._repository.video(job.video_id)
             self._running[job.id] = "" if video is None else video.channel_id
+            self._thread_of[job.id] = threading.get_ident()
+            if not job.by_hand:
+                self._reserved.add(job.id)
         try:
             with structlog.contextvars.bound_contextvars(job_id=job.id):
                 self._run(job)
@@ -327,22 +557,49 @@ class DownloaderService:
                 self._videos.pop(job.id, None)
                 self._work_of.pop(job.id, None)
                 self._last_told.pop(job.id, None)
+                self._thread_of.pop(job.id, None)
+                self._folders.pop(job.id, None)
+                self._arrived.pop(job.id, None)
+                self._disk_checked.pop(job.id, None)
                 self._cancelled.discard(job.id)
+                self._stopping.discard(job.id)
                 self._nothing_placed.discard(job.id)
                 self._asking.discard(job.id)
                 self._abandoned.discard(job.id)
+                # A job that ended before its lookup gives its reservation back.
+                self._reserved.discard(job.id)
                 self._wake.notify_all()
         return True
 
     # --- what the user asks for
 
-    def mirror(self, video_ids: list[str]) -> list[Job]:
+    def mirror(
+        self,
+        video_ids: Sequence[str],
+        *,
+        first: bool = False,
+        automatic: bool = False,
+        failed_too: bool = False,
+    ) -> list[Job]:
         """Put videos in line to be downloaded, in the order given (R-MI-01).
 
-        A video that waits or runs already, or is synced, is left as it is.
+        This is an action of the user: the first 20 jobs it puts in line are
+        started by hand and never wait for the lookup budget, the others are
+        automatic (R-DT-06, D-090). A video that waits already becomes a job
+        started by hand. A video that runs, is synced, excluded (R-MI-05) or
+        removed from YouTube is left as it is. With ``first`` the videos go to
+        the top of the line, in the order given ("Mirror first", R-QU-02), also
+        the ones that waited already.
+
+        Auto-mirror puts its videos in line with ``automatic``: none of them is
+        started by hand, and a waiting one is left as it is (R-MI-02, D-090).
 
         Args:
             video_ids: The videos.
+            first: Whether they go to the top of the line.
+            automatic: Whether the app queues them by itself (auto-mirror).
+            failed_too: Whether failed videos are queued too, as "Mirror everything
+                missing" and auto-mirror do (R-MI-04, R-QU-09).
 
         Returns:
             The jobs that were put in line.
@@ -350,19 +607,290 @@ class DownloaderService:
         Raises:
             AppError: ``NOT_FOUND`` for a video no catalogue has.
         """
-        queued: list[Job] = []
-        for video_id in video_ids:
-            # Two presses that arrive together must not give two jobs for one video.
-            with self._wake:
-                video = self._known(video_id)
-                if (
-                    video.status not in MIRRORABLE
-                    or video.gone  # YouTube no longer has it (R-CH-14)
-                    or self._jobs.active_job_of(video_id) is not None
-                ):
+        return self._queue(
+            video_ids,
+            kind=JobKind.DOWNLOAD,
+            first=first,
+            automatic=automatic,
+            failed_too=failed_too,
+        )
+
+    def pause_all(self) -> None:
+        """Pause all downloads: no download starts until they are resumed (R-QU-02).
+
+        The choice is stored, so a restart keeps it (spec section 10).
+        """
+        self._settings.change(downloads_paused=True)
+        _log.info("queue.paused", msg="All downloads paused", reason="user")
+        self._stop_running("paused")
+        self._queue_changed()
+
+    def channel_paused(self, channel_id: str, *, paused: bool) -> None:
+        """A channel was paused or resumed: its downloads stop or go on (R-CH-31).
+
+        A paused channel's running downloads stop and wait in line with their
+        partial files, as at a quit (D-091). Its waiting ones stay in line.
+
+        Args:
+            channel_id: The channel.
+            paused: Whether it is paused now.
+        """
+        if paused:
+            self._stop_running("channel paused", channel_id=channel_id)
+        else:
+            self._wake_up()
+            self._add_workers()
+        self._queue_changed()
+
+    def _stop_running(self, reason: str, *, channel_id: str | None = None) -> None:
+        """Stop running downloads; each goes back in line with its partial files (D-091).
+
+        Args:
+            reason: Why, for the log.
+            channel_id: Only the downloads of this channel, or None for all.
+        """
+        works: list[Path] = []
+        with self._wake:
+            for job_id, channel in self._running.items():
+                if job_id in self._abandoned or job_id in self._cancelled:
                     continue
-                queued.append(self._put_in_line(video, "mirror"))
-        return queued
+                if channel_id is not None and channel != channel_id:
+                    continue
+                self._stopping.add(job_id)
+                work = self._work_of.get(job_id)
+                if work is not None:
+                    works.append(work)
+        for work in works:
+            self._stop_job_tools(work)
+        if works:
+            _log.info("download.stopped", msg="Running downloads stop", reason=reason)
+
+    def resume_all(self) -> None:
+        """Resume all downloads (R-QU-02)."""
+        self._settings.change(downloads_paused=False)
+        _log.info("queue.resumed", msg="All downloads resumed", reason="user")
+        self._wake_up()
+        self._add_workers()
+        self._queue_changed()
+
+    def clear_waiting(self) -> int:
+        """Remove every download that waits from the line (R-QU-02). Running ones go on.
+
+        Returns:
+            How many were removed.
+        """
+        removed = 0
+        for job in self._jobs.jobs([JobState.WAITING]):
+            with self._wake:
+                if job.id in self._running:
+                    continue
+            if self.cancel(job.id):
+                removed += 1
+        return removed
+
+    def reorder(self, job_ids: Sequence[str]) -> None:
+        """Put the waiting downloads in the given order (R-QU-02, drag and drop).
+
+        Args:
+            job_ids: Waiting jobs in the order the user wants. One that no longer
+                waits is ignored; a waiting one that is not named stays behind them.
+        """
+        with self._wake:
+            waiting = [
+                (job.id, job.priority)
+                for job in self._jobs.jobs([JobState.WAITING])
+                if job.id not in self._running
+            ]
+            changes = priorities_in_order(waiting, job_ids)
+            self._jobs.set_priorities(changes)
+            self._wake.notify_all()
+        _log.info("queue.reordered", msg="The waiting downloads were reordered", moved=len(changes))
+        self._update_paced()
+        self._queue_changed()
+
+    def queue_summary(self) -> QueueSummary:
+        """Return how the queue stands (R-QU-01, R-QU-02)."""
+        settings = self._settings.current()
+        with self._wake:
+            guard = self._guard
+            away = tuple(sorted(self._folders_away))
+        return QueueSummary(
+            downloading=self._jobs.count([JobState.RUNNING]),
+            waiting=self._jobs.count([JobState.WAITING]),
+            failed=self._repository.count_with_status(VideoStatus.FAILED),
+            paused=settings.downloads_paused,
+            places=settings.parallel_downloads,
+            speed_limit_mbps=settings.speed_limit_mbps,
+            disk_guard=guard,
+            folders_away=away,
+        )
+
+    def set_speed_limit(self, mbps: int) -> None:
+        """Change the limit of all downloads together; it takes effect at once (R-QU-03).
+
+        Args:
+            mbps: MB/s, or 0 for unlimited.
+        """
+        self._settings.change(speed_limit_mbps=mbps)
+        _log.info("queue.speed_limit", msg="The speed limit changed", mbps=mbps)
+        self._queue_changed()
+
+    def resume_anyway(self) -> None:
+        """Resume the queue that the disk space guard paused (R-QU-10).
+
+        The guard leaves that disk alone until it had more free space than the
+        limit again: then it watches it as before.
+        """
+        with self._wake:
+            guard = self._guard
+            if guard is None:
+                return
+            self._guard_ignored.add(guard.disk)
+            self._guard = None
+            self._wake.notify_all()
+        _log.info("queue.resumed", msg="The queue goes on although the disk is low", reason="disk")
+        self._add_workers()
+        self._queue_changed()
+
+    def try_folder_again(self, channel_id: str) -> bool:
+        """Look again whether the folder of a channel can be reached ("Try again", R-QU-11).
+
+        Args:
+            channel_id: The channel.
+
+        Returns:
+            Whether it can: then its downloads go on.
+        """
+        channel = self._repository.channel(channel_id)
+        if channel is None:
+            self._folder_back(channel_id)
+            return True
+        if not self._files.folder_exists(self._views.folder_of(channel)):
+            return False
+        self.tidy(channel_id)
+        return True
+
+    def _folder_away(self, channel_id: str, log: FilteringBoundLogger) -> None:
+        """The folder of a channel cannot be reached: its downloads wait (R-QU-11)."""
+        with self._wake:
+            new = channel_id not in self._folders_away
+            self._folders_away.add(channel_id)
+        if new:
+            log.warning(
+                "queue.paused",
+                msg="The folder of a channel cannot be reached. Its downloads wait",
+                reason="folder",
+                channel_id=channel_id,
+            )
+            self._queue_changed()
+
+    def _folder_back(self, channel_id: str) -> None:
+        """The folder of a channel can be reached again: its downloads go on (R-QU-11)."""
+        with self._wake:
+            if channel_id not in self._folders_away:
+                return
+            self._folders_away.discard(channel_id)
+            self._wake.notify_all()
+        _log.info(
+            "queue.resumed",
+            msg="The folder of a channel is back. Its downloads go on",
+            reason="folder",
+            channel_id=channel_id,
+        )
+        self._add_workers()
+        self._queue_changed()
+
+    def _disk_of(self, folder: Path) -> DiskGuardPause:
+        disk = self._files.disk_of(folder)
+        limit = self._settings.current().disk_guard_gb * GB
+        return DiskGuardPause(disk=disk.name, free_bytes=disk.free_bytes, limit_bytes=limit)
+
+    def _low_disk(self, folder: Path) -> DiskGuardPause | None:
+        """Return the disk of a folder when the guard must pause for it, else None (R-QU-10)."""
+        disk = self._disk_of(folder)
+        with self._wake:
+            if disk.free_bytes >= disk.limit_bytes:
+                # It had room again: a later "Resume anyway" is needed afresh.
+                self._guard_ignored.discard(disk.disk)
+                return None
+            if disk.disk in self._guard_ignored:
+                return None
+        return disk
+
+    def _guard_hit(
+        self, disk: DiskGuardPause, log: FilteringBoundLogger, *, full: bool = False
+    ) -> None:
+        """Pause the queue for lack of free space; running downloads stop and wait (R-QU-10)."""
+        with self._wake:
+            new = self._guard is None
+            self._guard = disk
+        if new:
+            log.warning(
+                "queue.disk_guard",
+                msg="Too little free space: the queue pauses",
+                disk=disk.disk,
+                free_bytes=disk.free_bytes,
+                limit_bytes=disk.limit_bytes,
+                full=full,
+            )
+            self._stop_running("disk guard")
+            self._queue_changed()
+
+    def look_at_disks_again(self) -> None:
+        """End the pause of the guard when its disk has room again (R-QU-10).
+
+        A waiting worker does this every minute while the guard pauses the queue.
+        """
+        with self._wake:
+            guard = self._guard
+        if guard is None:
+            return
+        folders = [self._views.folder_of(channel) for channel in self._repository.channels()]
+        for folder in folders:
+            disk = self._files.disk_of(folder)
+            if disk.name == guard.disk:
+                if disk.free_bytes < self._settings.current().disk_guard_gb * GB:
+                    return
+                break
+        with self._wake:
+            self._guard = None
+            self._wake.notify_all()
+        _log.info("queue.resumed", msg="The disk has room again. The queue goes on", reason="disk")
+        self._queue_changed()
+
+    def _limit_speed(self, job: Job, progress: DownloadProgress) -> None:
+        """Wait as long as the speed limit of all downloads asks (R-QU-03)."""
+        if self._speed is None or progress.downloaded_bytes is None:
+            return
+        before = self._arrived.get(job.id, 0)
+        self._arrived[job.id] = progress.downloaded_bytes
+        # A download again without subtitles starts from 0: then it counts from there.
+        arrived = progress.downloaded_bytes - before if progress.downloaded_bytes >= before else 0
+        self._speed.took(arrived, stop=lambda: self._is_cancelled(job.id))
+
+    def _watch_disk(self, job: Job) -> None:
+        """Look at the free space of a running download's disk now and then (R-QU-10)."""
+        folder = self._folders.get(job.id)
+        now = self._clock.monotonic()
+        if folder is None or now - self._disk_checked.get(job.id, -DISK_CHECK_S) < DISK_CHECK_S:
+            return
+        self._disk_checked[job.id] = now
+        low = self._low_disk(folder)
+        if low is not None:
+            self._guard_hit(low, _log.bind(job_id=job.id))
+
+    def _to_top(self, job_ids: Sequence[str]) -> None:
+        """Put waiting jobs at the top of the line, in the order given (R-QU-02)."""
+        with self._wake:
+            priorities = priorities_first(len(job_ids), self._jobs.lowest_priority())
+            self._jobs.set_priorities(dict(zip(job_ids, priorities, strict=True)))
+            self._wake.notify_all()
+        _log.info("queue.reordered", msg="Videos put at the top of the line", moved=len(job_ids))
+        self._queue_changed()
+
+    def _queue_changed(self) -> None:
+        """Tell the interface how the queue stands now (R-FB-03)."""
+        self._events.publish(QueueChanged(self.queue_summary()))
 
     def retry(self, video_id: str) -> Job:
         """Put a failed video in line again (R-QU-08, R-ER-03).
@@ -379,12 +907,171 @@ class DownloaderService:
             if (
                 video.status is not VideoStatus.FAILED
                 or video.gone  # YouTube no longer has it (R-CH-14)
+                or video.excluded  # never queued by any path (R-MI-05)
                 or self._jobs.active_job_of(video_id) is not None
             ):
                 raise AppError(
                     ErrorCode.INVALID_REQUEST, {"video": video_id, "status": video.status}
                 )
             return self._put_in_line(video, "retry")
+
+    def redownload(self, video_ids: Sequence[str]) -> list[Job]:
+        """Download synced videos again, in the quality of their channel now (R-QL-06).
+
+        Each stays synced with its old file, which is replaced only once the new
+        file is complete, verified and in its place; the old one then goes to the
+        Trash (D-093). This is an action of the user: the first 20 are started by
+        hand (D-090). A video that is not synced, waits or runs, is excluded or
+        removed from YouTube is left as it is.
+
+        Args:
+            video_ids: The videos.
+
+        Returns:
+            The jobs that were put in line.
+
+        Raises:
+            AppError: ``NOT_FOUND`` for a video no catalogue has.
+        """
+        return self._queue(video_ids, kind=JobKind.REDOWNLOAD)
+
+    def _queue(
+        self,
+        video_ids: Sequence[str],
+        *,
+        kind: JobKind,
+        first: bool = False,
+        automatic: bool = False,
+        failed_too: bool = False,
+    ) -> list[Job]:
+        """Put videos in line for one action, in the order given (R-MI-01, R-QL-06, D-090).
+
+        One decision under the lock of the queue, so that two actions at once never
+        give a video two jobs. The first 20 jobs the action starts or promotes are
+        started by hand, in the order it names the videos: a waiting automatic job
+        it names becomes one started by hand, and one that waits for a retry starts
+        now. The new jobs are stored in a few transactions, and the window hears of
+        them in one summary per channel (review of M5).
+        """
+        ids = list(dict.fromkeys(video_ids))
+        settings = self._settings.current()
+        queued: list[Job] = []
+        chosen: list[str] = []
+        promoted: list[Job] = []
+        entries: list[tuple[Job, Video | None, StatusChange | None]] = []
+        hand_left = 0 if automatic else HAND_JOBS_PER_ACTION
+        reason = (
+            "auto-mirror" if automatic else "redownload" if kind is JobKind.REDOWNLOAD else "mirror"
+        )
+        with self._wake:
+            videos = self._repository.videos_by_id(ids)
+            unknown = [video_id for video_id in ids if video_id not in videos]
+            if unknown:
+                raise AppError(ErrorCode.NOT_FOUND, {"video": unknown[0]})
+            active = self._jobs.active_jobs_of(ids)
+            channels = {channel.id: channel for channel in self._repository.channels()}
+            priority = self._jobs.next_priority()
+            for video_id in ids:
+                video = videos[video_id]
+                job = active.get(video_id)
+                if job is not None:
+                    if automatic or job.state is not JobState.WAITING or job.id in self._running:
+                        continue
+                    if not job.by_hand or job.not_before is not None:
+                        if hand_left == 0:
+                            chosen.append(job.id)
+                            continue
+                        hand_left -= 1
+                        promoted.append(job)
+                    chosen.append(job.id)
+                    continue
+                if not self._may_queue(video, kind, failed_too=failed_too):
+                    continue
+                channel = channels.get(video.channel_id)
+                if channel is None or channel.id in self._closed:
+                    # The channel is being removed: nothing of it starts (R-CH-32).
+                    raise AppError(ErrorCode.NOT_FOUND, {"video": video.id})
+                by_hand = hand_left > 0
+                hand_left -= 1 if by_hand else 0
+                job = Job(
+                    id=self._new_job_id(),
+                    video_id=video.id,
+                    kind=kind,
+                    state=JobState.WAITING,
+                    priority=priority,
+                    quality=effective_quality(channel.quality, settings.default_quality),
+                    created_at=self._now(),
+                    by_hand=by_hand,
+                )
+                priority += 1
+                # An action of the user starts the retries of R-QU-07 afresh.
+                fresh = replace(video, attempts=0) if by_hand else video
+                if kind is JobKind.REDOWNLOAD:
+                    # The video stays synced with its old file (D-093).
+                    entries.append((job, fresh if by_hand else None, None))
+                else:
+                    change = change_status(video.id, video.status, VideoStatus.QUEUED, reason)
+                    entries.append((job, replace(fresh, status=VideoStatus.QUEUED), change))
+                queued.append(job)
+                chosen.append(job.id)
+            for start in range(0, len(entries), _WRITE_AT_ONCE):
+                self._jobs.record_many(entries[start : start + _WRITE_AT_ONCE])
+            if promoted:
+                self._jobs.promote([job.id for job in promoted])
+            self._wake.notify_all()
+        for job in queued:
+            self._state.queued(job.video_id, videos[job.video_id].channel_id, job.id)
+            _log.info(
+                "queue.enqueued",
+                msg="Video put in line",
+                job_id=job.id,
+                video_id=job.video_id,
+                channel_id=videos[job.video_id].channel_id,
+                quality=job.quality.value,
+                reason=reason,
+                by_hand=job.by_hand,
+            )
+        for job in promoted:
+            self._state.set_retry(job.video_id, None)
+        if first and chosen:
+            self._to_top(chosen)
+        self._add_workers()
+        self._tell_many([job.video_id for job in [*queued, *promoted]])
+        if queued or promoted or chosen:
+            self._update_paced()
+            self._queue_changed()
+        return queued
+
+    def _may_queue(self, video: Video, kind: JobKind, *, failed_too: bool) -> bool:
+        """Whether a video without a job may be put in line by an action of this kind."""
+        if video.gone or video.excluded:
+            return False
+        if kind is JobKind.REDOWNLOAD:
+            return video.status is VideoStatus.SYNCED
+        allowed = MIRRORABLE | {VideoStatus.FAILED} if failed_too else MIRRORABLE
+        return video.status in allowed
+
+    def _tell_many(self, video_ids: Sequence[str]) -> None:
+        """Tell the window about changed videos: each one, or one summary per channel.
+
+        A few are told one by one. Many are one ``VideosChanged`` per channel, and the
+        window loads the list again: one event instead of one per video (review of M5).
+        """
+        if not video_ids:
+            return
+        videos = self._repository.videos_by_id(list(video_ids))
+        by_channel: dict[str, list[str]] = {}
+        for video_id in video_ids:
+            video = videos.get(video_id)
+            if video is not None:
+                by_channel.setdefault(video.channel_id, []).append(video_id)
+        for channel_id, ids in by_channel.items():
+            if len(ids) <= _TELL_EACH_AT_MOST:
+                for video_id in ids:
+                    self._views.tell_video(video_id)
+            else:
+                self._events.publish(VideosChanged(channel_id, len(ids)))
+            self._views.publish(channel_id)
 
     def cancel(self, job_id: str) -> bool:
         """Cancel a download that waits or runs (R-QU-02, R-ER-03).
@@ -415,9 +1102,13 @@ class DownloaderService:
                 # It has written nothing, and start_writing now refuses it: it ends here.
                 self._asking.discard(job.id)
                 self._abandoned.add(job.id)
+                self._retire_worker_of(job.id)
                 video = self._repository.video(job.video_id)
                 self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled")
+                self._wake.notify_all()
         if abandoned:
+            # Its worker waits for YouTube's answer: another one takes its place now.
+            self._add_workers()
             _log.info(
                 "download.cancelled",
                 msg="Download cancelled before a file was written. YouTube's answer is ignored",
@@ -434,6 +1125,11 @@ class DownloaderService:
         with self._wake:
             video = self._repository.video(job.video_id)
             self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled")
+        # A job stopped earlier kept its partial files to continue (D-091): a cancel takes
+        # them away at once, not at the next start. Never the place of an old file (D-093).
+        channel = None if video is None else self._repository.channel(video.channel_id)
+        if channel is not None:
+            self._remove_work(job, self._place_of(channel, job), _log.bind(job_id=job_id))
         _log.info(
             "download.cancelled",
             msg="Download cancelled before it started",
@@ -441,6 +1137,16 @@ class DownloaderService:
             video_id=job.video_id,
         )
         return True
+
+    def _retire_worker_of(self, job_id: str) -> None:
+        """Let the worker of an abandoned job end with it, and count it no more (R-QU-02).
+
+        Called under the lock. A job run outside a worker (as in a test) has none.
+        """
+        thread = self._thread_of.get(job_id)
+        if thread is not None and thread in self._worker_threads and thread not in self._retired:
+            self._retired.add(thread)
+            self._workers -= 1
 
     def end_removed(self, video_ids: Sequence[str]) -> None:
         """End the waiting downloads of videos a check found removed from YouTube (R-CH-14).
@@ -621,14 +1327,43 @@ class DownloaderService:
             )
             return
         place = self._place_of(channel, job)
+        marker = Replacing.of(video.replacing)
+        if marker is not None and marker.job == job.id and self._files.folder_exists(place.folder):
+            # A re-download that a quit, a crash or the Trash cut off: it is undone or
+            # finished, never downloaded again over a waiting old file (D-093).
+            with self._file_lock:
+                self._finish_replacing(video, place.folder)
+            video = self._repository.video(job.video_id) or video
+            if marker.step is ReplaceStep.AWAY:
+                if Replacing.of(video.replacing) is not None:
+                    self._wait_to_put_away(job, log)
+                return
+        if not self._files.folder_exists(place.folder):
+            # The drive is away, or the folder is gone: the downloads of the channel wait
+            # in line, and nothing is marked failed (R-QU-11).
+            self._folder_away(channel.id, log)
+            return
+        low = self._low_disk(place.folder)
+        if low is not None:
+            self._guard_hit(low, log)
+            return
         with self._wake:
             self._work_of[job.id] = place.work
+            self._folders[job.id] = place.folder
         started = self._clock.monotonic()
+        keep_work = False
         log.info("download.started", msg="Download started", quality=job.quality.value)
         running = replace(job, state=JobState.RUNNING, stage=Stage.VIDEO, started_at=self._now())
         try:
-            video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
+            if job.kind is JobKind.REDOWNLOAD:
+                # The video stays synced with its old file until the new one is in place.
+                self._jobs.record(running)
+                self._views.tell_video(video.id)
+            else:
+                video = self._change(running, video, VideoStatus.DOWNLOADING, "started")
+            self._state.set_retry(video.id, None)
             self._videos[job.id] = video
+            self._queue_changed()
             video = self._clean_marker_first(running, video, place)
             with self._wake:
                 if self._is_cancelled(job.id):
@@ -636,19 +1371,54 @@ class DownloaderService:
                 self._asking.add(job.id)
             result = self._download(running, video, place, log)
             video = self._processing(running)
-            self._finish(running, video, channel, place, result, log, started)
+            if job.kind is JobKind.REDOWNLOAD:
+                self._replace(running, video, channel, place, result, log, started)
+            else:
+                self._finish(running, video, channel, place, result, log, started)
         except Exception as error:  # noqa: BLE001  (a cancel is asked before any error is read)
             if self._was_abandoned(job.id):
                 # Ended by the cancel already; YouTube's late answer, even an error, is ignored.
                 return
             # A file of the job that could not leave the channel folder keeps its marker.
             keep_marker = job.id not in self._nothing_placed
+            stopped = isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id)
+            delay = (
+                retry_delay(error.code, video.attempts)
+                if isinstance(error, AppError) and not stopped
+                else None
+            )
+            if delay is not None and isinstance(error, AppError):
+                # A failure that passes: tried again later, from its partial files (R-QU-07).
+                keep_work = True
+                self._retry_later(running, video, error.code, delay, log, keep_marker=keep_marker)
+                return
+            if isinstance(error, AppError) and error.code in (
+                ErrorCode.FOLDER_UNAVAILABLE,
+                ErrorCode.DISK_FULL,
+            ):
+                # The folder went away or the disk is full while it ran: the job waits in
+                # line with what it downloaded, and the queue pauses (R-QU-10, R-QU-11).
+                keep_work = True
+                if error.code is ErrorCode.FOLDER_UNAVAILABLE:
+                    self._folder_away(channel.id, log)
+                else:
+                    self._guard_hit(self._disk_of(place.folder), log, full=True)
+                self._back_in_line(running, video, log, keep_marker=keep_marker, error=error)
+                return
+            if (stopped and self._resumes(job.id)) or (
+                isinstance(error, AppError) and error.code is ErrorCode.BOT_CHECK
+            ):
+                # A quit, "Pause all" or YouTube's check: the job goes back in line with
+                # its temp folder, to continue from its partial files (D-091).
+                keep_work = True
+                self._back_in_line(running, video, log, keep_marker=keep_marker, error=error)
+                return
             # The temp folder goes before the end is stored and told: a video shown as
             # ended has nothing of its download left (R-QU-02, R-QA-06).
-            self._remove_work(place, log)
-            # A job that was cancelled, or an app that quits, stopped the tools: the error
-            # that follows is the cancel, never a failure nor a retry (R-QU-02, R-PL-13).
-            if isinstance(error, DownloadCancelledError) or self._is_cancelled(job.id):
+            self._remove_work(job, place, log)
+            # A job that was cancelled stopped its tools: the error that follows is the
+            # cancel, never a failure nor a retry (R-QU-02, R-PL-13).
+            if stopped:
                 self._end(
                     running,
                     video,
@@ -669,7 +1439,8 @@ class DownloaderService:
             else:
                 self._failed_unexpectedly(running, video, log, started, keep_marker=keep_marker)
         finally:
-            self._remove_work(place, log)
+            if not keep_work:
+                self._remove_work(job, place, log)
 
     def _was_abandoned(self, job_id: str) -> bool:
         with self._wake:
@@ -690,13 +1461,18 @@ class DownloaderService:
             if job.id in self._abandoned or self._is_cancelled(job.id):
                 raise DownloadCancelledError("cancelled before a file was written")
         self._files.make_folder(place.work, inside=place.folder)
+        # Its lookup was counted: the paced downloads may start later now (D-090).
+        self._update_paced()
 
-    def _remove_work(self, place: _Place, log: FilteringBoundLogger) -> None:
+    def _remove_work(self, job: Job, place: _Place, log: FilteringBoundLogger) -> None:
         """Remove the temp folder of a job. A failure is a warning, never how the job ends.
 
         The folder stays for the sweep of the next start (R-FI-03): a cancel the user
-        asked for never turns into an error because of it.
+        asked for never turns into an error because of it. The folder of a re-download
+        whose marker names it may hold the old file: it is never removed (D-093).
         """
+        if self._holds_old_file(job.id, job.video_id):
+            return
         try:
             self._files.remove_temp_folder(place.work)
         except (AppError, OSError, ValueError) as error:
@@ -755,6 +1531,7 @@ class DownloaderService:
     ) -> DownloadResult:
         """Step 3 and 4: yt-dlp downloads, merges and embeds. Subtitles fail only once."""
         settings = self._settings.current()
+        self._prepare_to_continue(job, video, place, log)
         request = DownloadRequest(
             video_id=video.id,
             quality=job.quality,
@@ -762,6 +1539,7 @@ class DownloaderService:
             log_file=self._job_logs / f"{job.id}.log",
             manual_subtitles=settings.embed_subtitles,
             auto_subtitles=settings.auto_subtitles,
+            formats=job.formats,
         )
         try:
             return self._ask(job, video, request, place)
@@ -781,6 +1559,69 @@ class DownloaderService:
                 again=True,
             )
 
+    def _prepare_to_continue(
+        self, job: Job, video: Video, place: _Place, log: FilteringBoundLogger
+    ) -> None:
+        """Keep what an earlier run of the job left in its temp folder, to continue it (D-091).
+
+        Partial and finished streams stay, and yt-dlp continues them (R-QU-05). A
+        finished file means the run stopped while the file was processed: then the
+        job starts over, so that no step of the processing runs twice on it.
+        """
+        if not self._files.folder_exists(place.work):
+            return
+        if self._files.exists(place.work / f"{video.id}.mkv"):
+            self._files.remove_temp_folder(place.work)
+            log.info("download.resumed", msg="A download stopped while processed starts over")
+            return
+        log.info(
+            "download.resumed",
+            msg="A stopped download continues from its partial files",
+            formats=job.formats,
+        )
+
+    def _chosen(self, job: Job, formats: str) -> None:
+        """Keep the formats a download fetches, for when it continues after a stop (D-091).
+
+        Told after the lookup of the download: the budget counts it now, so the
+        reservation of the job is given back (D-090).
+        """
+        with self._wake:
+            self._reserved.discard(job.id)
+            work = self._work_of.get(job.id)
+        if formats == job.formats:
+            return
+        if job.formats and work is not None:
+            self._forget_parts(job, formats, work)
+        self._jobs.set_formats(job.id, formats)
+
+    def _forget_parts(self, job: Job, formats: str, work: Path) -> None:
+        """Remove the partial files of formats a continued download no longer fetches (D-091).
+
+        YouTube may no longer offer what the job chose before its stop: it then
+        fetches others, and the parts of the old ones would only take room.
+        """
+        gone = set((job.formats or "").split("+")) - set(formats.split("+"))
+        for name in self._files.file_names(work, hidden=True):
+            if any(f".f{format_id}." in name for format_id in gone if format_id):
+                try:
+                    self._files.remove_partial_file(work / name)
+                except (OSError, ValueError) as error:
+                    _log.warning(
+                        "download.temp_left",
+                        msg="A partial file of a format no longer fetched could not be removed",
+                        job_id=job.id,
+                        file=name,
+                        error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
+                    )
+                else:
+                    _log.info(
+                        "download.resumed",
+                        msg="A partial file of a format no longer offered was removed",
+                        job_id=job.id,
+                        file=name,
+                    )
+
     def _ask(
         self,
         job: Job,
@@ -798,8 +1639,9 @@ class DownloaderService:
                 request,
                 told,
                 lambda: self._is_cancelled(job.id),
-                by_user=True,
+                by_user=job.by_hand,
                 start_writing=lambda: self._start_writing(job, place),
+                on_formats=lambda formats: self._chosen(job, formats),
             )
         except DownloadCancelledError:
             raise
@@ -894,6 +1736,312 @@ class DownloaderService:
             duration_ms=self._ms_since(started),
         )
 
+    def _replace(
+        self,
+        job: Job,
+        video: Video,
+        channel: Channel,
+        place: _Place,
+        result: DownloadResult,
+        log: FilteringBoundLogger,
+        started: float,
+    ) -> None:
+        """Put the new file of a re-download in place, and the old one in the Trash (D-093).
+
+        The new file is verified and gets its dates in the temp folder first. Under
+        the files lock (R-FN-06) the current name of the old file is read, and a
+        marker with the old file's identity is stored before anything moves. The
+        files then change places: in one step where the volume can swap, else by
+        two moves that never overwrite (the old file to a hidden name in its folder,
+        the new one to the name). A failure there puts the old file back and clears
+        the marker. The new facts are stored with the marker at its last step, and
+        the old file goes to the Trash, or to the hidden folder of the channel. Only
+        then is the marker cleared and the job done (R-QL-06): until then nothing
+        removes the place the old file waits in. A video whose old file is gone
+        meanwhile is finished as a download is.
+        """
+        facts = self._media.probe(result.file)
+        problem = verification_problem(facts, result.duration_s)
+        if problem is not None:
+            raise AppError(ErrorCode.VERIFY_FAILED, {"reason": problem})
+        published = published_time(result.release_time, result.upload_time)
+        if published is None:
+            raise AppError(ErrorCode.DATES_NOT_APPLIED, {"reason": "YouTube gave no exact time"})
+        self._files.set_dates(result.file, published)
+        self._verify_dates(result.file, published, log)
+        side = self._side_data_of(result)
+        if self._is_cancelled(job.id):
+            raise DownloadCancelledError("cancelled before the file was put in its place")
+        with self._file_lock:
+            current = self._repository.video(video.id)
+            old = (
+                None
+                if current is None or current.file_name is None
+                else place.folder / current.file_name
+            )
+            if current is None or old is None or current.status is not VideoStatus.SYNCED:
+                stored_video = current if current is not None else video
+                self._finish(job, stored_video, channel, place, result, log, started)
+                return
+            if not self._files.exists(old):
+                self._finish(job, current, channel, place, result, log, started)
+                return
+            name = current.file_name
+            assert name is not None
+            marker = Replacing(
+                job.id, self._files.file_id(old), ReplaceWay.SWAP, ReplaceStep.PLACING
+            )
+            self._jobs.record(job, replace(current, replacing=marker.text()))
+            try:
+                marker = self._change_places(job, current, marker, place, result.file, old)
+                renewed = replace(
+                    current,
+                    replacing=replace(marker, step=ReplaceStep.AWAY).text(),
+                    height=facts.height,
+                    vcodec=facts.vcodec,
+                    acodec=facts.acodec,
+                    has_subtitles=None if result.subtitles is None else result.subtitles.value,
+                    downloaded_at=self._now(),
+                    published_at=published,
+                    published_exact=True,
+                    published_precision=None,
+                    last_error_code=None,
+                    last_error_at=None,
+                    attempts=0,
+                    file_size=self._files.size_of(old),
+                )
+                self._jobs.record(job, renewed)
+            except Exception:
+                # The old file goes back to its place, and the marker with it (D-093).
+                self._undo_replacing(current.id, marker, place.folder, name)
+                raise
+            away = self._put_old_away(renewed, place.folder, log)
+            if not away:
+                # Nothing took the old file: it waits where it is, and the job waits to
+                # try again; nothing removes it meanwhile (D-093, rule 7 of AGENTS.md).
+                self._wait_to_put_away(job, log)
+                return
+            done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
+            renewed = replace(renewed, replacing=None)
+            stored = self._store_end(
+                done,
+                renewed,
+                JobState.DONE,
+                VideoStatus.SYNCED,
+                "replaced",
+                side.files(video.id, name),
+                keep_marker=False,
+            )
+        self._announce_quietly(stored)
+        self._write_side_files_of(renewed, place.folder, log)
+        log.info(
+            "download.replaced",
+            msg="The file was downloaded again and replaced; the old one went to the Trash",
+            file_size=renewed.file_size,
+            height=renewed.height,
+            way=marker.way.value,
+            duration_ms=self._ms_since(started),
+        )
+
+    def _change_places(
+        self, job: Job, video: Video, marker: Replacing, place: _Place, new: Path, old: Path
+    ) -> Replacing:
+        """Let the new file take the old one's name, and return the marker as it is now.
+
+        Raises:
+            AppError: When a step fails; the caller puts the old file back.
+        """
+        try:
+            self._files.swap(new, old)
+        except SwapNotSupportedError:
+            # exFAT and many network volumes: by two moves, each never overwriting.
+            hidden = f".yt-mirror-old-{job.id}{old.suffix}"
+            marker = replace(marker, way=ReplaceWay.MOVE, hidden=hidden)
+            self._jobs.record(job, replace(video, replacing=marker.text()))
+            if not self._files.move(old, place.folder / hidden):
+                raise AppError(ErrorCode.INTERNAL, {"reason": "the hidden name is taken"}) from None
+            if not self._files.move(new, old):
+                raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken"}) from None
+        return marker
+
+    def _old_place(self, marker: Replacing, folder: Path, video_id: str) -> Path:
+        """Where the old file of a re-download waits once the new one has its name."""
+        if marker.way is ReplaceWay.MOVE and marker.hidden is not None:
+            return folder / marker.hidden
+        return folder / HIDDEN_DIR / TEMP_DIR / marker.job / f"{video_id}.mkv"
+
+    def _find_old(self, video: Video, marker: Replacing, folder: Path) -> Path | None:
+        """Find the old file of a re-download wherever a step, or a crash, left it."""
+        work = folder / HIDDEN_DIR / TEMP_DIR / marker.job
+        places = [self._old_place(marker, folder, video.id), work / f"{video.id}.mkv"]
+        if video.file_name is not None:
+            places.append(work / video.file_name)
+        for place in places:
+            if self._files.exists(place) and self._files.file_id(place) == marker.old:
+                return place
+        return None
+
+    def _undo_replacing(self, video_id: str, marker: Replacing, folder: Path, name: str) -> None:
+        """Put the old file of a re-download back under its name, and clear the marker.
+
+        Called under the files lock. Each step looks at what is there, so it can
+        follow a crash at any point of the change of places. When the old file
+        cannot be put back, the marker stays and the next start tries again.
+        """
+        target = folder / name
+        parked = self._old_place(marker, folder, video_id)
+        work = folder / HIDDEN_DIR / TEMP_DIR / marker.job
+        here = self._files.exists(target)
+        if self._files.exists(parked) and self._files.file_id(parked) == marker.old:
+            if marker.way is ReplaceWay.SWAP:
+                if here:
+                    self._files.swap(parked, target)
+                else:
+                    self._files.move(parked, target)
+            else:
+                if here and self._files.file_id(target) != marker.old:
+                    # The new file goes back to the temp folder of its job.
+                    self._files.make_folder(work, inside=folder)
+                    if not self._files.move(target, work / f"{video_id}.mkv"):
+                        raise AppError(ErrorCode.INTERNAL, {"reason": "the temp name is taken"})
+                if not self._files.move(parked, target):
+                    raise AppError(ErrorCode.INTERNAL, {"reason": "the name is taken"})
+            _log.info(
+                "download.replaced",
+                msg="A re-download that did not finish was undone: the old file is back",
+                job_id=marker.job,
+                video_id=video_id,
+            )
+        self._jobs.clear_replacing(video_id)
+
+    def _put_old_away(self, video: Video, folder: Path, log: FilteringBoundLogger) -> bool:
+        """Move the old file of a re-download to the Trash, never deleting it for good.
+
+        Called under the files lock, with the marker at its last step. When the
+        Trash refuses, the file is kept in the hidden folder of the channel under a
+        name of its own for the job. An old file that is not there any more is gone
+        already.
+
+        Returns:
+            Whether the old file left the place it waited in.
+        """
+        marker = Replacing.of(video.replacing)
+        if marker is None:
+            return True
+        old = self._find_old(video, marker, folder)
+        if old is None:
+            return True
+        if video.file_name is not None and old.name != video.file_name:
+            # It reaches the Trash under the name the user knew, never a hidden one.
+            named = folder / HIDDEN_DIR / TEMP_DIR / marker.job / video.file_name
+            try:
+                self._files.make_folder(named.parent, inside=folder)
+                if self._files.move(old, named):
+                    old = named
+            except AppError, OSError:
+                pass
+        try:
+            self._files.trash(old)
+        except (AppError, OSError) as error:
+            log.warning(
+                "file.trash_failed",
+                msg="The old file of a re-download could not go to the Trash. It is kept",
+                error_code=getattr(error, "code", ErrorCode.PERMISSION_DENIED).value,
+            )
+        else:
+            return True
+        kept = folder / HIDDEN_DIR / f"{video.id}.replaced-{marker.job}{old.suffix}"
+        try:
+            if self._files.move(old, kept):
+                return True
+        except AppError, OSError:
+            pass
+        log.error(
+            "file.trash_failed",
+            msg="The old file of a re-download waits where it is. It is tried again later",
+            error_code=ErrorCode.PERMISSION_DENIED.value,
+            file=str(old),
+        )
+        return False
+
+    def _wait_to_put_away(self, job: Job, log: FilteringBoundLogger) -> None:
+        """The old file could not go anywhere: the job waits, to try again later (D-093)."""
+        until = self._now() + RETRY_DELAYS_S[0]
+        self._jobs.record(
+            replace(job, state=JobState.WAITING, stage=None, not_before=until, by_hand=False)
+        )
+        log.warning(
+            "download.retry",
+            msg="The old file of a re-download waits for the Trash. It is tried again",
+            reason="trash",
+            retry_at=until,
+        )
+
+    def _finish_replacing(self, video: Video, folder: Path) -> None:
+        """Take up a re-download a quit, a crash or a refusing Trash left (D-093).
+
+        Called under the files lock. Before its new facts were stored, it is undone:
+        the old file goes back under its name. After, it is finished: the old file
+        goes to the Trash, the marker is cleared and the job ends. A job that still
+        cannot put the old file away keeps its marker; nothing removes the file.
+        """
+        marker = Replacing.of(video.replacing)
+        if marker is None or video.file_name is None:
+            if video.replacing:
+                self._jobs.clear_replacing(video.id)
+            return
+        if marker.step is ReplaceStep.PLACING:
+            self._undo_replacing(video.id, marker, folder, video.file_name)
+            return
+        log = _log.bind(job_id=marker.job, video_id=video.id)
+        if not self._put_old_away(video, folder, log):
+            return
+        job = self._jobs.job(marker.job)
+        if job is not None and job.state in ACTIVE_STATES:
+            done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
+            self._jobs.record(done, replace(video, replacing=None))
+        else:
+            self._jobs.clear_replacing(video.id)
+        self._state.set_retry(video.id, None)
+        log.info(
+            "download.replaced",
+            msg="A re-download a quit cut off was finished: the old file went to the Trash",
+        )
+        self._views.tell_video(video.id)
+
+    def _settle_replacing(self, channels: Sequence[Channel] | None = None) -> None:
+        """Undo or finish the re-downloads a quit, a crash or a refusing Trash left (D-093).
+
+        Under the files lock, as the change of places itself. A re-download that
+        runs in this app now is left to its job; a folder that cannot be reached
+        keeps its marker until it can.
+        """
+        with self._file_lock:
+            for channel in self._repository.channels() if channels is None else channels:
+                folder = self._views.folder_of(channel)
+                for video in self._repository.videos(channel.id):
+                    if not video.replacing or not self._files.folder_exists(folder):
+                        continue
+                    marker = Replacing.of(video.replacing)
+                    with self._wake:
+                        running = marker is not None and marker.job in self._running
+                    if running:
+                        continue
+                    try:
+                        self._finish_replacing(video, folder)
+                    except (AppError, OSError) as error:
+                        self._cleanup_failed(video.id, error, job_id=marker and marker.job)
+
+    def _holds_old_file(self, job_id: str, video_id: str) -> bool:
+        """Whether the marker of a video names this job.
+
+        Then the temp folder of the job may hold the old file, and nothing removes it
+        (D-093, rule 7 of AGENTS.md).
+        """
+        video = self._repository.video(video_id)
+        marker = None if video is None else Replacing.of(video.replacing)
+        return marker is not None and marker.job == job_id
+
     def _move_into_place(self, job: Job, video: Video, place: _Place, file: Path) -> str:
         """Step 2 and 7: choose the name and move the file in one step, never overwriting.
 
@@ -902,23 +2050,26 @@ class DownloaderService:
         two leaves a file the app knows by its marker: the next start moves it
         to the Trash once the video ID inside it shows it is this download.
         """
-        tried: list[str] = []
-        for _ in range(2):
-            taken = [
-                *self._files.file_names(place.folder),
-                *self._names_tracked_in(place.folder, video.id),
-                *tried,
-            ]
-            name = video_file_name(video.title, video.id, taken)
-            current = self._videos.get(job.id, video)
-            self._jobs.record(job, replace(current, placing_file=name))
-            if self._files.move(file, place.folder / name):
-                self._nothing_placed.discard(job.id)
-                _log.info("file.moved", msg="File moved into its place", file=name)
-                return name
-            self._jobs.record(job, replace(current, placing_file=None))
-            tried.append(name)
-        raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken twice while moving"})
+        # The name is chosen as free and taken under the files lock, as a rename is: one
+        # move function for every move into a channel folder (D-093).
+        with self._file_lock:
+            tried: list[str] = []
+            for _ in range(2):
+                taken = [
+                    *self._files.file_names(place.folder),
+                    *self._names_tracked_in(place.folder, video.id),
+                    *tried,
+                ]
+                name = video_file_name(video.title, video.id, taken)
+                current = self._videos.get(job.id, video)
+                self._jobs.record(job, replace(current, placing_file=name))
+                if self._files.move(file, place.folder / name):
+                    self._nothing_placed.discard(job.id)
+                    _log.info("file.moved", msg="File moved into its place", file=name)
+                    return name
+                self._jobs.record(job, replace(current, placing_file=None))
+                tried.append(name)
+            raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken twice while moving"})
 
     def _names_tracked_in(self, folder: Path, except_video: str) -> list[str]:
         """Every name the app tracks in a folder, of every channel that shares it.
@@ -1032,7 +2183,18 @@ class DownloaderService:
         return True
 
     def retry_side_files(self) -> None:
-        """Write the side files that waited (R-MD-02, R-MD-05). One that fails again waits on."""
+        """Write the side files that waited (R-MD-02, R-MD-05). One that fails again waits on.
+
+        One worker at a time writes them: when another one does already, this returns.
+        """
+        if not self._side_files.acquire(blocking=False):
+            return
+        try:
+            self._write_waiting_side_files()
+        finally:
+            self._side_files.release()
+
+    def _write_waiting_side_files(self) -> None:
         for pending in self._jobs.pending_side_files():
             video = self._repository.video(pending.video_id)
             channel = None if video is None else self._repository.channel(video.channel_id)
@@ -1076,25 +2238,6 @@ class DownloaderService:
         *,
         keep_marker: bool = True,
     ) -> None:
-        if code is ErrorCode.BOT_CHECK:
-            # One condition of the whole app, never one error per video (R-ER-05): the job
-            # waits in line until YouTube is asked again.
-            self._end(
-                job,
-                video,
-                JobState.WAITING,
-                VideoStatus.QUEUED,
-                "youtube paused",
-                keep_marker=keep_marker,
-            )
-            self._tell(replace(video, status=VideoStatus.QUEUED))
-            if log is not None:
-                log.warning(
-                    "download.retry",
-                    msg="YouTube asked to confirm that the app is not a bot. The download waits",
-                    error_code=code.value,
-                )
-            return
         failed = replace(
             video, last_error_code=code, last_error_at=self._now(), attempts=video.attempts
         )
@@ -1118,6 +2261,91 @@ class DownloaderService:
                 **details,
             )
 
+    def _retry_later(
+        self,
+        job: Job,
+        video: Video,
+        code: ErrorCode,
+        delay: int,
+        log: FilteringBoundLogger,
+        *,
+        keep_marker: bool,
+    ) -> None:
+        """Put a download that failed in a way that passes back in line, to try later (R-QU-07).
+
+        It waits ``delay`` seconds, keeps its temp folder, and is an automatic job
+        from now on: it waits for room in the lookup budget too (D-090). Its row
+        says when it is tried again.
+        """
+        now = self._now()
+        attempt = video.attempts + 1
+        waiting = replace(job, by_hand=False, not_before=now + delay, error_code=code)
+        failed = replace(video, attempts=attempt, last_error_code=code, last_error_at=now)
+        self._store_end(
+            waiting, failed, JobState.WAITING, VideoStatus.QUEUED, "retry", keep_marker=keep_marker
+        )
+        if job.kind is JobKind.REDOWNLOAD:
+            # The video stays synced; its tries are counted all the same, so a failure that
+            # keeps passing ends after the last delay instead of forever (R-QU-07).
+            current = self._repository.video(video.id)
+            if current is not None:
+                self._jobs.record(
+                    replace(waiting, state=JobState.WAITING, stage=None, finished_at=None),
+                    replace(current, attempts=attempt),
+                )
+        self._state.restarted(video.id)
+        self._state.set_retry(video.id, now + delay)
+        self._views.tell_video(video.id)
+        self._views.publish(video.channel_id)
+        self._queue_changed()
+        self._wake_up()
+        log.warning(
+            "download.retry",
+            msg="The download failed in a way that passes. It is tried again later",
+            reason="transient",
+            error_code=code.value,
+            attempt=attempt,
+            delay_s=delay,
+        )
+
+    def _back_in_line(
+        self,
+        job: Job,
+        video: Video,
+        log: FilteringBoundLogger,
+        *,
+        keep_marker: bool,
+        error: Exception,
+    ) -> None:
+        """Put a stopped job back in line, with its place and its temp folder (D-091).
+
+        A quit, "Pause all" and YouTube's "not a bot" check stop a download: it
+        continues from its partial files the next time it runs (R-QU-05). The "not
+        a bot" check is one condition of the whole app, never one error per video
+        (R-ER-05): the job waits until YouTube is asked again.
+        """
+        bot_check = isinstance(error, AppError) and error.code is ErrorCode.BOT_CHECK
+        reason = "youtube paused" if bot_check else "stopped"
+        self._store_end(
+            job, video, JobState.WAITING, VideoStatus.QUEUED, reason, keep_marker=keep_marker
+        )
+        self._state.restarted(video.id)
+        self._views.tell_video(video.id)
+        self._views.publish(video.channel_id)
+        self._queue_changed()
+        if bot_check:
+            log.warning(
+                "download.retry",
+                msg="YouTube asked to confirm that the app is not a bot. The download waits",
+                error_code=ErrorCode.BOT_CHECK.value,
+            )
+        else:
+            log.info(
+                "download.stopped",
+                msg="The download stopped. It continues from its partial files later",
+                reason="quit" if self._stopped else "paused",
+            )
+
     def _end(
         self,
         job: Job,
@@ -1135,6 +2363,7 @@ class DownloaderService:
         cleanup (R-QA-06).
         """
         self._announce(self._store_end(job, video, state, status, reason, keep_marker=keep_marker))
+        self._queue_changed()
 
     def _store_end(
         self,
@@ -1159,6 +2388,11 @@ class DownloaderService:
             # The video went with its channel: its job and history went with it (R-CH-32).
             self._state.ended(video.id)
             return None
+        if job.kind is JobKind.REDOWNLOAD and status is not VideoStatus.SYNCED:
+            # A re-download that did not end with its new file in place changes nothing of
+            # its video: it stays synced with its old file (R-QL-06, D-093).
+            self._jobs.record(ended, None, None, side_files)
+            return None if state is JobState.WAITING else current
         change: StatusChange | None = None
         if video is not None and current is not None and status is not None:
             video = replace(video, placing_file=current.placing_file if keep_marker else None)
@@ -1194,6 +2428,7 @@ class DownloaderService:
         """Tell the interface after the synced commit. A failure is logged, nothing more."""
         try:
             self._announce(video)
+            self._queue_changed()
         except Exception:  # noqa: BLE001  (the file is stored: nothing may undo it)
             _log.error(
                 "download.tell_failed",
@@ -1203,39 +2438,30 @@ class DownloaderService:
                 exc_info=True,
             )
 
-    def _end_left_over(self, job: Job) -> None:
-        """Clean up a job that a quit or a crash left waiting or running (R-QA-06).
+    def _take_back(self, job: Job) -> None:
+        """Put back in line a job that a crash or a quit left running (R-QU-05, R-QU-06, D-091).
 
-        Its temp folder goes. A file it was moving into the channel folder (its
-        marker) goes to the Trash, but only when the video ID inside the file
-        shows it is this download: a file of the user's is never touched. A
-        failure is logged, and the job ends anyway: the start goes on. When the
-        folder could not be reached, the marker stays, and a later start cleans
-        up once it can (``_clean_markers``).
+        It keeps its place in the line and its temp folder, so that it continues
+        from its partial files. A file it was moving into the channel folder (its
+        marker) goes to the Trash when the video ID inside it shows it is this
+        download; while its folder cannot be reached, the marker stays, and a
+        later cleanup takes it once it can (``_clean_markers``).
         """
         video = self._repository.video(job.video_id)
         channel = None if video is None else self._repository.channel(video.channel_id)
         cleaned = True
         if channel is not None and video is not None:
             place = self._place_of(channel, job)
-            try:
-                self._files.remove_temp_folder(place.work)
-            except (AppError, OSError, ValueError) as error:
-                self._cleanup_failed(job.video_id, error, job_id=job.id)
             cleaned = self._clean_placed(video, place.folder, job_id=job.id) is None
-        self._end(
-            job,
-            video,
-            JobState.CANCELLED,
-            VideoStatus.NOT_DOWNLOADED,
-            "app quit",
-            keep_marker=not cleaned,
+        self._store_end(
+            job, video, JobState.WAITING, VideoStatus.QUEUED, "interrupted", keep_marker=not cleaned
         )
         _log.info(
-            "download.cancelled",
-            msg="A download that the last quit interrupted was cleaned up",
+            "download.stopped",
+            msg="A download that the last run left running goes back in line",
             job_id=job.id,
             video_id=job.video_id,
+            reason="interrupted",
         )
 
     def _clean_placed(
@@ -1273,9 +2499,39 @@ class DownloaderService:
             error_code=getattr(error, "code", ErrorCode.INTERNAL).value,
         )
 
-    def _clean_markers(self) -> None:
+    def tidy(self, channel_id: str) -> None:
+        """Clean up what earlier runs left in a channel folder that can be reached now.
+
+        At start a drive that is not connected keeps its left-overs: the files of
+        markers and the temp folders of jobs that ended. This takes them up as
+        soon as the folder is there again, after a check or when the channel is
+        opened, without waiting for the next start. The temp folder of a job that
+        waits stays: it continues from it (D-091). A failure is logged.
+
+        Args:
+            channel_id: The channel.
+        """
+        channel = self._repository.channel(channel_id)
+        if channel is None or not self._files.folder_exists(self._views.folder_of(channel)):
+            return
+        self._folder_back(channel_id)
+        for cleanup in (self._settle_replacing, self._clean_markers, self._sweep_temp_folders):
+            try:
+                # The same lock as a re-download's change of places: never in its middle.
+                with self._file_lock:
+                    cleanup([channel])
+            except Exception:  # noqa: BLE001  (a cleanup never fails a check)
+                _log.error(
+                    "download.failed",
+                    msg="A cleanup of a channel folder failed",
+                    channel_id=channel_id,
+                    error_code=ErrorCode.INTERNAL.value,
+                    exc_info=True,
+                )
+
+    def _clean_markers(self, channels: Sequence[Channel] | None = None) -> None:
         """Clean up the files that marked videos left, once their folder is there again."""
-        for channel in self._repository.channels():
+        for channel in self._repository.channels() if channels is None else channels:
             folder = self._views.folder_of(channel)
             for video in self._repository.videos(channel.id):
                 if not video.placing_file or self._jobs.active_job_of(video.id) is not None:
@@ -1283,7 +2539,7 @@ class DownloaderService:
                 if self._clean_placed(video, folder) is None:
                     self._jobs.clear_placing_file(video.id)
 
-    def _sweep_temp_folders(self) -> None:
+    def _sweep_temp_folders(self, channels: Sequence[Channel] | None = None) -> None:
         """Remove the temp folders of jobs that are no longer active (R-FI-03, R-QA-06).
 
         A quit can end a job before its temp folder went. Only a folder named
@@ -1291,12 +2547,19 @@ class DownloaderService:
         anything else in the temp folder stays.
         """
         active = {job.id for job in self._jobs.jobs(ACTIVE_STATES)}
-        for channel in self._repository.channels():
+        for channel in self._repository.channels() if channels is None else channels:
+            # The temp folder a re-download's marker names may hold the old file (D-093).
+            held = {
+                marker.job
+                for video in self._repository.videos(channel.id)
+                for marker in (Replacing.of(video.replacing),)
+                if marker is not None
+            }
             temp = self._views.folder_of(channel) / HIDDEN_DIR / TEMP_DIR
             if not self._files.folder_exists(temp):
                 continue
             for name in self._files.file_names(temp, hidden=True):
-                if not JOB_ID.fullmatch(name) or name in active:
+                if not JOB_ID.fullmatch(name) or name in active or name in held:
                     continue
                 try:
                     self._files.remove_temp_folder(temp / name)
@@ -1362,7 +2625,7 @@ class DownloaderService:
 
     # --- helpers
 
-    def _put_in_line(self, video: Video, reason: str) -> Job:
+    def _put_in_line(self, video: Video, reason: str, *, by_hand: bool = True) -> Job:
         channel = self._repository.channel(video.channel_id)
         if channel is None or channel.id in self._closed:
             raise AppError(ErrorCode.NOT_FOUND, {"video": video.id})
@@ -1374,7 +2637,11 @@ class DownloaderService:
             priority=self._jobs.next_priority(),
             quality=effective_quality(channel.quality, self._settings.current().default_quality),
             created_at=self._now(),
+            by_hand=by_hand,
         )
+        if by_hand:
+            # An action of the user starts the retries of R-QU-07 afresh.
+            video = replace(video, attempts=0)
         queued = self._change(job, video, VideoStatus.QUEUED, reason)
         self._state.queued(video.id, channel.id, job.id)
         _log.info(
@@ -1385,11 +2652,15 @@ class DownloaderService:
             channel_id=channel.id,
             quality=job.quality.value,
             reason=reason,
+            by_hand=by_hand,
         )
         self._tell(queued)
         self._views.publish(channel.id)
         with self._wake:
             self._wake.notify_all()
+        # The setting may allow more downloads now than when the workers started.
+        self._add_workers()
+        self._queue_changed()
         return job
 
     def _change(self, job: Job, video: Video, status: VideoStatus, reason: str) -> Video:
@@ -1416,6 +2687,8 @@ class DownloaderService:
     ) -> None:
         if progress.stage is Stage.PROCESSING:
             video = self._processing(job)
+        self._limit_speed(job, progress)
+        self._watch_disk(job)
         previous = self._state.progress_of(video.id)
         told = JobProgress(
             job_id=job.id,
@@ -1438,8 +2711,28 @@ class DownloaderService:
             previous is None or previous.stage is not progress.stage or progress.fraction == 1.0
         )
         if last is not None and now - last < PROGRESS_EVERY_S and not stage_changed:
+            # Too soon to be told now. If no newer report comes, this one is told once
+            # the quarter second is over, so a row never keeps an old percent (R-QU-04).
+            with self._wake:
+                first = job.id not in self._held_reports
+                self._held_reports[job.id] = told
+            if first:
+                self._call_later(
+                    PROGRESS_EVERY_S - (now - last), lambda: self._tell_held_report(job.id)
+                )
             return
-        self._last_told[job.id] = now
+        with self._wake:
+            self._held_reports.pop(job.id, None)
+            self._last_told[job.id] = now
+        self._events.publish(JobProgressed(told))
+
+    def _tell_held_report(self, job_id: str) -> None:
+        """Tell the progress report that came too soon, unless a newer one was told (R-QU-04)."""
+        with self._wake:
+            told = self._held_reports.pop(job_id, None)
+            if told is None or job_id not in self._running or job_id in self._abandoned:
+                return
+            self._last_told[job_id] = self._clock.monotonic()
         self._events.publish(JobProgressed(told))
 
     def _tell(self, video: Video) -> None:
@@ -1449,8 +2742,14 @@ class DownloaderService:
             self._events.publish(VideoUpdated(view))
 
     def _is_cancelled(self, job_id: str) -> bool:
+        """Whether a running job must end at its next step: cancelled, or stopped (D-091)."""
         with self._wake:
-            return self._stopped or job_id in self._cancelled
+            return self._stopped or job_id in self._cancelled or job_id in self._stopping
+
+    def _resumes(self, job_id: str) -> bool:
+        """Whether a job that ends now goes back in line rather than being cancelled (D-091)."""
+        with self._wake:
+            return (self._stopped or job_id in self._stopping) and job_id not in self._cancelled
 
     def _place_of(self, channel: Channel, job: Job) -> _Place:
         folder = self._views.folder_of(channel)

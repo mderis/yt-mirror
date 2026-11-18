@@ -12,6 +12,8 @@ from starlette.responses import Response
 from ytmirror.api.catalogue_schemas import (
     AddChannelRequest,
     AddChannelResponse,
+    AutoMirrorAnswerRequest,
+    AutoMirrorRequest,
     CancelCheckResponse,
     ChangeChannelRequest,
     Channel,
@@ -22,12 +24,15 @@ from ytmirror.api.catalogue_schemas import (
     KeptFileResponse,
     LookupRequest,
     LookupResponse,
+    MirrorResponse,
+    QueuedJob,
     RemovedChannelResponse,
     RepairDatesResponse,
     VideoCountResponse,
 )
 from ytmirror.api.pictures import picture_response
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.services.auto_mirror import AutoMirrorService
 from ytmirror.services.catalogue import CatalogueService
 from ytmirror.services.channel_views import ChannelViews
 from ytmirror.services.channels import ChannelsService, NewChannel
@@ -45,6 +50,7 @@ def build_router(
     views: ChannelViews,
     thumbnails: ThumbnailService,
     repair: RepairService | None = None,
+    auto_mirror: AutoMirrorService | None = None,
 ) -> APIRouter:
     """Return the router for ``/channels`` and ``/folders``.
 
@@ -54,6 +60,7 @@ def build_router(
         views: The channels as the interface shows them.
         thumbnails: The cached pictures.
         repair: Repairs the dates of a channel's files on demand (R-DT-09).
+        auto_mirror: Auto-mirror and "Mirror everything missing" (R-MI-02, R-MI-04).
 
     Returns:
         The router, to be mounted under ``/api``.
@@ -265,5 +272,77 @@ def build_router(
         methods=["GET"],
         response_class=Response,
         operation_id="getChannelAvatar",
+    )
+
+    def mirroring() -> AutoMirrorService:
+        if auto_mirror is None:
+            raise AppError(ErrorCode.NOT_FOUND, {"reason": "auto-mirror is not wired"})
+        return auto_mirror
+
+    def set_auto_mirror(channel_id: str, body: AutoMirrorRequest) -> Channel:
+        """Turn auto-mirror of a channel on or off (R-MI-02). On asks before a large start."""
+        mirroring().set_auto_mirror(channel_id, on=body.on)
+        return view_of(channel_id)
+
+    def answer_auto_mirror(channel_id: str, body: AutoMirrorAnswerRequest) -> Channel:
+        """Answer the question before a large start of auto-mirror (D-095)."""
+        mirroring().answer(channel_id, body.answer)
+        return view_of(channel_id)
+
+    def mirror_missing(channel_id: str) -> MirrorResponse:
+        """Queue every video of the channel without a file, once (R-MI-04)."""
+        jobs = mirroring().mirror_missing(channel_id)
+        return MirrorResponse(
+            jobs=[QueuedJob(job_id=job.id, video_id=job.video_id) for job in jobs]
+        )
+
+    def mirror_them_again(channel_id: str) -> MirrorResponse:
+        """Queue the missing files of the channel again, and nothing else (R-MI-06, D-092)."""
+        jobs = mirroring().mirror_them_again(channel_id)
+        return MirrorResponse(
+            jobs=[QueuedJob(job_id=job.id, video_id=job.video_id) for job in jobs]
+        )
+
+    def leave_missing(channel_id: str) -> Channel:
+        """Leave the missing files of the channel missing, until more are missing (D-092)."""
+        mirroring().leave_missing(channel_id)
+        return view_of(channel_id)
+
+    add(
+        "/channels/{channel_id}/auto-mirror",
+        set_auto_mirror,
+        methods=["PUT"],
+        response_model=Channel,
+        operation_id="setAutoMirror",
+    )
+    add(
+        "/channels/{channel_id}/auto-mirror/answer",
+        answer_auto_mirror,
+        methods=["POST"],
+        response_model=Channel,
+        operation_id="answerAutoMirror",
+    )
+    add(
+        "/channels/{channel_id}/mirror-missing",
+        mirror_missing,
+        methods=["POST"],
+        response_model=MirrorResponse,
+        status_code=202,
+        operation_id="mirrorMissing",
+    )
+    add(
+        "/channels/{channel_id}/missing/mirror",
+        mirror_them_again,
+        methods=["POST"],
+        response_model=MirrorResponse,
+        status_code=202,
+        operation_id="mirrorThemAgain",
+    )
+    add(
+        "/channels/{channel_id}/missing/leave",
+        leave_missing,
+        methods=["POST"],
+        response_model=Channel,
+        operation_id="leaveMissing",
     )
     return router

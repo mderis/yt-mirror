@@ -44,7 +44,7 @@ from ytmirror.app.logging_setup import (
     secret_redactor,
     set_verbose,
 )
-from ytmirror.app.menus import menu_bar
+from ytmirror.app.menus import item_state, menu_bar
 from ytmirror.app.server import BackgroundServer, bind_local_socket
 from ytmirror.app.single_instance import InstanceLock, bring_to_front, bundle_of
 from ytmirror.app.window import open_window
@@ -193,21 +193,37 @@ def choose_wait(
     name = app_identity(container.info.install_kind).name
     native = container.native
     report = options.window_report
+    ui = container.ui
+    # A quit the user confirmed asks again, and the decision lets it through (R-QU-12).
+    ui.on_quit(lambda: native.run_on_main_thread(native.request_quit))
+    # The question shows in the window: it comes to the front first (D-096).
+    ui.before_asking(native.bring_to_front)
 
     def when_shown() -> None:
         if window_is_up is not None:
             window_is_up()
         if report is not None:
-            write_window_report(report, native)
+            shown_to = report
+            write_window_report(shown_to, native)
+            # The tests read the menu bar again after the interface reported its state.
+            ui.watch(
+                lambda _state: native.run_on_main_thread(
+                    lambda: write_window_report(shown_to, native)
+                )
+            )
 
     return lambda url, before_quit: open_window(
         url,
         title=name,
         debug=options.debug,
         native=native,
-        menus=menu_bar(name),
+        menus=menu_bar(name, debug=options.debug),
         before_quit=before_quit,
         when_shown=when_shown,
+        item_state=lambda command: item_state(command, ui.state()),
+        on_command=ui.command,
+        may_quit=lambda: ui.may_quit(ending_session=native.ending_session()),
+        signal_quit=lambda: ui.let_quit("signal"),
     )
 
 
@@ -275,6 +291,8 @@ def run_app(
         container.catalogue.start()
         container.thumbnails.start()
         container.downloader.start()
+        # Auto-mirror takes up what is new, and asks first about a large start (R-MI-02, D-095).
+        threading.Thread(target=container.auto_mirror.run_all, daemon=True).start()
         # The checks by themselves and the exact dates: after the downloader, as the dates
         # yield to downloads (R-CH-20, R-DT-06).
         container.scheduler.start()
@@ -349,7 +367,8 @@ def _stop(server: BackgroundServer, container: Container) -> None:
     container.youtube.log_open_hour()
     # A check that is running ends at the next video and stores nothing (R-PL-13).
     container.catalogue.stop()
-    # A download that is running is cancelled and its temp files deleted (R-PL-13, R-QA-06).
+    # A download that is running stops and keeps its partial files, to continue at the
+    # next start (R-PL-13, R-QU-05, D-091).
     container.downloader.stop()
     # Ends the event streams of open windows first, or the server would wait for them.
     container.events.close()
@@ -415,6 +434,9 @@ def api_services(container: Container) -> ApiServices:
         downloader=container.downloader,
         dates=container.dates,
         repair=container.repair,
+        queue=container.queue,
+        auto_mirror=container.auto_mirror,
+        ui=container.ui,
     )
 
 

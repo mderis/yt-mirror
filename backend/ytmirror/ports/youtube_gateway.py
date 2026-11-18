@@ -105,6 +105,7 @@ class YouTubeGateway(Protocol):
         *,
         start_writing: Callable[[], None] = lambda: None,
         on_lookup_again: Callable[[], None] = lambda: None,
+        on_formats: Callable[[str], None] = lambda _formats: None,
     ) -> DownloadResult:
         """Download one video as an MKV with its metadata, into the temp folder of its job.
 
@@ -120,6 +121,8 @@ class YouTubeGateway(Protocol):
             on_lookup_again: Told of each time the metadata of the video is read again,
                 when it was too old or its stream links were refused, so the budget of
                 lookups counts it (R-DT-06).
+            on_formats: Told the formats the download fetches, before it writes, so
+                that a download stopped by a quit asks for the same ones again (D-091).
 
         Raises:
             AppError: With the code of what went wrong, for example ``MEMBERS_ONLY``.

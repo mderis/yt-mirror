@@ -34,7 +34,6 @@ ALLOWED_TRANSITIONS: frozenset[tuple[VideoStatus, VideoStatus]] = frozenset(
         (_S.PROCESSING, _S.FAILED),
         (_S.FAILED, _S.QUEUED),  # retry
         (_S.SYNCED, _S.FILE_MISSING),  # the file was not found at a check
-        (_S.SYNCED, _S.QUEUED),  # re-download: the old file stays until the new one is verified
         (_S.FILE_MISSING, _S.QUEUED),  # enqueue
         (_S.FILE_MISSING, _S.SYNCED),  # the file is back, with this video's ID inside
     }
@@ -177,7 +176,8 @@ def channel_status(
         folder_missing: Whether the channel folder is gone from a connected drive
             (R-MI-06, D-087). It ranks with "Could not check", just before it.
     """
-    if mirroring:
+    if mirroring and not channel.paused:
+        # A paused channel's downloads do not run (R-CH-31): it says "Paused · X of Y".
         return ChannelStatus.MIRRORING
     if checking:
         return ChannelStatus.CHECKING

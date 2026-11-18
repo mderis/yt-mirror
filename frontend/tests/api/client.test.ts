@@ -25,9 +25,13 @@ function handlers(changes: Partial<EventHandlers> = {}): EventHandlers {
     taskProgress: nothing,
     pauseChanged: nothing,
     videoUpdated: nothing,
+    videosChanged: nothing,
     jobProgress: nothing,
     apiKeyChanged: nothing,
     checksProgress: nothing,
+    queueUpdated: nothing,
+    menuCommand: nothing,
+    quitAsked: nothing,
     reconnected: nothing,
     ...changes,
   }
@@ -333,7 +337,9 @@ describe('the API client', () => {
     expect(jobs).toEqual([{ job_id: 'J1', video_id: 'video000001' }])
     expect(cancelled).toEqual({ cancelled: true })
     expect(files).toEqual({ files: 2, size_bytes: 9 })
-    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ ids: ['video000001'] }))
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({ ids: ['video000001'], first: false }),
+    )
   })
 
   it('R-CH-10: asks for the catalogue of a channel', async () => {

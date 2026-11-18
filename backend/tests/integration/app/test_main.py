@@ -121,7 +121,7 @@ def test_a_run_serves_the_interface_and_the_api_behind_the_session_token(paths: 
     assert visit.redirect_status == 303
     assert visit.page_status == 200
     assert visit.health["status"] == "ok"
-    assert visit.health["schema_version"] == "0010"
+    assert visit.health["schema_version"] == "0011"
 
 
 def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPaths) -> None:
@@ -131,7 +131,7 @@ def test_the_first_run_creates_the_database_through_the_migrations(paths: AppPat
     engine = create_db_engine(paths.database_file)
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0010"
+    assert version == "0011"
 
 
 def test_a_run_logs_its_start_configuration_and_stop(paths: AppPaths) -> None:
@@ -459,13 +459,50 @@ def test_asked_for_a_window_report_the_app_writes_what_macos_shows(
         "name": "yt-mirror (dev)",
         "bundle_identifier": "io.github.mderis.yt-mirror.dev",
     }
-    assert [menu["title"] for menu in shown["menu_bar"]] == ["yt-mirror (dev)", "Edit"]
-    assert shown["menu_bar"][1]["items"][1] == {
+    assert [menu["title"] for menu in shown["menu_bar"]] == [
+        "yt-mirror (dev)",
+        "File",
+        "Edit",
+        "View",
+        "Channel",
+        "Window",
+        "Help",
+    ]
+    assert shown["menu_bar"][2]["items"][1] == {
         "title": "Redo",
         "action": "redo",
         "shortcut": {"key": "z", "shift": True, "option": False},
         "enabled": True,
+        "command": None,
+        "checked": False,
     }
+
+
+def test_the_window_asks_macos_why_it_quits_and_lets_a_session_end_through(
+    monkeypatch: pytest.MonkeyPatch, paths: AppPaths
+) -> None:
+    """R-NA-06, D-096: the decision of the window gets the reason macOS gives."""
+    native = FakeNativeApp(AppIdentity("yt-mirror (dev)", "io.github.mderis.yt-mirror.dev"))
+    opened = OpenedWindows()
+    monkeypatch.setattr(main_module, "open_window", opened)
+    container = build_container(paths, native=native)
+    asked: list[bool] = []
+
+    def may_quit(*, ending_session: bool) -> bool:
+        asked.append(ending_session)
+        return True
+
+    monkeypatch.setattr(container.ui, "may_quit", may_quit)
+    choose_wait(options(no_window=False), container)("http://x/", _never)
+    decide = opened.windows[0]["may_quit"]
+    assert callable(decide)
+
+    native.session_ending = True
+    decide()
+    native.session_ending = False
+    decide()
+
+    assert asked == [True, False]
 
 
 def test_the_browser_flag_opens_the_default_browser_instead(

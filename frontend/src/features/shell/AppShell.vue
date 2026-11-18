@@ -8,14 +8,19 @@
  * It decides which page is shown: the channel that was open last, or the
  * welcome screen while there is no channel (R-UI-02).
  */
-import { computed, watchEffect } from 'vue'
+import { computed, reactive, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 
 import AppBanner from '@/components/AppBanner.vue'
 import IconButton from '@/components/IconButton.vue'
 import AddChannelDialog from '@/features/channel/AddChannelDialog.vue'
+import AutoMirrorQuestionDialog from '@/features/channel/AutoMirrorQuestionDialog.vue'
 import ChannelMenu from '@/features/channel/ChannelMenu.vue'
+import DownloadsPanel from '@/features/queue/DownloadsPanel.vue'
+import QueueBanners from '@/features/queue/QueueBanners.vue'
+import ShortcutsDialog from '@/features/shell/ShortcutsDialog.vue'
+import { useMenuBridge } from '@/features/shell/useMenuBridge'
 import FilesLeftDialog from '@/features/channel/FilesLeftDialog.vue'
 import RemoveChannelDialog from '@/features/channel/RemoveChannelDialog.vue'
 import ApiKeyDialog from '@/features/settings/ApiKeyDialog.vue'
@@ -23,6 +28,7 @@ import ToolBanners from '@/features/tools/ToolBanners.vue'
 import { useErrorTexts } from '@/i18n/errors'
 import { channelRoute } from '@/router'
 import { useChannelsStore } from '@/stores/channels'
+import { useQueueStore } from '@/stores/queue'
 import { useToolsStore } from '@/stores/tools'
 import { useUiStore } from '@/stores/ui'
 
@@ -35,7 +41,9 @@ const router = useRouter()
 const channels = useChannelsStore()
 const tools = useToolsStore()
 const ui = useUiStore()
+const queue = useQueueStore()
 const textsOf = useErrorTexts()
+useMenuBridge()
 
 const menuChannel = computed(() => (ui.menu ? channels.byId.get(ui.menu.channelId) : undefined))
 const removing = computed(() =>
@@ -47,10 +55,19 @@ const hasBanners = computed(
     tools.troubled.length > 0 ||
     tools.installing ||
     channels.youtubePause !== null ||
+    queue.summary.disk_guard != null ||
+    queue.summary.folders_away.length > 0 ||
     ui.actionError !== null,
 )
 
 const leavingHome = computed(() => route.name === 'home' && channels.channels.length > 0)
+
+/** Channels whose question the user put off until the next start of the window (D-095). */
+const putOff = reactive(new Set<string>())
+/** The first channel of the sidebar that waits for its answer before a large start. */
+const asking = computed(() =>
+  channels.channels.find((channel) => channel.auto_mirror_question && !putOff.has(channel.id)),
+)
 
 // The page follows the channels: one that is gone is left, and "home" is a channel if there is one.
 watchEffect(() => {
@@ -77,6 +94,7 @@ function onAdded(channelId: string, existing: boolean): void {
       <div v-if="hasBanners" class="flex flex-col gap-3 px-7 pt-4" data-banners>
         <ToolBanners />
         <YouTubePauseBanner />
+        <QueueBanners />
         <AppBanner v-if="actionError" tone="error" data-banner="action-failed">
           <p class="font-medium">{{ actionError.happened }}</p>
           <p v-if="actionError.action" class="text-meta">
@@ -93,7 +111,11 @@ function onAdded(channelId: string, existing: boolean): void {
         </AppBanner>
       </div>
       <!-- While "home" is about to become the page of a channel, the welcome screen is not drawn. -->
-      <RouterView v-if="!leavingHome" class="min-h-0 flex-1" />
+      <!-- The downloads panel lies over the page from the right, so the list keeps its width. -->
+      <div class="relative flex min-h-0 flex-1">
+        <RouterView v-if="!leavingHome" class="min-h-0 flex-1" />
+        <DownloadsPanel v-if="queue.panelOpen" class="absolute inset-y-0 right-0 z-20" />
+      </div>
     </div>
 
     <ChannelMenu
@@ -111,5 +133,12 @@ function onAdded(channelId: string, existing: boolean): void {
     <RemoveChannelDialog v-if="removing" :channel="removing" @close="ui.closeRemove()" />
     <FilesLeftDialog v-if="ui.filesLeft" :left="ui.filesLeft" @close="ui.closeFilesLeft()" />
     <ApiKeyDialog v-if="ui.apiKeyOpen" @close="ui.closeApiKey()" />
+    <ShortcutsDialog v-if="ui.shortcutsOpen" @close="ui.shortcutsOpen = false" />
+    <AutoMirrorQuestionDialog
+      v-if="asking"
+      :key="asking.id"
+      :channel="asking"
+      @close="putOff.add(asking.id)"
+    />
   </div>
 </template>

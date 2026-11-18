@@ -44,6 +44,34 @@ describe('the date of a video while its exact date is fetched', () => {
     )
   })
 
+  it('R-DT-13, R-UI-03: the cards of the grid tell the three states apart as the list does', async () => {
+    await openApp({
+      channels: [channel()],
+      videos: [
+        video(1, approximate),
+        video(2, { ...approximate, date: { state: 'updating', reason: null, retry_at: null } }),
+        video(3, {
+          ...approximate,
+          date: { state: 'unavailable', reason: 'VIDEO_PRIVATE', retry_at: NOW + 3600 },
+        }),
+      ],
+      state: { view: 'grid' },
+      route: `/channels/${CHANNEL_ID}`,
+    })
+
+    await screen.findByText('Video 3')
+    expect(part('[data-view]').getAttribute('data-view')).toBe('grid')
+    const dateOf = (number: number): HTMLElement =>
+      part(`[data-video="${video(number).id}"] [data-date]`)
+    expect(dateOf(1).getAttribute('data-date')).toBe('waiting')
+    expect(dateOf(1).getAttribute('title')).toBe('Exact date pending')
+    expect(dateOf(2).getAttribute('data-date')).toBe('updating')
+    expect(dateOf(3).getAttribute('data-date')).toBe('unavailable')
+    expect(dateOf(3).getAttribute('title')).toBe(
+      'The video is private. It is tried again at 07:42.',
+    )
+  })
+
   it('R-DT-13: a date held back by YouTube says so, and later', async () => {
     await openApp({
       channels: [channel()],

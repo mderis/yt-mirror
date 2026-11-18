@@ -6,6 +6,9 @@
  * Trash, never away for good: the dialog says how many and how much room,
  * and that the other files of the folder stay. Files macOS refuses to move
  * do not stop the removal: the shell lists them once the channel is gone.
+ * While the downloads of the channel stop, the dialog stays open and says so
+ * (the M3 review, L2); a download that does not stop in time fails the
+ * removal with CHANNEL_BUSY, and the channel stays.
  */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -42,6 +45,8 @@ const DELETE = 'delete'
 const choice = ref(KEEP)
 const toTrash = ref<FilesToTrash | null>(null)
 const removing = ref(false)
+/** The downloads of the channel that stop before it goes: a number, "some", or none. */
+const stopping = ref<number | 'some' | null>(null)
 const failure = ref<ErrorCode | null>(null)
 const failureTexts = computed(() => (failure.value ? textsOf(failure.value) : null))
 
@@ -89,8 +94,30 @@ onMounted(async () => {
   }
 })
 
+/** How many downloads of the channel run now, as far as the window knows. */
+function runningNow(): number | 'some' | null {
+  if (videos.channelId === props.channel.id) {
+    const count = videos.videos.filter(
+      (video) => video.status === 'downloading' || video.status === 'processing',
+    ).length
+    return count > 0 ? count : null
+  }
+  return props.channel.status === 'mirroring' ? 'some' : null
+}
+
+const stoppingText = computed(() => {
+  if (stopping.value === null) {
+    return null
+  }
+  if (stopping.value === 'some') {
+    return t('removeChannel.stoppingSome')
+  }
+  return t('removeChannel.stopping', { count: formatNumber(stopping.value) }, stopping.value)
+})
+
 async function remove(): Promise<void> {
   removing.value = true
+  stopping.value = runningNow()
   failure.value = null
   try {
     const removed = await channels.remove(props.channel.id, choice.value === KEEP)
@@ -109,6 +136,7 @@ async function remove(): Promise<void> {
     failure.value = error instanceof ApiError ? error.code : UNKNOWN_ERROR
   } finally {
     removing.value = false
+    stopping.value = null
   }
 }
 </script>
@@ -127,11 +155,16 @@ async function remove(): Promise<void> {
       :legend="t('removeChannel.files')"
       :options="options"
     />
+    <p v-if="removing && stoppingText" class="text-text-muted" role="status" data-stopping>
+      {{ stoppingText }}
+    </p>
     <p v-if="failureTexts" class="text-err-text" role="alert">
       {{ failureTexts.happened }} {{ failureTexts.doing }} {{ failureTexts.action }}
     </p>
     <template #actions>
-      <AppButton variant="ghost" @press="emit('close')">{{ t('removeChannel.cancel') }}</AppButton>
+      <AppButton variant="ghost" :disabled="removing" @press="emit('close')">
+        {{ t('removeChannel.cancel') }}
+      </AppButton>
       <AppButton variant="danger" icon="trash" :busy="removing" @press="remove">
         {{ t('removeChannel.remove') }}
       </AppButton>

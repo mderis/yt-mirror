@@ -176,3 +176,62 @@ def test_lookups_after_now_are_not_restored_when_the_clock_was_set_back() -> Non
 
     assert budget.used(START) == 0
     assert budget.wait_s(START) == 0
+
+
+def test_the_room_is_what_the_last_hour_left_of_the_budget() -> None:
+    """R-DT-06, D-090: an automatic download may start while the budget has room."""
+    budget = LookupBudget(per_hour=3)
+    budget.count(LookupKind.DOWNLOAD, START)
+    budget.count(LookupKind.EXACT_DATE, START + 1)
+
+    assert budget.room(START + 2) == 1
+    budget.count(LookupKind.DOWNLOAD, START + 2)
+    assert budget.room(START + 3) == 0
+    assert budget.room(START + HOUR_S) == 1
+
+
+def test_room_comes_back_as_the_lookups_of_the_last_hour_grow_old() -> None:
+    """R-DT-06, D-090: a paced download may start when the oldest lookup is an hour old."""
+    budget = LookupBudget(per_hour=3)
+    for second in (0, 10, 20):
+        budget.count(LookupKind.DOWNLOAD, START + second)
+
+    assert budget.free_times(START + 30, 3) == [
+        START + HOUR_S,
+        START + 10 + HOUR_S,
+        START + 20 + HOUR_S,
+    ]
+
+
+def test_room_now_needs_no_wait() -> None:
+    """R-DT-06, D-090: with room left, the next downloads may start now."""
+    budget = LookupBudget(per_hour=3)
+    budget.count(LookupKind.DOWNLOAD, START)
+
+    assert budget.free_times(START + 1, 3) == [START + 1, START + 1, START + HOUR_S]
+
+
+def test_the_paced_downloads_use_the_room_they_get() -> None:
+    """R-DT-06, D-090: a long line of automatic downloads takes one more hour per full budget."""
+    budget = LookupBudget(per_hour=2)
+    budget.count(LookupKind.DOWNLOAD, START)
+    budget.count(LookupKind.DOWNLOAD, START + 5)
+
+    times = budget.free_times(START + 10, 6)
+
+    assert times == [
+        START + HOUR_S,
+        START + 5 + HOUR_S,
+        START + 2 * HOUR_S,
+        START + 5 + 2 * HOUR_S,
+        START + 3 * HOUR_S,
+        START + 5 + 3 * HOUR_S,
+    ]
+
+
+def test_a_halved_budget_has_half_the_room() -> None:
+    """R-DT-06, D-090: after a "not a bot" check automatic downloads get half the room."""
+    budget = LookupBudget(per_hour=4)
+    budget.halve(START, MIDNIGHT)
+
+    assert budget.room(START) == 2

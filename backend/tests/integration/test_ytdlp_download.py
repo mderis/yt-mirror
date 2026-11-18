@@ -607,3 +607,38 @@ def test_metadata_older_than_five_minutes_is_read_again_before_the_download(
     )
 
     assert (len(asked), len(again), ytdlp.calls) == (2, 1, 1)
+
+
+def test_a_download_that_continues_asks_for_the_formats_it_chose_before(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-QU-05, D-091: the formats of the stopped run come first, the quality selector after."""
+    gateway(replay, ytdlp).download(request(tmp_path, formats="244+251"), lambda _p: None, never)
+
+    assert ytdlp.options["format"] == "244+251/bv*[height<=480]+ba/b[height<=480]/wv*+ba/w"
+
+
+def test_the_formats_a_download_fetches_are_told_before_it_writes(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-QU-05, D-091: the chosen formats are told before the first file is written."""
+    order: list[str] = []
+
+    gateway(replay, ytdlp).download(
+        request(tmp_path),
+        lambda _p: None,
+        never,
+        start_writing=lambda: order.append("start writing"),
+        on_formats=lambda formats: order.append(formats),
+    )
+
+    assert order == ["397+251", "start writing"]
+
+
+def test_a_finished_stream_in_the_temp_folder_is_kept(
+    tmp_path: Path, replay: Replay, ytdlp: FakeYtDlp
+) -> None:
+    """R-QU-05, D-091: yt-dlp keeps the files of the job's own folder instead of deleting them."""
+    gateway(replay, ytdlp).download(request(tmp_path), lambda _progress: None, never)
+
+    assert ytdlp.options["overwrites"] is False

@@ -134,6 +134,46 @@ export interface paths {
     patch: operations['changeChannel']
     trace?: never
   }
+  '/api/channels/{channel_id}/auto-mirror': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Set Auto Mirror
+     * @description Turn auto-mirror of a channel on or off (R-MI-02). On asks before a large start.
+     */
+    put: operations['setAutoMirror']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/auto-mirror/answer': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Answer Auto Mirror
+     * @description Answer the question before a large start of auto-mirror (D-095).
+     */
+    post: operations['answerAutoMirror']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/channels/{channel_id}/avatar': {
     parameters: {
       query?: never
@@ -208,6 +248,66 @@ export interface paths {
     get: operations['getFilesToTrash']
     put?: never
     post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/mirror-missing': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Mirror Missing
+     * @description Queue every video of the channel without a file, once (R-MI-04).
+     */
+    post: operations['mirrorMissing']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/missing/leave': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Leave Missing
+     * @description Leave the missing files of the channel missing, until more are missing (D-092).
+     */
+    post: operations['leaveMissing']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/channels/{channel_id}/missing/mirror': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Mirror Them Again
+     * @description Queue the missing files of the channel again, and nothing else (R-MI-06, D-092).
+     */
+    post: operations['mirrorThemAgain']
     delete?: never
     options?: never
     head?: never
@@ -354,6 +454,166 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/queue': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Get Queue
+     * @description Return every download that runs or waits, in its order, and the failed videos.
+     */
+    get: operations['getQueue']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/clear-waiting': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Clear Waiting
+     * @description Remove every download that waits from the line (R-QU-02).
+     */
+    post: operations['clearWaiting']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/folders/{channel_id}/try-again': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Try Folder Again
+     * @description Look again whether the folder of a channel can be reached (R-QU-11).
+     */
+    post: operations['tryFolderAgain']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/pause': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Pause
+     * @description Pause all downloads (R-QU-02).
+     */
+    post: operations['pauseQueue']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/reorder': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Reorder
+     * @description Put the waiting downloads in the given order (R-QU-02).
+     */
+    post: operations['reorderQueue']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/resume': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Resume
+     * @description Resume all downloads (R-QU-02).
+     */
+    post: operations['resumeQueue']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/resume-anyway': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Resume Anyway
+     * @description Resume the queue that the disk space guard paused (R-QU-10).
+     */
+    post: operations['resumeAnyway']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/queue/speed-limit': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Speed Limit
+     * @description Change the limit of all downloads together (R-QU-03).
+     */
+    post: operations['setSpeedLimit']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/settings/api-key': {
     parameters: {
       query?: never
@@ -442,6 +702,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/state/view': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Set View
+     * @description Remember whether channels show a list or a grid, for the whole app (R-UI-03).
+     */
+    put: operations['setView']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/tools': {
     parameters: {
       query?: never
@@ -482,6 +762,46 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/ui/quit': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Confirm Quit
+     * @description Quit although downloads run: the user chose "Quit" in the question (R-QU-12).
+     */
+    post: operations['confirmQuit']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/ui/state': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Report State
+     * @description Tell the app what applies now, so the menu bar is enabled from it (R-NA-04).
+     */
+    put: operations['reportUiState']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/videos/mirror': {
     parameters: {
       query?: never
@@ -496,6 +816,26 @@ export interface paths {
      * @description Put videos in line to be downloaded, in the order given (R-MI-01).
      */
     post: operations['mirrorVideos']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/videos/redownload': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Redownload
+     * @description Download synced videos again; each file is replaced once the new one is verified.
+     */
+    post: operations['redownloadVideos']
     delete?: never
     options?: never
     head?: never
@@ -688,6 +1028,47 @@ export interface components {
       api_key: components['schemas']['ApiKey']
     }
     /**
+     * AutoMirrorAnswer
+     * @description The answers to the question before a large start of auto-mirror (D-095).
+     * @enum {string}
+     */
+    AutoMirrorAnswer: 'mirror_all' | 'only_new' | 'turn_off'
+    /**
+     * AutoMirrorAnswerRequest
+     * @description The body of ``POST /api/channels/{id}/auto-mirror/answer`` (D-095).
+     *
+     *     Attributes:
+     *         answer: Mirror all, only new videos from now on, or turn auto-mirror off.
+     */
+    AutoMirrorAnswerRequest: {
+      answer: components['schemas']['AutoMirrorAnswer']
+    }
+    /**
+     * AutoMirrorQuestionInfo
+     * @description Auto-mirror waits for the user before a large start (R-MI-02, D-095).
+     *
+     *     Attributes:
+     *         count: How many videos it would download.
+     *         estimated_bytes: About how much room they take.
+     */
+    AutoMirrorQuestionInfo: {
+      /** Count */
+      count: number
+      /** Estimated Bytes */
+      estimated_bytes: number
+    }
+    /**
+     * AutoMirrorRequest
+     * @description The body of ``PUT /api/channels/{id}/auto-mirror`` (R-MI-02).
+     *
+     *     Attributes:
+     *         on: Whether auto-mirror is on.
+     */
+    AutoMirrorRequest: {
+      /** On */
+      on: boolean
+    }
+    /**
      * BannerChangedEvent
      * @description The data of the ``banner.changed`` event of ``GET /api/events``.
      *
@@ -768,10 +1149,15 @@ export interface components {
      *             wait (R-DT-12): "the API key is not working, using the slow way".
      *         waiting_until: When the exact dates go on, while they wait for YouTube.
      *         retry_at: When a failed check is tried again by itself (R-CH-25), or None.
+     *         auto_mirror_question: What auto-mirror would start and waits for an answer
+     *             about (D-095), or None.
+     *         missing_held: How many missing files auto-mirror waits for an answer about
+     *             (D-092), or None.
      */
     Channel: {
       /** Auto Mirror */
       auto_mirror: boolean
+      auto_mirror_question?: components['schemas']['AutoMirrorQuestionInfo'] | null
       /** Avatar Version */
       avatar_version: number
       /** Catalogue Version */
@@ -804,6 +1190,8 @@ export interface components {
       /** Mirror After */
       mirror_after: number | null
       mirroring?: components['schemas']['Mirroring'] | null
+      /** Missing Held */
+      missing_held?: number | null
       /** New Videos */
       new_videos: number
       /** Paused */
@@ -942,6 +1330,17 @@ export interface components {
       video_files: number
     }
     /**
+     * ClearWaitingResponse
+     * @description The answer of ``POST /api/queue/clear-waiting`` (R-QU-02).
+     *
+     *     Attributes:
+     *         removed: How many waiting downloads were removed.
+     */
+    ClearWaitingResponse: {
+      /** Removed */
+      removed: number
+    }
+    /**
      * DateInfo
      * @description What an approximate date shows (R-DT-13).
      *
@@ -968,6 +1367,23 @@ export interface components {
      * @enum {string}
      */
     DateState: 'waiting' | 'updating' | 'unavailable'
+    /**
+     * DiskGuard
+     * @description The queue is paused because a disk has too little free space (R-QU-10).
+     *
+     *     Attributes:
+     *         disk: The name of the volume.
+     *         free_bytes: Its free space when the guard saw it.
+     *         limit_bytes: The free space below which the queue pauses.
+     */
+    DiskGuard: {
+      /** Disk */
+      disk: string
+      /** Free Bytes */
+      free_bytes: number
+      /** Limit Bytes */
+      limit_bytes: number
+    }
     /**
      * DiskSpace
      * @description The disk the library is on (R-UI-01).
@@ -1126,9 +1542,13 @@ export interface components {
       | components['schemas']['TaskProgressEvent']
       | components['schemas']['BannerChangedEvent']
       | components['schemas']['VideoUpdatedEvent']
+      | components['schemas']['VideosChangedEvent']
       | components['schemas']['JobProgressEvent']
       | components['schemas']['ApiKeyChangedEvent']
       | components['schemas']['ChecksProgressEvent']
+      | components['schemas']['QueueUpdatedEvent']
+      | components['schemas']['MenuCommandEvent']
+      | components['schemas']['QuitAskedEvent']
     /**
      * ExactDates
      * @description How far the exact dates of a channel are (R-FB-01, R-DT-14, R-DT-15).
@@ -1148,6 +1568,34 @@ export interface components {
       offer_key: boolean
       /** Total */
       total: number
+    }
+    /**
+     * FailedItem
+     * @description One failed video, as the downloads panel shows it (R-QU-08).
+     *
+     *     Attributes:
+     *         video_id: The video.
+     *         channel_id: Its channel.
+     *         channel_title: The name of the channel.
+     *         title: The title of the video.
+     *         error_code: Why it failed, or None.
+     *         attempts: How many automatic attempts were made since it last succeeded.
+     *         gone: Whether YouTube no longer has it: then it offers no Retry (R-CH-14).
+     */
+    FailedItem: {
+      /** Attempts */
+      attempts: number
+      /** Channel Id */
+      channel_id: string
+      /** Channel Title */
+      channel_title: string
+      error_code: components['schemas']['ErrorCode'] | null
+      /** Gone */
+      gone: boolean
+      /** Title */
+      title: string
+      /** Video Id */
+      video_id: string
     }
     /**
      * FileFacts
@@ -1306,13 +1754,43 @@ export interface components {
       video_files: number
     }
     /**
+     * MenuCommand
+     * @description A command of the menu bar, which the interface runs as its own control does (D-094).
+     * @enum {string}
+     */
+    MenuCommand:
+      | 'add_channel'
+      | 'view_list'
+      | 'view_grid'
+      | 'show_downloads'
+      | 'reload'
+      | 'check_now'
+      | 'check_all'
+      | 'mirror_missing'
+      | 'toggle_pause'
+      | 'open_folder'
+      | 'shortcuts'
+    /**
+     * MenuCommandEvent
+     * @description Data of the event ``menu.command``: run the command of a menu item (D-094).
+     */
+    MenuCommandEvent: {
+      command: components['schemas']['MenuCommand']
+    }
+    /**
      * MirrorRequest
      * @description The body of ``POST /api/videos/mirror`` (R-MI-01).
      *
      *     Attributes:
      *         ids: The videos to put in line, in this order.
+     *         first: Whether they go to the top of the line ("Mirror first", R-QU-02).
      */
     MirrorRequest: {
+      /**
+       * First
+       * @default false
+       */
+      first: boolean
       /** Ids */
       ids: string[]
     }
@@ -1398,6 +1876,109 @@ export interface components {
      */
     Quality: 'best' | '2160' | '1440' | '1080' | '720' | '480'
     /**
+     * Queue
+     * @description How the queue stands, for the queue bar (R-QU-01, R-QU-02).
+     *
+     *     Attributes:
+     *         downloading: How many downloads run now.
+     *         waiting: How many wait in line.
+     *         failed: How many videos failed (R-QU-08).
+     *         paused: Whether the user paused all downloads.
+     *         places: How many downloads may run at once.
+     *         speed_limit_mbps: The limit of all downloads together, 0 for none (R-QU-03).
+     *         disk_guard: The pause of the disk space guard, or None (R-QU-10).
+     *         folders_away: The channels whose folder cannot be reached (R-QU-11).
+     */
+    Queue: {
+      disk_guard?: components['schemas']['DiskGuard'] | null
+      /** Downloading */
+      downloading: number
+      /** Failed */
+      failed: number
+      /**
+       * Folders Away
+       * @default []
+       */
+      folders_away: string[]
+      /** Paused */
+      paused: boolean
+      /** Places */
+      places: number
+      /**
+       * Speed Limit Mbps
+       * @default 0
+       */
+      speed_limit_mbps: number
+      /** Waiting */
+      waiting: number
+    }
+    /**
+     * QueueItem
+     * @description One download that waits or runs, as the downloads panel shows it (R-QU-02).
+     *
+     *     Attributes:
+     *         job_id: The job.
+     *         video_id: The video.
+     *         channel_id: Its channel.
+     *         channel_title: The name of the channel.
+     *         title: The title of the video.
+     *         duration_s: Its length in seconds, or None.
+     *         quality: The quality it is downloaded in.
+     *         by_hand: Whether the user started it by hand (R-DT-06, D-090).
+     *         download: How far it is, when it runs and reported already, else None.
+     *         paced_until: When it may start, while it waits for room in the lookup
+     *             budget (D-090), else None.
+     */
+    QueueItem: {
+      /** By Hand */
+      by_hand: boolean
+      /** Channel Id */
+      channel_id: string
+      /** Channel Title */
+      channel_title: string
+      download?: components['schemas']['Download'] | null
+      /** Duration S */
+      duration_s: number | null
+      /** Job Id */
+      job_id: string
+      /** Paced Until */
+      paced_until?: number | null
+      quality: components['schemas']['Quality']
+      /** Title */
+      title: string
+      /** Video Id */
+      video_id: string
+    }
+    /**
+     * QueueResponse
+     * @description The answer of ``GET /api/queue``: the whole queue (R-QU-02).
+     *
+     *     Attributes:
+     *         queue: How it stands.
+     *         running: The downloads that run.
+     *         waiting: The downloads that wait, in their order.
+     *         failed: The failed videos, newest failure first.
+     */
+    QueueResponse: {
+      /** Failed */
+      failed: components['schemas']['FailedItem'][]
+      queue: components['schemas']['Queue']
+      /** Running */
+      running: components['schemas']['QueueItem'][]
+      /** Waiting */
+      waiting: components['schemas']['QueueItem'][]
+    }
+    /**
+     * QueueUpdatedEvent
+     * @description The data of the event ``queue.updated``: the queue changed (R-FB-03).
+     *
+     *     Attributes:
+     *         queue: How it stands now.
+     */
+    QueueUpdatedEvent: {
+      queue: components['schemas']['Queue']
+    }
+    /**
      * QueuedJob
      * @description A download that was put in line.
      *
@@ -1411,6 +1992,11 @@ export interface components {
       /** Video Id */
       video_id: string
     }
+    /**
+     * QuitAskedEvent
+     * @description Data of the event ``quit.asked``: a quit waits while downloads run; ask (R-QU-12).
+     */
+    QuitAskedEvent: Record<string, never>
     /**
      * RemovedChannelResponse
      * @description The answer of ``DELETE /api/channels/{id}`` (R-CH-32).
@@ -1428,6 +2014,17 @@ export interface components {
       folder: string
       /** Left */
       left: components['schemas']['KeptFileResponse'][]
+    }
+    /**
+     * ReorderRequest
+     * @description The body of ``POST /api/queue/reorder`` (R-QU-02).
+     *
+     *     Attributes:
+     *         job_ids: The waiting jobs in the order the user wants.
+     */
+    ReorderRequest: {
+      /** Job Ids */
+      job_ids: string[]
     }
     /**
      * RepairDatesResponse
@@ -1458,6 +2055,17 @@ export interface components {
       key: string
     }
     /**
+     * SpeedLimitRequest
+     * @description The body of ``POST /api/queue/speed-limit`` (R-QU-03).
+     *
+     *     Attributes:
+     *         mbps: The limit of all downloads together in MB/s: 0 (unlimited), 5, 2 or 1.
+     */
+    SpeedLimitRequest: {
+      /** Mbps */
+      mbps: number
+    }
+    /**
      * Stage
      * @description What a running download does now (R-QU-04).
      * @enum {string}
@@ -1477,6 +2085,8 @@ export interface components {
      *         api_key: How the optional API key stands (R-DT-12).
      *         checking_all: How far a check of all channels is ("Checking channels: 3 of 5"),
      *             or None (R-CH-20).
+     *         queue: How the queue of downloads stands (R-QU-02).
+     *         view: Whether channels show their videos as a list or a grid (R-UI-03).
      */
     StateResponse: {
       api_key: components['schemas']['ApiKey']
@@ -1490,6 +2100,20 @@ export interface components {
       library_folder: string
       /** Open Channel Id */
       open_channel_id: string | null
+      /**
+       * @default {
+       *       "downloading": 0,
+       *       "failed": 0,
+       *       "folders_away": [],
+       *       "paused": false,
+       *       "places": 2,
+       *       "speed_limit_mbps": 0,
+       *       "waiting": 0
+       *     }
+       */
+      queue: components['schemas']['Queue']
+      /** @default list */
+      view: components['schemas']['ViewKind']
       youtube_pause: components['schemas']['Pause'] | null
     }
     /**
@@ -1599,6 +2223,36 @@ export interface components {
       /** Tools */
       tools: components['schemas']['Tool'][]
     }
+    /**
+     * TryFolderResponse
+     * @description The answer of ``POST /api/queue/folders/{channel_id}/try-again`` (R-QU-11).
+     *
+     *     Attributes:
+     *         available: Whether the folder can be reached now: then its downloads go on.
+     */
+    TryFolderResponse: {
+      /** Available */
+      available: boolean
+    }
+    /**
+     * UiStateRequest
+     * @description What the interface tells the app about itself, for the menu bar (R-NA-04).
+     */
+    UiStateRequest: {
+      /** Any Unpaused */
+      any_unpaused: boolean
+      /** Channel Open */
+      channel_open: boolean
+      /** Checking */
+      checking: boolean
+      /** Folder Available */
+      folder_available: boolean
+      /** Has Missing */
+      has_missing: boolean
+      /** Paused */
+      paused: boolean
+      view: components['schemas']['ViewKind']
+    }
     /** ValidationError */
     ValidationError: {
       /** Context */
@@ -1634,8 +2288,19 @@ export interface components {
      *         file_size: The size of its file in bytes, or None.
      *         error_code: Why the last download failed (R-QU-08), or None.
      *         date: What an approximate date shows (R-DT-13), or None for an exact date.
+     *         paced_until: When an automatic download that waits for room in the lookup
+     *             budget may start, or None (R-DT-06, D-090).
+     *         retry_at: When a download that failed in a way that passes is tried again by
+     *             itself, or None (R-QU-07).
+     *         below_target: Whether the file is lower than the quality its channel asks for
+     *             now (R-QL-07).
      */
     Video: {
+      /**
+       * Below Target
+       * @default false
+       */
+      below_target: boolean
       date?: components['schemas']['DateInfo'] | null
       download?: components['schemas']['Download'] | null
       /** Duration S */
@@ -1655,11 +2320,15 @@ export interface components {
       is_new: boolean
       /** Job Id */
       job_id?: string | null
+      /** Paced Until */
+      paced_until?: number | null
       /** Published Around */
       published_around: number | null
       /** Published At */
       published_at: number | null
       published_precision: components['schemas']['DatePrecision'] | null
+      /** Retry At */
+      retry_at?: number | null
       status: components['schemas']['VideoStatus']
       /** Title */
       title: string
@@ -1738,6 +2407,22 @@ export interface components {
       video: components['schemas']['Video']
     }
     /**
+     * VideosChangedEvent
+     * @description The data of the ``videos.changed`` event: many videos of a channel changed at once.
+     *
+     *     The window loads the list of the channel again (R-FB-03).
+     *
+     *     Attributes:
+     *         channel_id: The channel.
+     *         count: How many videos changed.
+     */
+    VideosChangedEvent: {
+      /** Channel Id */
+      channel_id: string
+      /** Count */
+      count: number
+    }
+    /**
      * VideosResponse
      * @description The answer of ``GET /api/channels/{id}/videos``.
      *
@@ -1747,6 +2432,22 @@ export interface components {
     VideosResponse: {
       /** Videos */
       videos: components['schemas']['Video'][]
+    }
+    /**
+     * ViewKind
+     * @description How a channel's videos are shown: as a list or as a grid (R-UI-03).
+     * @enum {string}
+     */
+    ViewKind: 'list' | 'grid'
+    /**
+     * ViewRequest
+     * @description The body of ``PUT /api/state/view`` (R-UI-03).
+     *
+     *     Attributes:
+     *         view: List or grid.
+     */
+    ViewRequest: {
+      view: components['schemas']['ViewKind']
     }
   }
   responses: never
@@ -2218,6 +2919,130 @@ export interface operations {
       }
     }
   }
+  setAutoMirror: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AutoMirrorRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Channel']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  answerAutoMirror: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AutoMirrorAnswerRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Channel']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   getChannelAvatar: {
     parameters: {
       query?: never
@@ -2452,6 +3277,180 @@ export interface operations {
       }
     }
   }
+  mirrorMissing: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MirrorResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  leaveMissing: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Channel']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  mirrorThemAgain: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MirrorResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   openChannelFolder: {
     parameters: {
       query?: never
@@ -2633,7 +3632,7 @@ export interface operations {
     }
     requestBody?: never
     responses: {
-      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress``, ``banner.changed``, ``video.updated``, ``job.progress``, ``apikey.changed`` and ``checks.progress`` carry these data, in this order. */
+      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress``, ``banner.changed``, ``video.updated``, ``videos.changed``, ``job.progress``, ``apikey.changed``, ``checks.progress``, ``queue.updated``, ``menu.command`` and ``quit.asked`` carry these data, in this order. */
       200: {
         headers: {
           [name: string]: unknown
@@ -2783,6 +3782,417 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['CancelJobResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  getQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['QueueResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  clearWaiting: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ClearWaitingResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  tryFolderAgain: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        channel_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['TryFolderResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  pauseQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  reorderQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReorderRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  resumeQueue: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  resumeAnyway: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  setSpeedLimit: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SpeedLimitRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Queue']
         }
       }
       /** @description Unauthorized */
@@ -3144,6 +4554,66 @@ export interface operations {
       }
     }
   }
+  setView: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ViewRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['StateResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   getTools: {
     parameters: {
       query?: never
@@ -3249,7 +4719,170 @@ export interface operations {
       }
     }
   }
+  confirmQuit: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  reportUiState: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UiStateRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
   mirrorVideos: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['MirrorRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MirrorResponse']
+        }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  redownloadVideos: {
     parameters: {
       query?: never
       header?: never
