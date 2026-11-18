@@ -68,6 +68,13 @@ class NativeApp(Protocol):
         """Ask the app to quit, exactly as "Quit" in its menu does. Main thread only."""
         ...
 
+    def bring_to_front(self) -> None:
+        """Bring the app and its window to the front, also from the Dock or minimized.
+
+        Before the question of a held quit (R-QU-12, D-096). Main thread only.
+        """
+        ...
+
     def ending_session(self) -> bool:
         """Tell whether the quit macOS asks for now comes from a logout, a restart or a shutdown.
 

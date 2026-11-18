@@ -196,6 +196,8 @@ def choose_wait(
     ui = container.ui
     # A quit the user confirmed asks again, and the decision lets it through (R-QU-12).
     ui.on_quit(lambda: native.run_on_main_thread(native.request_quit))
+    # The question shows in the window: it comes to the front first (D-096).
+    ui.before_asking(native.bring_to_front)
 
     def when_shown() -> None:
         if window_is_up is not None:

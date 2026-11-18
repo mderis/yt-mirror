@@ -1,6 +1,12 @@
 """Tests of ``ytmirror.services.ui_bridge``: the menu state, the commands and the quit question."""
 
+import threading
+from typing import Any
+
+import pytest
+
 from ytmirror.core.models import MenuCommand, MenuCommanded, QuitAsked, UiState, ViewKind
+from ytmirror.services import ui_bridge
 from ytmirror.services.events import EventBus
 from ytmirror.services.ui_bridge import UiBridge
 
@@ -101,3 +107,41 @@ def test_a_stop_signal_lets_the_quit_through() -> None:
 
     assert made.bridge.may_quit(ending_session=False) is True
     assert made.events == []
+
+
+def test_the_window_comes_to_the_front_before_the_question_shows() -> None:
+    """R-QU-12, D-096: from the Dock or a minimized window, the question is seen."""
+    made = Bridge(downloading=1)
+    order: list[str] = []
+    made.bridge.before_asking(lambda: order.append("front"))
+    made.bus.subscribe(lambda event: order.append(type(event).__name__) if event else None)
+
+    assert made.bridge.may_quit(ending_session=False) is False
+
+    assert order == ["front", "QuitAsked"]
+
+
+def test_nothing_is_logged_on_the_thread_macos_waits_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R-NA-06, D-096: the decision returns at once; its log lines are written aside."""
+    threads: list[int] = []
+    written = threading.Event()
+
+    class Recorder:
+        def info(self, *_args: Any, **_fields: Any) -> None:
+            threads.append(threading.get_ident())
+            written.set()
+
+    monkeypatch.setattr(ui_bridge, "_log", Recorder())
+    made = Bridge(downloading=1)
+
+    made.bridge.may_quit(ending_session=False)
+    made.bridge.may_quit(ending_session=True)
+    made.bridge.let_quit("signal")
+
+    assert written.wait(5)
+    for _ in range(50):
+        if len(threads) == 3:
+            break
+        threading.Event().wait(0.05)
+    assert len(threads) == 3
+    assert threading.get_ident() not in threads

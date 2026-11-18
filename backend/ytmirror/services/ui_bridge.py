@@ -46,6 +46,7 @@ class UiBridge:
         self._windows = 0
         self._confirmed = False
         self._quit: Callable[[], None] | None = None
+        self._before_asking: Callable[[], None] = lambda: None
         self._watchers: list[Callable[[UiState], None]] = []
 
     def report(self, state: UiState) -> None:
@@ -107,6 +108,15 @@ class UiBridge:
         with self._lock:
             self._quit = quit_now
 
+    def before_asking(self, bring_to_front: Callable[[], None]) -> None:
+        """Set what is done before the question shows: the window comes to the front.
+
+        Args:
+            bring_to_front: Called on the main thread when a quit is held.
+        """
+        with self._lock:
+            self._before_asking = bring_to_front
+
     def let_quit(self, reason: str) -> None:
         """Let the next quit through without a question.
 
@@ -115,7 +125,7 @@ class UiBridge:
         """
         with self._lock:
             self._confirmed = True
-        _log.info("app.quit_passed", msg="The quit is not held", reason=reason)
+        _log_aside("app.quit_passed", msg="The quit is not held", reason=reason)
 
     def may_quit(self, *, ending_session: bool) -> bool:
         """Decide whether the app may quit now, or holds the quit to ask (R-NA-06, R-QU-12).
@@ -134,16 +144,21 @@ class UiBridge:
         if confirmed:
             return True
         if ending_session:
-            _log.info("app.quit_passed", msg="The quit is not held", reason="session_end")
+            _log_aside("app.quit_passed", msg="The quit is not held", reason="session_end")
             return True
         downloading = self._downloading_now()
         if downloading == 0 or windows == 0:
             return True
-        _log.info(
+        _log_aside(
             "app.quit_held",
             msg="The quit waits for an answer, as downloads run",
             downloading=downloading,
         )
+        with self._lock:
+            bring_to_front = self._before_asking
+        # The question shows in the window: it comes to the front first, also from the
+        # Dock or a hidden app (D-096).
+        bring_to_front()
         self._events.publish(QuitAsked())
         return False
 
@@ -155,3 +170,8 @@ class UiBridge:
         _log.info("app.quit_confirmed", msg="The user confirmed the quit")
         if quit_now is not None:
             quit_now()
+
+
+def _log_aside(event: str, **fields: object) -> None:
+    """Write a log line from another thread: macOS waits for the main thread meanwhile (D-096)."""
+    threading.Thread(target=lambda: _log.info(event, **fields), daemon=True).start()

@@ -19,7 +19,6 @@ import AutoMirrorQuestionDialog from '@/features/channel/AutoMirrorQuestionDialo
 import ChannelMenu from '@/features/channel/ChannelMenu.vue'
 import DownloadsPanel from '@/features/queue/DownloadsPanel.vue'
 import QueueBanners from '@/features/queue/QueueBanners.vue'
-import QuitConfirmDialog from '@/features/shell/QuitConfirmDialog.vue'
 import ShortcutsDialog from '@/features/shell/ShortcutsDialog.vue'
 import { useMenuBridge } from '@/features/shell/useMenuBridge'
 import FilesLeftDialog from '@/features/channel/FilesLeftDialog.vue'
@@ -135,7 +134,6 @@ function onAdded(channelId: string, existing: boolean): void {
     <FilesLeftDialog v-if="ui.filesLeft" :left="ui.filesLeft" @close="ui.closeFilesLeft()" />
     <ApiKeyDialog v-if="ui.apiKeyOpen" @close="ui.closeApiKey()" />
     <ShortcutsDialog v-if="ui.shortcutsOpen" @close="ui.shortcutsOpen = false" />
-    <QuitConfirmDialog v-if="ui.quitAsked" @close="ui.quitAsked = false" />
     <AutoMirrorQuestionDialog
       v-if="asking"
       :key="asking.id"

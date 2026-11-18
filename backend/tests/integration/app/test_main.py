@@ -478,6 +478,33 @@ def test_asked_for_a_window_report_the_app_writes_what_macos_shows(
     }
 
 
+def test_the_window_asks_macos_why_it_quits_and_lets_a_session_end_through(
+    monkeypatch: pytest.MonkeyPatch, paths: AppPaths
+) -> None:
+    """R-NA-06, D-096: the decision of the window gets the reason macOS gives."""
+    native = FakeNativeApp(AppIdentity("yt-mirror (dev)", "io.github.mderis.yt-mirror.dev"))
+    opened = OpenedWindows()
+    monkeypatch.setattr(main_module, "open_window", opened)
+    container = build_container(paths, native=native)
+    asked: list[bool] = []
+
+    def may_quit(*, ending_session: bool) -> bool:
+        asked.append(ending_session)
+        return True
+
+    monkeypatch.setattr(container.ui, "may_quit", may_quit)
+    choose_wait(options(no_window=False), container)("http://x/", _never)
+    decide = opened.windows[0]["may_quit"]
+    assert callable(decide)
+
+    native.session_ending = True
+    decide()
+    native.session_ending = False
+    decide()
+
+    assert asked == [True, False]
+
+
 def test_the_browser_flag_opens_the_default_browser_instead(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], paths: AppPaths
 ) -> None:

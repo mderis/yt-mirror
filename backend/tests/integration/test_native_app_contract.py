@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from tests.fixtures.fakes.native_app import FakeNativeApp
-from ytmirror.adapters.native_app_mac import MacNativeApp
+from ytmirror.adapters.native_app_mac import MacNativeApp, session_ends
 from ytmirror.app.menus import menu_bar
 from ytmirror.core.models import ItemState, Menu, MenuAction, MenuCommand, MenuItem, Shortcut
 from ytmirror.ports.native_app import NativeApp
@@ -159,6 +159,48 @@ def test_a_chosen_command_item_runs_its_command(subject: Subject) -> None:
 def test_a_quit_without_a_reason_is_not_the_end_of_a_session(subject: Subject) -> None:
     """R-NA-06: outside a logout, a restart or a shutdown, a quit may be held for a question."""
     assert subject.app.ending_session() is False
+
+
+def test_bringing_the_app_to_the_front_is_possible_without_a_window(subject: Subject) -> None:
+    """R-QU-12, D-096: the call before the quit question works also with no window shown."""
+    subject.app.bring_to_front()
+
+
+def code(text: str) -> int:
+    """Return the number of a four-character code of Apple events."""
+    return int.from_bytes(text.encode("ascii"), "big")
+
+
+@pytest.mark.parametrize(
+    ("reason", "ends"),
+    [
+        ("logo", False),
+        ("rlgo", True),
+        ("rest", True),
+        ("shut", True),
+        ("quia", True),
+        (None, False),
+    ],
+    ids=["logout asked", "logout", "restart", "shutdown", "quit all", "Dock quit"],
+)
+def test_the_reason_of_a_quit_request_is_read_from_the_apple_event(
+    reason: str | None, ends: bool
+) -> None:
+    """R-NA-06, D-096: a logout, a restart and a shutdown are told apart from a quit."""
+    foundation: Any = importlib.import_module("Foundation")
+    descriptor: Any = foundation.NSAppleEventDescriptor
+    event: Any = (
+        descriptor.appleEventWithEventClass_eventID_targetDescriptor_returnID_transactionID_(
+            code("aevt"), code("quit"), None, -1, 0
+        )
+    )
+    if reason is not None:
+        event.setParamDescriptor_forKeyword_(
+            descriptor.descriptorWithEnumCode_(code(reason)), code("why?")
+        )
+
+    assert session_ends(event) is ends
+    assert session_ends(None) is False
 
 
 def test_the_window_and_help_menus_are_the_ones_macos_fills() -> None:

@@ -31,6 +31,7 @@ class FakeNativeApp:
         self._state_of: Callable[[MenuCommand], ItemState] | None = None
         self._on_command: Callable[[MenuCommand], None] | None = None
         self.session_ending = False
+        self.brought_to_front = 0
         """Whether the quit macOS asks for now is a logout, a restart or a shutdown."""
 
     def identity(self) -> AppIdentity:
@@ -75,6 +76,10 @@ class FakeNativeApp:
         """Play the user choosing a command item of the menu bar."""
         assert self._on_command is not None, "No menu bar with commands is shown"
         self._on_command(command)
+
+    def bring_to_front(self) -> None:
+        """Count how often the app was brought to the front."""
+        self.brought_to_front += 1
 
     def ending_session(self) -> bool:
         """Return whether the test plays a logout, a restart or a shutdown."""

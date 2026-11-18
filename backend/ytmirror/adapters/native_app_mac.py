@@ -103,6 +103,21 @@ def _menu_target_class(appkit: Any) -> Any:
     return _target_class
 
 
+def session_ends(event: Any) -> bool:
+    """Whether a quit request of macOS says it comes from a logout, a restart or a shutdown.
+
+    Args:
+        event: The Apple event macOS is handling now, or None outside of one, as for
+            Cmd+Q and the menu.
+    """
+    if event is None:
+        return False
+    reason: Any = event.paramDescriptorForKeyword_(_QUIT_REASON)
+    if reason is None:
+        reason = event.attributeDescriptorForKeyword_(_QUIT_REASON)
+    return reason is not None and int(reason.enumCodeValue()) in _SESSION_ENDS
+
+
 def _command_of(item: Any) -> MenuCommand | None:
     value: Any = item.representedObject()
     try:
@@ -242,6 +257,22 @@ class MacNativeApp:
         """
         _appkit().NSApplication.sharedApplication().terminate_(None)
 
+    def bring_to_front(self) -> None:
+        """Bring the app and its window to the front, also from the Dock or minimized.
+
+        Main thread only. Public calls of AppKit: the app is activated, and each of
+        its windows is restored from the Dock and made the front one.
+        """
+        appkit = _appkit()
+        app: Any = appkit.NSApplication.sharedApplication()
+        for window in app.windows():
+            if window.isMiniaturized():
+                window.deminiaturize_(None)
+            if window.canBecomeKeyWindow():
+                window.makeKeyAndOrderFront_(None)
+        app.unhide_(None)
+        app.activateIgnoringOtherApps_(True)
+
     def ending_session(self) -> bool:
         """Tell whether the quit macOS asks for now comes from a logout, a restart or a shutdown.
 
@@ -251,12 +282,7 @@ class MacNativeApp:
         """
         foundation: Any = importlib.import_module("Foundation")
         event: Any = foundation.NSAppleEventManager.sharedAppleEventManager().currentAppleEvent()
-        if event is None:
-            return False
-        reason: Any = event.paramDescriptorForKeyword_(_QUIT_REASON)
-        if reason is None:
-            reason = event.attributeDescriptorForKeyword_(_QUIT_REASON)
-        return reason is not None and int(reason.enumCodeValue()) in _SESSION_ENDS
+        return session_ends(event)
 
     def show_alert(self, title: str, text: str) -> None:
         """Show a message in a window of its own, and return when the user closed it.
