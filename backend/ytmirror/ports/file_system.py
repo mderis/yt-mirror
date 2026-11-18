@@ -21,6 +21,13 @@ VIDEO_FILE_ENDINGS = (".mkv", ".mp4", ".webm", ".mov", ".m4v", ".avi")
 """What the name of a video file ends in (R-CH-06), compared without regard to case."""
 
 
+class SwapNotSupportedError(Exception):
+    """The volume cannot swap two files in one step (exFAT, many network volumes, D-093).
+
+    Nothing was changed. It never means that a folder cannot be reached.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class Disk:
     """The disk a folder is on (R-UI-01).
@@ -247,6 +254,7 @@ class FileSystem(Protocol):
             second: Another file.
 
         Raises:
+            SwapNotSupportedError: The volume cannot swap; nothing was changed.
             AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
         """
         ...

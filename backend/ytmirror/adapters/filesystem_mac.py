@@ -35,6 +35,7 @@ from ytmirror.ports.file_system import (
     VIDEO_FILE_ENDINGS,
     Disk,
     FileDates,
+    SwapNotSupportedError,
 )
 
 type Run = Callable[[Sequence[str]], object]
@@ -53,6 +54,9 @@ _ATTR_CMN_CRTIME = 0x00000200
 _FSOPT_NOFOLLOW = 0x00000001
 _RENAME_EXCL = 0x00000004
 _RENAME_SWAP = 0x00000002
+_UNSUPPORTED = frozenset({errno.ENOTSUP, errno.EOPNOTSUPP, errno.EINVAL})
+"""What a volume answers to a flag of renamex_np it does not have: exFAT answers ENOTSUP,
+some network volumes EINVAL. Never a folder that cannot be reached."""
 
 
 class _AttrList(ctypes.Structure):
@@ -354,10 +358,13 @@ class MacFileSystem:
             second: Another file.
 
         Raises:
+            SwapNotSupportedError: The volume cannot swap (exFAT, many network volumes).
             AppError: ``PERMISSION_DENIED`` or ``FOLDER_UNAVAILABLE``.
         """
         if _libc.renamex_np(os.fsencode(first), os.fsencode(second), _RENAME_SWAP) != 0:
             number = ctypes.get_errno()
+            if number in _UNSUPPORTED:
+                raise SwapNotSupportedError(str(second))
             error = OSError(number, os.strerror(number), str(first))
             raise _error_of(error, second) from error
 
@@ -501,13 +508,40 @@ class MacFileSystem:
 
 
 def _renamed(source: Path, target: Path) -> bool:
-    """Rename in one step unless the target exists. Returns whether it was renamed."""
+    """Rename in one step unless the target exists. Returns whether it was renamed.
+
+    A volume without a rename that refuses to overwrite (exFAT, many network
+    volumes) gets the name reserved with an exclusive create, which every volume
+    has, and the file renamed over that empty placeholder (D-093). The callers chose
+    the name as free, comparing without case and in NFC, under the files lock; the
+    placeholder keeps another program from taking it meanwhile, except by writing into
+    the empty placeholder itself in the moment before the rename. The result is
+    checked: the file under the name must be the one that was moved.
+    """
     if _libc.renamex_np(os.fsencode(source), os.fsencode(target), _RENAME_EXCL) == 0:
         return True
     number = ctypes.get_errno()
     if number == errno.EEXIST:
         return False
-    raise OSError(number, os.strerror(number), str(target))
+    if number not in _UNSUPPORTED:
+        raise OSError(number, os.strerror(number), str(target))
+    try:
+        placeholder = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    os.close(placeholder)
+    moved = source.stat().st_ino
+    try:
+        source.rename(target)
+        if target.stat().st_ino != moved or source.exists():
+            raise OSError(errno.EIO, "the file under the name is not the one moved", str(target))
+    except OSError:
+        # The empty placeholder is ours: it goes, so the name is free again.
+        with contextlib.suppress(OSError):
+            if target.stat().st_size == 0:
+                target.unlink()
+        raise
+    return True
 
 
 def _error_of(error: OSError, path: Path) -> AppError:
@@ -516,6 +550,9 @@ def _error_of(error: OSError, path: Path) -> AppError:
         code = ErrorCode.PERMISSION_DENIED
     elif error.errno in _FULL:
         code = ErrorCode.DISK_FULL
+    elif error.errno in _UNSUPPORTED:
+        # The volume cannot do this. That never means its folder cannot be reached.
+        code = ErrorCode.INTERNAL
     else:
         code = ErrorCode.FOLDER_UNAVAILABLE
     return AppError(code, {"file": str(path), "reason": str(error)})

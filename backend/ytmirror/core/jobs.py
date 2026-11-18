@@ -12,6 +12,7 @@ This module must not read a clock or store anything.
 Tests: backend/tests/unit/core/test_jobs.py
 """
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -340,3 +341,76 @@ class PendingSideFile:
     video_id: str
     path: str
     data: bytes
+
+
+class ReplaceWay(StrEnum):
+    """How the files of a re-download change places (D-093)."""
+
+    SWAP = "swap"
+    """In one step, where the volume can swap two files."""
+    MOVE = "move"
+    """The old file to a hidden name in its folder, then the new one to the name."""
+
+
+class ReplaceStep(StrEnum):
+    """Where a re-download stands with its two files (D-093)."""
+
+    PLACING = "placing"
+    """The files change places; the stored facts are still those of the old file.
+    A crash here is undone: the old file goes back under its name."""
+    AWAY = "away"
+    """The new file and its facts are stored; the old file is on its way to the Trash.
+    A crash here is finished: the old file goes to the Trash, and the job ends."""
+
+
+@dataclass(frozen=True, slots=True)
+class Replacing:
+    """The marker of a re-download, stored on its video (``videos.replacing``, D-093).
+
+    Attributes:
+        job: The re-download.
+        old: The identity of the old file on its volume (its inode).
+        way: How the files change places.
+        step: Where it stands.
+        hidden: For the way by two moves: the hidden name of the old file in its folder.
+    """
+
+    job: str
+    old: int
+    way: ReplaceWay
+    step: ReplaceStep
+    hidden: str | None = None
+
+    def text(self) -> str:
+        """Return the marker as it is stored."""
+        return json.dumps(
+            {
+                "job": self.job,
+                "old": self.old,
+                "way": self.way.value,
+                "step": self.step.value,
+                "hidden": self.hidden,
+            },
+            sort_keys=True,
+        )
+
+    @staticmethod
+    def of(text: str | None) -> Replacing | None:
+        """Return the marker stored as this text, or None when there is none or it is not one.
+
+        Args:
+            text: The stored text.
+        """
+        if not text:
+            return None
+        try:
+            values = json.loads(text)
+            return Replacing(
+                job=str(values["job"]),
+                old=int(values["old"]),
+                way=ReplaceWay(values["way"]),
+                step=ReplaceStep(values["step"]),
+                hidden=None if values.get("hidden") is None else str(values["hidden"]),
+            )
+        except ValueError, KeyError, TypeError:
+            return None

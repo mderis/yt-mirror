@@ -298,7 +298,7 @@ def build_container(
 
     jobs = SqlJobRepository(engine, used_clock)
     # One lock for renames, date repairs and the swap of a re-download (R-FN-06, D-093).
-    files_lock = threading.Lock()
+    files_lock = threading.RLock()
     media = FfprobeMediaTools(used_tool_box.program_path(ToolName.FFMPEG, "ffprobe"))
     downloader = DownloaderService(
         repository=repository,

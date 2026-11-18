@@ -1,9 +1,11 @@
 """Folders and files that exist only in memory. Fake of the FileSystem port."""
 
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 
 from ytmirror.core.errors import AppError, ErrorCode
+from ytmirror.core.naming import HIDDEN_DIR
 from ytmirror.ports.file_system import (
     JOB_ID,
     JOB_LOG_FOLDER,
@@ -12,7 +14,11 @@ from ytmirror.ports.file_system import (
     VIDEO_FILE_ENDINGS,
     Disk,
     FileDates,
+    SwapNotSupportedError,
 )
+
+LIVING: weakref.WeakSet[FakeFileSystem] = weakref.WeakSet()
+"""Every fake file system of the running test, for the check after it (rule 7 of AGENTS.md)."""
 
 _NEW_FILE_TIME = 1_794_000_000
 
@@ -24,6 +30,8 @@ class FakeFile:
     data: bytes
     created: int = _NEW_FILE_TIME
     modified: int = _NEW_FILE_TIME
+    placed: bool = False
+    """Whether it was ever put where a user sees it: added by the test or moved there."""
 
 
 class FakeFileSystem:
@@ -44,6 +52,9 @@ class FakeFileSystem:
         outside: Paths that lead out of their folder through a symlink.
         uncheckable: Files whose presence cannot be checked, as without permission.
         disk: The disk every folder is on.
+        no_swap: Folders on a volume that cannot swap two files (exFAT).
+        destroyed: Files a user saw in a channel folder that were then deleted for good.
+            The check after every test fails when there is one (rule 7 of AGENTS.md).
     """
 
     def __init__(self) -> None:
@@ -64,12 +75,16 @@ class FakeFileSystem:
         self.outside: set[Path] = set()
         self.uncheckable: set[Path] = set()
         self.disk = Disk(name="Macintosh HD", free_bytes=182 * 1000**3)
+        self.no_swap: set[Path] = set()
+        self.destroyed: list[Path] = []
+        LIVING.add(self)
 
     def add_files(self, folder: Path, names: list[str], data: bytes = b"x") -> None:
         """Put files into a folder, creating it. For tests."""
         self._add_folder(folder)
         for name in names:
-            self.files[folder / name] = FakeFile(data)
+            path = folder / name
+            self.files[path] = FakeFile(data, placed=_seen(path))
 
     def _add_folder(self, folder: Path) -> None:
         self.folders.update({folder, *folder.parents})
@@ -168,11 +183,16 @@ class FakeFileSystem:
             return False
         if source not in self.files or target.parent not in self.folders:
             raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(source)})
-        self.files[target] = self.files.pop(source)
+        moved = self.files.pop(source)
+        # Taken back into the temp folder of a job, it is the app's own unfinished file.
+        moved.placed = _seen(target) or (moved.placed and not _in_temp_folder(target))
+        self.files[target] = moved
         return True
 
     def swap(self, first: Path, second: Path) -> None:
-        """Let two files swap places."""
+        """Let two files swap places, unless their volume cannot."""
+        if any(second.is_relative_to(folder) for folder in self.no_swap):
+            raise SwapNotSupportedError(str(second))
         if first not in self.files or second not in self.files:
             raise AppError(ErrorCode.FOLDER_UNAVAILABLE, {"file": str(first)})
         self.files[first], self.files[second] = self.files[second], self.files[first]
@@ -207,6 +227,11 @@ class FakeFileSystem:
         """Take the temp folder of a job away, or refuse any other folder."""
         if not JOB_ID.fullmatch(folder.name) or folder.parent.parts[-2:] != TEMP_FOLDER_PARTS:
             raise ValueError(f"not the temp folder of a job: {folder}")
+        self.destroyed += [
+            path
+            for path, file in self.files.items()
+            if file.placed and (path == folder or path.is_relative_to(folder))
+        ]
         self._take_away(folder)
 
     def _take_away(self, path: Path) -> None:
@@ -242,3 +267,13 @@ class FakeFileSystem:
         """Remember that the file was opened."""
         self._must_be_there(path)
         self.played.append(path)
+
+
+def _seen(path: Path) -> bool:
+    """Whether a user sees a file at this place: not inside a hidden folder of the app."""
+    return HIDDEN_DIR not in path.parts
+
+
+def _in_temp_folder(path: Path) -> bool:
+    """Whether a path is inside the temp folder of a job."""
+    return path.parent.parent.parts[-2:] == TEMP_FOLDER_PARTS

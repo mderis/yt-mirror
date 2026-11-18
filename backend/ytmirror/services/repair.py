@@ -37,6 +37,7 @@ Tests: backend/tests/unit/services/test_repair.py
 """
 
 import threading
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -126,7 +127,7 @@ class RepairService:
         media: MediaTools,
         views: ChannelViews,
         settings: SettingsService,
-        lock: threading.Lock | None = None,
+        lock: AbstractContextManager[object] | None = None,
     ) -> None:
         """Create the service.
 
@@ -145,7 +146,7 @@ class RepairService:
         self._media = media
         self._views = views
         self._settings = settings
-        self._lock = lock if lock is not None else threading.Lock()
+        self._lock: AbstractContextManager[object] = lock if lock is not None else threading.RLock()
 
     def after_check(self, channel_id: str) -> None:
         """The work of a check that needs no listing (R-CH-28): renames, then date repair.

@@ -250,7 +250,7 @@ All timestamps are integers: seconds since the Unix epoch, UTC. All tables have 
 | seen_in_first_listing | bool | false means it can be "new" (R-CH-15) |
 | file_name | text, null | Relative to the channel folder. Stored only when the video is recorded as synced |
 | placing_file | text, null | The marker of a file being moved into the channel folder: set before the move, cleared in the same write that records the video as synced, or once the file is known to be out of the folder (R-QA-06). Migration 0007 |
-| replacing | text, null | The marker of a re-download that swaps its new file in: set before the swap, cleared in the write that stores the new file (R-QL-06, D-093). Migration 0011 |
+| replacing | text, null | The marker of a re-download, as JSON: its job, the identity of the old file, the way the files change places (`swap` or `move`) and the step (`placing`, then `away` once the new file is stored). Set before anything moves, cleared only when the old file is in the Trash or the hidden folder. Nothing removes the temp folder of the job it names (R-QL-06, D-093). Migration 0011 |
 | rename_from, rename_to | text, null | The marker of a rename after a new title (R-FN-06): set before the move, cleared in the same write that stores the new name. A rename the app's end interrupted is finished (the file is under the new name with this video's ID inside) or undone at the next check, whatever the title is by then. A check never writes these columns. Migration 0010 |
 | file_size | int, null | |
 | height | int, null | Downloaded height |

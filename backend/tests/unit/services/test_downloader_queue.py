@@ -636,6 +636,22 @@ def test_the_not_a_bot_check_keeps_the_partial_file_of_a_download(world: World) 
     assert world.files.exists(temp_of(world, job.id) / f"{FIRST}.f399.mp4.part")
 
 
+def test_cancel_of_a_stopped_waiting_download_takes_its_partial_files_at_once(
+    world: World,
+) -> None:
+    """R-QU-02, R-QA-06, D-091: what a stopped download kept goes with its cancel, not later."""
+    [job] = world.downloader.mirror([FIRST])
+    world.download.cancel_at = Stage.AUDIO
+    world.download.on_cancel = world.downloader.pause_all
+    world.download_all()
+    assert world.files.exists(temp_of(world, job.id) / f"{FIRST}.f399.mp4.part")
+
+    assert world.downloader.cancel(job.id) is True
+
+    assert world.files.exists(temp_of(world, job.id)) is False
+    assert status_of(world, FIRST) is VideoStatus.NOT_DOWNLOADED
+
+
 def test_a_user_cancel_still_deletes_what_was_downloaded(world: World) -> None:
     """R-QU-02, D-091: only a quit, a pause or YouTube's check keep files; Cancel never does."""
     [job] = world.downloader.mirror([FIRST])

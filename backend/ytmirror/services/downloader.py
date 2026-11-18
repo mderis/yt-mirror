@@ -51,6 +51,9 @@ from ytmirror.core.jobs import (
     JobProgress,
     JobProgressed,
     JobState,
+    ReplaceStep,
+    ReplaceWay,
+    Replacing,
     Stage,
     SubtitlesFailedError,
     VideoUpdated,
@@ -61,6 +64,7 @@ from ytmirror.core.quality import effective_quality
 from ytmirror.core.queue import (
     GB,
     HAND_JOBS_PER_ACTION,
+    RETRY_DELAYS_S,
     DiskGuardPause,
     QueueChanged,
     QueueSummary,
@@ -71,7 +75,7 @@ from ytmirror.core.queue import (
 from ytmirror.core.status import InvalidTransitionError, StatusChange, change_status
 from ytmirror.ports.catalogue_repository import CatalogueRepository
 from ytmirror.ports.clock import Clock
-from ytmirror.ports.file_system import JOB_ID, FileSystem
+from ytmirror.ports.file_system import JOB_ID, FileSystem, SwapNotSupportedError
 from ytmirror.ports.job_repository import JobRepository
 from ytmirror.ports.media_tools import MediaTools
 from ytmirror.services.channel_views import ChannelViews
@@ -220,7 +224,7 @@ class DownloaderService:
         self._call_later = call_later
         self._speed = speed
         self._file_lock: AbstractContextManager[object] = (
-            file_lock if file_lock is not None else threading.Lock()
+            file_lock if file_lock is not None else threading.RLock()
         )
         self._work_of: dict[str, Path] = {}
         self._folders: dict[str, Path] = {}
@@ -252,7 +256,6 @@ class DownloaderService:
         self._videos: dict[str, Video] = {}
         """The video of each running job, as it is now."""
         self._cancelled: set[str] = set()
-        self._swapped: set[str] = set()
         """Re-downloads whose temp folder holds the old file after the swap: never removed
         with it, so a cut-off swap can be undone and the old file goes to the Trash (D-093)."""
         self._stopping: set[str] = set()
@@ -550,7 +553,6 @@ class DownloaderService:
                 self._disk_checked.pop(job.id, None)
                 self._cancelled.discard(job.id)
                 self._stopping.discard(job.id)
-                self._swapped.discard(job.id)
                 self._nothing_placed.discard(job.id)
                 self._asking.discard(job.id)
                 self._abandoned.discard(job.id)
@@ -1044,6 +1046,11 @@ class DownloaderService:
         with self._wake:
             video = self._repository.video(job.video_id)
             self._end(job, video, JobState.CANCELLED, VideoStatus.NOT_DOWNLOADED, "cancelled")
+        # A job stopped earlier kept its partial files to continue (D-091): a cancel takes
+        # them away at once, not at the next start. Never the place of an old file (D-093).
+        channel = None if video is None else self._repository.channel(video.channel_id)
+        if channel is not None:
+            self._remove_work(job, self._place_of(channel, job), _log.bind(job_id=job_id))
         _log.info(
             "download.cancelled",
             msg="Download cancelled before it started",
@@ -1241,6 +1248,17 @@ class DownloaderService:
             )
             return
         place = self._place_of(channel, job)
+        marker = Replacing.of(video.replacing)
+        if marker is not None and marker.job == job.id and self._files.folder_exists(place.folder):
+            # A re-download that a quit, a crash or the Trash cut off: it is undone or
+            # finished, never downloaded again over a waiting old file (D-093).
+            with self._file_lock:
+                self._finish_replacing(video, place.folder)
+            video = self._repository.video(job.video_id) or video
+            if marker.step is ReplaceStep.AWAY:
+                if Replacing.of(video.replacing) is not None:
+                    self._wait_to_put_away(job, log)
+                return
         if not self._files.folder_exists(place.folder):
             # The drive is away, or the folder is gone: the downloads of the channel wait
             # in line, and nothing is marked failed (R-QU-11).
@@ -1318,7 +1336,7 @@ class DownloaderService:
                 return
             # The temp folder goes before the end is stored and told: a video shown as
             # ended has nothing of its download left (R-QU-02, R-QA-06).
-            self._remove_work(place, log)
+            self._remove_work(job, place, log)
             # A job that was cancelled stopped its tools: the error that follows is the
             # cancel, never a failure nor a retry (R-QU-02, R-PL-13).
             if stopped:
@@ -1342,8 +1360,8 @@ class DownloaderService:
             else:
                 self._failed_unexpectedly(running, video, log, started, keep_marker=keep_marker)
         finally:
-            if not keep_work and job.id not in self._swapped:
-                self._remove_work(place, log)
+            if not keep_work:
+                self._remove_work(job, place, log)
 
     def _was_abandoned(self, job_id: str) -> bool:
         with self._wake:
@@ -1367,12 +1385,15 @@ class DownloaderService:
         # Its lookup was counted: the paced downloads may start later now (D-090).
         self._update_paced()
 
-    def _remove_work(self, place: _Place, log: FilteringBoundLogger) -> None:
+    def _remove_work(self, job: Job, place: _Place, log: FilteringBoundLogger) -> None:
         """Remove the temp folder of a job. A failure is a warning, never how the job ends.
 
         The folder stays for the sweep of the next start (R-FI-03): a cancel the user
-        asked for never turns into an error because of it.
+        asked for never turns into an error because of it. The folder of a re-download
+        whose marker names it may hold the old file: it is never removed (D-093).
         """
+        if self._holds_old_file(job.id, job.video_id):
+            return
         try:
             self._files.remove_temp_folder(place.work)
         except (AppError, OSError, ValueError) as error:
@@ -1609,16 +1630,19 @@ class DownloaderService:
         log: FilteringBoundLogger,
         started: float,
     ) -> None:
-        """Swap the new file of a re-download in, and the old one out to the Trash (D-093).
+        """Put the new file of a re-download in place, and the old one in the Trash (D-093).
 
         The new file is verified and gets its dates in the temp folder first. Under
-        the lock of renames (R-FN-06) the current name of the old file is read, a
-        marker with the old file's identity is stored, and the two files swap places
-        in one step: there is never a moment without a good file under the name
-        (R-QL-06). The new facts are stored with the marker cleared; when that fails
-        the files swap back. Only then does the old file, now in the temp folder, go
-        to the Trash. A video whose old file is gone meanwhile is finished as a
-        download is.
+        the files lock (R-FN-06) the current name of the old file is read, and a
+        marker with the old file's identity is stored before anything moves. The
+        files then change places: in one step where the volume can swap, else by
+        two moves that never overwrite (the old file to a hidden name in its folder,
+        the new one to the name). A failure there puts the old file back and clears
+        the marker. The new facts are stored with the marker at its last step, and
+        the old file goes to the Trash, or to the hidden folder of the channel. Only
+        then is the marker cleared and the job done (R-QL-06): until then nothing
+        removes the place the old file waits in. A video whose old file is gone
+        meanwhile is finished as a download is.
         """
         facts = self._media.probe(result.file)
         problem = verification_problem(facts, result.duration_s)
@@ -1648,16 +1672,15 @@ class DownloaderService:
                 return
             name = current.file_name
             assert name is not None
-            marker = f"{job.id}:{self._files.file_id(old)}"
-            self._jobs.record(job, replace(current, replacing=marker))
-            # From the swap on, the temp folder holds the old file: it is never removed
-            # with the folder, whatever ends the job (rule 7 of AGENTS.md).
-            self._swapped.add(job.id)
-            self._files.swap(result.file, old)
+            marker = Replacing(
+                job.id, self._files.file_id(old), ReplaceWay.SWAP, ReplaceStep.PLACING
+            )
+            self._jobs.record(job, replace(current, replacing=marker.text()))
             try:
+                marker = self._change_places(job, current, marker, place, result.file, old)
                 renewed = replace(
                     current,
-                    replacing=None,
+                    replacing=replace(marker, step=ReplaceStep.AWAY).text(),
                     height=facts.height,
                     vcodec=facts.vcodec,
                     acodec=facts.acodec,
@@ -1671,24 +1694,28 @@ class DownloaderService:
                     attempts=0,
                     file_size=self._files.size_of(old),
                 )
-                done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
-                stored = self._store_end(
-                    done,
-                    renewed,
-                    JobState.DONE,
-                    VideoStatus.SYNCED,
-                    "replaced",
-                    side.files(video.id, name),
-                    keep_marker=False,
-                )
+                self._jobs.record(job, renewed)
             except Exception:
-                # The old file goes back to its place, as if nothing happened.
-                self._files.swap(result.file, old)
-                self._jobs.clear_replacing(video.id)
-                self._swapped.discard(job.id)
+                # The old file goes back to its place, and the marker with it (D-093).
+                self._undo_replacing(current.id, marker, place.folder, name)
                 raise
-        if self._put_old_away(result.file, place, video.id, log):
-            self._swapped.discard(job.id)
+            away = self._put_old_away(renewed, place.folder, log)
+            if not away:
+                # Nothing took the old file: it waits where it is, and the job waits to
+                # try again; nothing removes it meanwhile (D-093, rule 7 of AGENTS.md).
+                self._wait_to_put_away(job, log)
+                return
+            done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
+            renewed = replace(renewed, replacing=None)
+            stored = self._store_end(
+                done,
+                renewed,
+                JobState.DONE,
+                VideoStatus.SYNCED,
+                "replaced",
+                side.files(video.id, name),
+                keep_marker=False,
+            )
         self._announce_quietly(stored)
         self._write_side_files_of(renewed, place.folder, log)
         log.info(
@@ -1696,21 +1723,87 @@ class DownloaderService:
             msg="The file was downloaded again and replaced; the old one went to the Trash",
             file_size=renewed.file_size,
             height=renewed.height,
+            way=marker.way.value,
             duration_ms=self._ms_since(started),
         )
 
-    def _put_old_away(
-        self, old: Path, place: _Place, video_id: str, log: FilteringBoundLogger
-    ) -> bool:
+    def _change_places(
+        self, job: Job, video: Video, marker: Replacing, place: _Place, new: Path, old: Path
+    ) -> Replacing:
+        """Let the new file take the old one's name, and return the marker as it is now.
+
+        Raises:
+            AppError: When a step fails; the caller puts the old file back.
+        """
+        try:
+            self._files.swap(new, old)
+        except SwapNotSupportedError:
+            # exFAT and many network volumes: by two moves, each never overwriting.
+            hidden = f".yt-mirror-old-{job.id}{old.suffix}"
+            marker = replace(marker, way=ReplaceWay.MOVE, hidden=hidden)
+            self._jobs.record(job, replace(video, replacing=marker.text()))
+            if not self._files.move(old, place.folder / hidden):
+                raise AppError(ErrorCode.INTERNAL, {"reason": "the hidden name is taken"}) from None
+            if not self._files.move(new, old):
+                raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken"}) from None
+        return marker
+
+    def _old_place(self, marker: Replacing, folder: Path, video_id: str) -> Path:
+        """Where the old file of a re-download waits once the new one has its name."""
+        if marker.way is ReplaceWay.MOVE and marker.hidden is not None:
+            return folder / marker.hidden
+        return folder / HIDDEN_DIR / TEMP_DIR / marker.job / f"{video_id}.mkv"
+
+    def _undo_replacing(self, video_id: str, marker: Replacing, folder: Path, name: str) -> None:
+        """Put the old file of a re-download back under its name, and clear the marker.
+
+        Called under the files lock. Each step looks at what is there, so it can
+        follow a crash at any point of the change of places. When the old file
+        cannot be put back, the marker stays and the next start tries again.
+        """
+        target = folder / name
+        parked = self._old_place(marker, folder, video_id)
+        work = folder / HIDDEN_DIR / TEMP_DIR / marker.job
+        here = self._files.exists(target)
+        if self._files.exists(parked) and self._files.file_id(parked) == marker.old:
+            if marker.way is ReplaceWay.SWAP:
+                if here:
+                    self._files.swap(parked, target)
+                else:
+                    self._files.move(parked, target)
+            else:
+                if here and self._files.file_id(target) != marker.old:
+                    # The new file goes back to the temp folder of its job.
+                    self._files.make_folder(work, inside=folder)
+                    if not self._files.move(target, work / f"{video_id}.mkv"):
+                        raise AppError(ErrorCode.INTERNAL, {"reason": "the temp name is taken"})
+                if not self._files.move(parked, target):
+                    raise AppError(ErrorCode.INTERNAL, {"reason": "the name is taken"})
+            _log.info(
+                "download.replaced",
+                msg="A re-download that did not finish was undone: the old file is back",
+                job_id=marker.job,
+                video_id=video_id,
+            )
+        self._jobs.clear_replacing(video_id)
+
+    def _put_old_away(self, video: Video, folder: Path, log: FilteringBoundLogger) -> bool:
         """Move the old file of a re-download to the Trash, never deleting it for good.
 
-        When the Trash refuses, the file is kept in the hidden folder of the channel,
-        where nothing deletes it, so the end of the job cannot delete it with its
-        temp folder.
+        Called under the files lock, with the marker at its last step. When the
+        Trash refuses, the file is kept in the hidden folder of the channel under a
+        name of its own for the job. An old file that is not there any more is gone
+        already.
 
         Returns:
-            Whether the old file left the temp folder.
+            Whether the old file left the place it waited in.
         """
+        marker = Replacing.of(video.replacing)
+        if marker is None:
+            return True
+        old = self._old_place(marker, folder, video.id)
+        if not self._files.exists(old):
+            return True
         try:
             self._files.trash(old)
         except (AppError, OSError) as error:
@@ -1721,7 +1814,7 @@ class DownloaderService:
             )
         else:
             return True
-        kept = place.hidden / f"{video_id}.replaced{old.suffix}"
+        kept = folder / HIDDEN_DIR / f"{video.id}.replaced-{marker.job}{old.suffix}"
         try:
             if self._files.move(old, kept):
                 return True
@@ -1729,45 +1822,89 @@ class DownloaderService:
             pass
         log.error(
             "file.trash_failed",
-            msg="The old file of a re-download stays in the temp folder of its job",
+            msg="The old file of a re-download waits where it is. It is tried again later",
             error_code=ErrorCode.PERMISSION_DENIED.value,
+            file=str(old),
         )
         return False
 
-    def _settle_replacing(self, channels: Sequence[Channel] | None = None) -> None:
-        """Undo a swap of a re-download that a quit or a crash cut off (D-093).
+    def _wait_to_put_away(self, job: Job, log: FilteringBoundLogger) -> None:
+        """The old file could not go anywhere: the job waits, to try again later (D-093)."""
+        until = self._now() + RETRY_DELAYS_S[0]
+        self._jobs.record(
+            replace(job, state=JobState.WAITING, stage=None, not_before=until, by_hand=False)
+        )
+        log.warning(
+            "download.retry",
+            msg="The old file of a re-download waits for the Trash. It is tried again",
+            reason="trash",
+            retry_at=until,
+        )
 
-        The marker holds the job and the identity of the old file. When the file
-        under the video's name is not the old one, the swap happened but its result
-        was never stored: the files swap back, so the stored facts fit the file. The
-        job then starts over. While the folder cannot be reached, the marker waits.
+    def _finish_replacing(self, video: Video, folder: Path) -> None:
+        """Take up a re-download a quit, a crash or a refusing Trash left (D-093).
+
+        Called under the files lock. Before its new facts were stored, it is undone:
+        the old file goes back under its name. After, it is finished: the old file
+        goes to the Trash, the marker is cleared and the job ends. A job that still
+        cannot put the old file away keeps its marker; nothing removes the file.
         """
-        for channel in self._repository.channels() if channels is None else channels:
-            folder = self._views.folder_of(channel)
-            for video in self._repository.videos(channel.id):
-                if not video.replacing or video.file_name is None:
-                    continue
-                if not self._files.folder_exists(folder):
-                    continue
-                job_id, _, old_id = video.replacing.partition(":")
-                target = folder / video.file_name
-                parked = folder / HIDDEN_DIR / TEMP_DIR / job_id / f"{video.id}.mkv"
-                try:
-                    if (
-                        self._files.exists(target)
-                        and self._files.exists(parked)
-                        and str(self._files.file_id(target)) != old_id
-                    ):
-                        self._files.swap(parked, target)
-                        _log.info(
-                            "download.replaced",
-                            msg="A cut-off swap of a re-download was undone",
-                            job_id=job_id,
-                            video_id=video.id,
-                        )
-                    self._jobs.clear_replacing(video.id)
-                except (AppError, OSError) as error:
-                    self._cleanup_failed(video.id, error, job_id=job_id)
+        marker = Replacing.of(video.replacing)
+        if marker is None or video.file_name is None:
+            if video.replacing:
+                self._jobs.clear_replacing(video.id)
+            return
+        if marker.step is ReplaceStep.PLACING:
+            self._undo_replacing(video.id, marker, folder, video.file_name)
+            return
+        log = _log.bind(job_id=marker.job, video_id=video.id)
+        if not self._put_old_away(video, folder, log):
+            return
+        job = self._jobs.job(marker.job)
+        if job is not None and job.state in ACTIVE_STATES:
+            done = replace(job, state=JobState.DONE, stage=None, finished_at=self._now())
+            self._jobs.record(done, replace(video, replacing=None))
+        else:
+            self._jobs.clear_replacing(video.id)
+        self._state.set_retry(video.id, None)
+        log.info(
+            "download.replaced",
+            msg="A re-download a quit cut off was finished: the old file went to the Trash",
+        )
+        self._views.tell_video(video.id)
+
+    def _settle_replacing(self, channels: Sequence[Channel] | None = None) -> None:
+        """Undo or finish the re-downloads a quit, a crash or a refusing Trash left (D-093).
+
+        Under the files lock, as the change of places itself. A re-download that
+        runs in this app now is left to its job; a folder that cannot be reached
+        keeps its marker until it can.
+        """
+        with self._file_lock:
+            for channel in self._repository.channels() if channels is None else channels:
+                folder = self._views.folder_of(channel)
+                for video in self._repository.videos(channel.id):
+                    if not video.replacing or not self._files.folder_exists(folder):
+                        continue
+                    marker = Replacing.of(video.replacing)
+                    with self._wake:
+                        running = marker is not None and marker.job in self._running
+                    if running:
+                        continue
+                    try:
+                        self._finish_replacing(video, folder)
+                    except (AppError, OSError) as error:
+                        self._cleanup_failed(video.id, error, job_id=marker and marker.job)
+
+    def _holds_old_file(self, job_id: str, video_id: str) -> bool:
+        """Whether the marker of a video names this job.
+
+        Then the temp folder of the job may hold the old file, and nothing removes it
+        (D-093, rule 7 of AGENTS.md).
+        """
+        video = self._repository.video(video_id)
+        marker = None if video is None else Replacing.of(video.replacing)
+        return marker is not None and marker.job == job_id
 
     def _move_into_place(self, job: Job, video: Video, place: _Place, file: Path) -> str:
         """Step 2 and 7: choose the name and move the file in one step, never overwriting.
@@ -1777,23 +1914,26 @@ class DownloaderService:
         two leaves a file the app knows by its marker: the next start moves it
         to the Trash once the video ID inside it shows it is this download.
         """
-        tried: list[str] = []
-        for _ in range(2):
-            taken = [
-                *self._files.file_names(place.folder),
-                *self._names_tracked_in(place.folder, video.id),
-                *tried,
-            ]
-            name = video_file_name(video.title, video.id, taken)
-            current = self._videos.get(job.id, video)
-            self._jobs.record(job, replace(current, placing_file=name))
-            if self._files.move(file, place.folder / name):
-                self._nothing_placed.discard(job.id)
-                _log.info("file.moved", msg="File moved into its place", file=name)
-                return name
-            self._jobs.record(job, replace(current, placing_file=None))
-            tried.append(name)
-        raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken twice while moving"})
+        # The name is chosen as free and taken under the files lock, as a rename is: one
+        # move function for every move into a channel folder (D-093).
+        with self._file_lock:
+            tried: list[str] = []
+            for _ in range(2):
+                taken = [
+                    *self._files.file_names(place.folder),
+                    *self._names_tracked_in(place.folder, video.id),
+                    *tried,
+                ]
+                name = video_file_name(video.title, video.id, taken)
+                current = self._videos.get(job.id, video)
+                self._jobs.record(job, replace(current, placing_file=name))
+                if self._files.move(file, place.folder / name):
+                    self._nothing_placed.discard(job.id)
+                    _log.info("file.moved", msg="File moved into its place", file=name)
+                    return name
+                self._jobs.record(job, replace(current, placing_file=None))
+                tried.append(name)
+            raise AppError(ErrorCode.INTERNAL, {"reason": "the name was taken twice while moving"})
 
     def _names_tracked_in(self, folder: Path, except_video: str) -> list[str]:
         """Every name the app tracks in a folder, of every channel that shares it.
@@ -2232,7 +2372,9 @@ class DownloaderService:
         self._folder_back(channel_id)
         for cleanup in (self._settle_replacing, self._clean_markers, self._sweep_temp_folders):
             try:
-                cleanup([channel])
+                # The same lock as a re-download's change of places: never in its middle.
+                with self._file_lock:
+                    cleanup([channel])
             except Exception:  # noqa: BLE001  (a cleanup never fails a check)
                 _log.error(
                     "download.failed",
@@ -2261,11 +2403,18 @@ class DownloaderService:
         """
         active = {job.id for job in self._jobs.jobs(ACTIVE_STATES)}
         for channel in self._repository.channels() if channels is None else channels:
+            # The temp folder a re-download's marker names may hold the old file (D-093).
+            held = {
+                marker.job
+                for video in self._repository.videos(channel.id)
+                for marker in (Replacing.of(video.replacing),)
+                if marker is not None
+            }
             temp = self._views.folder_of(channel) / HIDDEN_DIR / TEMP_DIR
             if not self._files.folder_exists(temp):
                 continue
             for name in self._files.file_names(temp, hidden=True):
-                if not JOB_ID.fullmatch(name) or name in active:
+                if not JOB_ID.fullmatch(name) or name in active or name in held:
                     continue
                 try:
                     self._files.remove_temp_folder(temp / name)

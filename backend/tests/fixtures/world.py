@@ -488,11 +488,25 @@ class World:
         self.stop_tools: Callable[[], None] = lambda: None
         """What stopping the tools at quit does in a test."""
         self.job_numbers = itertools.count(1)
-        self.files_lock = threading.Lock()
+        self.files_lock = threading.RLock()
         """The lock of renames, date repairs and the swap of a re-download (R-FN-06)."""
         self.download = FakeDownload(self.files)
         self.gateway.download_with = self.download
-        self.downloader = DownloaderService(
+        self.downloader = self.new_downloader(folder)
+        self._folder = folder
+        self.queue = QueueService(
+            self.repository, self.jobs, self.downloads, self.downloader.queue_summary
+        )
+        self._after_downloader(folder)
+
+    def new_downloader(self, folder: Path | None = None) -> DownloaderService:
+        """Return a downloader over this world's database and files, as a fresh start makes.
+
+        Nothing of an earlier downloader's memory is in it: a test of a quit or a crash
+        starts one of these over what the earlier one left.
+        """
+        folder = folder if folder is not None else self._folder
+        return DownloaderService(
             repository=self.repository,
             jobs=self.jobs,
             youtube=self.youtube,
@@ -516,9 +530,8 @@ class World:
             stop_tools=lambda: self.stop_tools(),
             stop_job_tools=self.stopped_job_tools.append,
         )
-        self.queue = QueueService(
-            self.repository, self.jobs, self.downloads, self.downloader.queue_summary
-        )
+
+    def _after_downloader(self, folder: Path) -> None:
         self.ui = UiBridge(self.bus, self.downloader.downloading_now)
         self.auto_mirror = AutoMirrorService(
             repository=self.repository,

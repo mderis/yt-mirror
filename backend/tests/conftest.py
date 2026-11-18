@@ -10,6 +10,7 @@ import structlog
 from hypothesis import settings
 
 from tests.fixtures.fakes.clock import FakeClock
+from tests.fixtures.fakes.file_system import LIVING
 
 INFRA_MARKER = "infra:"
 
@@ -63,6 +64,20 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         docstring = getattr(function, "__doc__", None) or ""
         if docstring.lstrip().startswith(INFRA_MARKER):
             item.add_marker(pytest.mark.infra)
+
+
+@pytest.fixture(autouse=True)
+def nothing_seen_is_deleted_for_good() -> Iterator[None]:
+    """Fail a test in which a file a user saw in a channel folder was deleted for good.
+
+    Rule 7 of AGENTS.md: such a file only ever goes to the Trash, or is kept. The
+    fake file system notes every such file that a temp folder took with it.
+    """
+    yield
+    destroyed = [path for files in list(LIVING) for path in files.destroyed]
+    for files in list(LIVING):
+        files.destroyed.clear()
+    assert destroyed == [], f"Deleted for good, not trashed: {destroyed}"
 
 
 @pytest.fixture(autouse=True)
