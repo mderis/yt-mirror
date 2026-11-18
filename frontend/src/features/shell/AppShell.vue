@@ -112,9 +112,10 @@ function onAdded(channelId: string, existing: boolean): void {
         </AppBanner>
       </div>
       <!-- While "home" is about to become the page of a channel, the welcome screen is not drawn. -->
-      <div class="flex min-h-0 flex-1">
+      <!-- The downloads panel lies over the page from the right, so the list keeps its width. -->
+      <div class="relative flex min-h-0 flex-1">
         <RouterView v-if="!leavingHome" class="min-h-0 flex-1" />
-        <DownloadsPanel v-if="queue.panelOpen" />
+        <DownloadsPanel v-if="queue.panelOpen" class="absolute inset-y-0 right-0 z-20" />
       </div>
     </div>
 

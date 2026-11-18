@@ -17,6 +17,8 @@ export const ICONS = {
   plus: ['M12 5v14', 'M5 12h14'],
   folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
+  /** The handle of something that can be dragged into another place. */
+  grip: ['M9 6h.01', 'M15 6h.01', 'M9 12h.01', 'M15 12h.01', 'M9 18h.01', 'M15 18h.01'],
   close: ['M6 6l12 12', 'M18 6L6 18'],
   pause: ['M9 5v14', 'M15 5v14'],
   resume: ['M7 5l12 7-12 7z'],

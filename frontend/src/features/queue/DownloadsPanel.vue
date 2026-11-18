@@ -148,7 +148,7 @@ async function clearWaiting(): Promise<void> {
 
 <template>
   <aside
-    class="flex max-w-115 min-w-0 flex-1 basis-100 flex-col gap-4 overflow-y-auto border-l border-line bg-surface-side p-5"
+    class="flex w-115 max-w-full flex-col gap-4 overflow-y-auto border-l border-line bg-surface-side p-5 shadow-overlay"
     :aria-label="t('queue.title')"
     data-downloads-panel
   >
@@ -228,7 +228,7 @@ async function clearWaiting(): Promise<void> {
             @drop.prevent="drop(item.job_id)"
             @keydown="onKey($event, item.job_id)"
           >
-            <AppIcon name="more" class="flex-none cursor-grab text-text-muted" />
+            <AppIcon name="grip" class="flex-none cursor-grab text-text-muted" />
             <div class="flex min-w-0 flex-1 flex-col">
               <span class="truncate">{{ item.title }}</span>
               <span class="text-meta text-text-muted">{{ waitingFacts(item) }}</span>
