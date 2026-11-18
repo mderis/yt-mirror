@@ -30,6 +30,7 @@ export const ICONS = {
   stop: ['M6 6h12v12H6z'],
   play: ['M8 5l11 7-11 7z'],
   reveal: ['M11 4a7 7 0 1 0 0 14a7 7 0 0 0 0-14z', 'M20 20l-4-4'],
+  chevron: ['M6 9l6 6 6-6'],
 } as const
 
 /** The name of an icon of the set. */

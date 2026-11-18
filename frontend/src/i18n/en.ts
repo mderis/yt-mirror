@@ -595,6 +595,8 @@ export const en = {
       later: 'Auto-mirror, but only videos uploaded on or after a date',
     },
     sampleRadioDisabled: 'Not available now',
+    sampleCheckbox: 'Auto-mirror',
+    sampleCheckboxMixed: 'Select all shown',
     sampleMenu: 'Channel actions',
     sampleMenuItems: { check: 'Check now', open: 'Open on YouTube', remove: 'Remove channel' },
     sampleDialog: 'Remove Sample Channel One?',
