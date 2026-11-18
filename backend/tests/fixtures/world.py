@@ -68,6 +68,7 @@ from ytmirror.services.settings import SettingsService
 from ytmirror.services.speed_limit import SpeedLimit
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
+from ytmirror.services.ui_bridge import UiBridge
 from ytmirror.services.youtube_access import YouTubeAccess
 
 LISTED_AT = "2026-11-14T06:42:00Z"
@@ -518,6 +519,7 @@ class World:
         self.queue = QueueService(
             self.repository, self.jobs, self.downloads, self.downloader.queue_summary
         )
+        self.ui = UiBridge(self.bus, self.downloader.downloading_now)
         self.auto_mirror = AutoMirrorService(
             repository=self.repository,
             jobs=self.jobs,

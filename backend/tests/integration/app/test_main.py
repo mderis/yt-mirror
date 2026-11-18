@@ -459,12 +459,22 @@ def test_asked_for_a_window_report_the_app_writes_what_macos_shows(
         "name": "yt-mirror (dev)",
         "bundle_identifier": "io.github.mderis.yt-mirror.dev",
     }
-    assert [menu["title"] for menu in shown["menu_bar"]] == ["yt-mirror (dev)", "Edit"]
-    assert shown["menu_bar"][1]["items"][1] == {
+    assert [menu["title"] for menu in shown["menu_bar"]] == [
+        "yt-mirror (dev)",
+        "File",
+        "Edit",
+        "View",
+        "Channel",
+        "Window",
+        "Help",
+    ]
+    assert shown["menu_bar"][2]["items"][1] == {
         "title": "Redo",
         "action": "redo",
         "shortcut": {"key": "z", "shift": True, "option": False},
         "enabled": True,
+        "command": None,
+        "checked": False,
     }
 
 

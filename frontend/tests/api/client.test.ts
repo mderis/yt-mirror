@@ -29,6 +29,8 @@ function handlers(changes: Partial<EventHandlers> = {}): EventHandlers {
     apiKeyChanged: nothing,
     checksProgress: nothing,
     queueUpdated: nothing,
+    menuCommand: nothing,
+    quitAsked: nothing,
     reconnected: nothing,
     ...changes,
   }

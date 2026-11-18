@@ -8,13 +8,14 @@
  * in Finder; M mirrors the selected videos, or the current one; Esc closes the
  * details or clears the selection; "/" goes to the search; G switches list and
  * grid; 1 to 9 open the channels of the sidebar; Cmd+A selects every shown
- * video; Cmd+R checks the channel now (in the app window the menu bar takes it
- * first); "?" opens the list of shortcuts. Exclude (X) arrives with M6.
+ * video; Cmd+R checks the channel now, under the rule of "Check Now" in the
+ * menu bar; "?" opens the list of shortcuts. Exclude (X) arrives with M6.
  */
 import { onBeforeUnmount, onMounted, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import type { Video } from '@/api/client'
+import { canCheckNow } from '@/features/shell/useMenuBridge'
 import { channelRoute } from '@/router'
 import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
@@ -56,8 +57,12 @@ export function useShortcuts(channelId: () => string, shown: Ref<readonly Video[
   function onKey(event: KeyboardEvent): void {
     const command = event.metaKey || event.ctrlKey
     if (command && event.key.toLowerCase() === 'r' && !event.shiftKey) {
+      // Taken here, the key does not reach the menu bar too: one check, not two.
       event.preventDefault()
-      void ui.run(channels.check(channelId(), 'quick', 'button'))
+      const channel = channels.byId.get(channelId())
+      if (channel && canCheckNow(channel)) {
+        void ui.run(channels.check(channel.id, 'quick', 'button'))
+      }
       return
     }
     if (typing(event.target) || document.querySelector('[role="dialog"]') !== null) {

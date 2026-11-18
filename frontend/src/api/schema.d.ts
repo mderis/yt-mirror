@@ -742,6 +742,46 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/ui/quit': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Confirm Quit
+     * @description Quit although downloads run: the user chose "Quit" in the question (R-QU-12).
+     */
+    post: operations['confirmQuit']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/ui/state': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Report State
+     * @description Tell the app what applies now, so the menu bar is enabled from it (R-NA-04).
+     */
+    put: operations['reportUiState']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/videos/mirror': {
     parameters: {
       query?: never
@@ -1486,6 +1526,8 @@ export interface components {
       | components['schemas']['ApiKeyChangedEvent']
       | components['schemas']['ChecksProgressEvent']
       | components['schemas']['QueueUpdatedEvent']
+      | components['schemas']['MenuCommandEvent']
+      | components['schemas']['QuitAskedEvent']
     /**
      * ExactDates
      * @description How far the exact dates of a channel are (R-FB-01, R-DT-14, R-DT-15).
@@ -1689,6 +1731,30 @@ export interface components {
       title: string
       /** Video Files */
       video_files: number
+    }
+    /**
+     * MenuCommand
+     * @description A command of the menu bar, which the interface runs as its own control does (D-094).
+     * @enum {string}
+     */
+    MenuCommand:
+      | 'add_channel'
+      | 'view_list'
+      | 'view_grid'
+      | 'show_downloads'
+      | 'reload'
+      | 'check_now'
+      | 'check_all'
+      | 'mirror_missing'
+      | 'toggle_pause'
+      | 'open_folder'
+      | 'shortcuts'
+    /**
+     * MenuCommandEvent
+     * @description Data of the event ``menu.command``: run the command of a menu item (D-094).
+     */
+    MenuCommandEvent: {
+      command: components['schemas']['MenuCommand']
     }
     /**
      * MirrorRequest
@@ -1905,6 +1971,11 @@ export interface components {
       /** Video Id */
       video_id: string
     }
+    /**
+     * QuitAskedEvent
+     * @description Data of the event ``quit.asked``: a quit waits while downloads run; ask (R-QU-12).
+     */
+    QuitAskedEvent: Record<string, never>
     /**
      * RemovedChannelResponse
      * @description The answer of ``DELETE /api/channels/{id}`` (R-CH-32).
@@ -2141,6 +2212,25 @@ export interface components {
     TryFolderResponse: {
       /** Available */
       available: boolean
+    }
+    /**
+     * UiStateRequest
+     * @description What the interface tells the app about itself, for the menu bar (R-NA-04).
+     */
+    UiStateRequest: {
+      /** Any Unpaused */
+      any_unpaused: boolean
+      /** Channel Open */
+      channel_open: boolean
+      /** Checking */
+      checking: boolean
+      /** Folder Available */
+      folder_available: boolean
+      /** Has Missing */
+      has_missing: boolean
+      /** Paused */
+      paused: boolean
+      view: components['schemas']['ViewKind']
     }
     /** ValidationError */
     ValidationError: {
@@ -3447,7 +3537,7 @@ export interface operations {
     }
     requestBody?: never
     responses: {
-      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress``, ``banner.changed``, ``video.updated``, ``job.progress``, ``apikey.changed`` and ``checks.progress`` carry these data, in this order. */
+      /** @description A stream of Server-Sent Events. The events ``tool.updated``, ``channel.updated``, ``task.progress``, ``banner.changed``, ``video.updated``, ``job.progress``, ``apikey.changed``, ``checks.progress``, ``queue.updated``, ``menu.command`` and ``quit.asked`` carry these data, in this order. */
       200: {
         headers: {
           [name: string]: unknown
@@ -4495,6 +4585,109 @@ export interface operations {
         content: {
           'application/json': components['schemas']['Tool']
         }
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  confirmQuit: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorResponse']
+        }
+      }
+    }
+  }
+  reportUiState: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UiStateRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
       /** @description Unauthorized */
       401: {

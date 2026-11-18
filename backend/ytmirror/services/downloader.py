@@ -348,6 +348,14 @@ class DownloaderService:
         """How many downloads may run at once (R-QU-01)."""
         return self._settings.current().parallel_downloads
 
+    def downloading_now(self) -> int:
+        """Return how many downloads run now, from memory: it never waits on the database.
+
+        For the quit question (R-QU-12), which macOS waits for.
+        """
+        with self._wake:
+            return self._busy()
+
     def _busy(self) -> int:
         """How many places running jobs take. An abandoned lookup takes none (R-QU-02)."""
         return sum(1 for job_id in self._running if job_id not in self._abandoned)

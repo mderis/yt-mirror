@@ -75,6 +75,7 @@ from ytmirror.services.speed_limit import SpeedLimit
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.toolchain import ToolchainService
+from ytmirror.services.ui_bridge import UiBridge
 from ytmirror.services.youtube_access import YouTubeAccess
 
 
@@ -103,6 +104,7 @@ class Container:
         downloader: Downloads videos, as many at once as the setting allows (R-QU-01).
         queue: The queue as the downloads panel shows it (R-QU-02).
         auto_mirror: Queues the videos of channels with auto-mirror on (R-MI-02).
+        ui: The state the interface reports for the menu bar, and the quit question (D-094).
         job_logs: Deletes the logs of jobs that are no longer kept.
         dates: Looks up exact dates in the background, and keeps the API key.
         scheduler: Starts checks by themselves and runs the exact-date fetch.
@@ -130,6 +132,7 @@ class Container:
     downloader: DownloaderService
     queue: QueueService
     auto_mirror: AutoMirrorService
+    ui: UiBridge
     job_logs: JobLogsService
     dates: DatesService
     scheduler: Scheduler
@@ -439,6 +442,7 @@ def build_container(
         downloader=downloader,
         queue=QueueService(repository, jobs, downloads, downloader.queue_summary),
         auto_mirror=auto_mirror,
+        ui=UiBridge(events, downloader.downloading_now),
         job_logs=JobLogsService(
             paths.logs_dir / JOB_LOG_FOLDER, repository, jobs, used_files, used_clock
         ),

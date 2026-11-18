@@ -10,6 +10,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { Channel } from '@/api/client'
 import AppMenu, { type MenuItem } from '@/components/AppMenu.vue'
+import { hasMissing } from '@/features/shell/useMenuBridge'
 import { useChannelsStore } from '@/stores/channels'
 import { useUiStore } from '@/stores/ui'
 
@@ -41,10 +42,9 @@ const items = computed<MenuItem[]>(() => {
     : { id: 'pause', label: t('channel.menu.pause'), icon: 'pause' }
   const channel = props.channel
   // Something to mirror: videos that are neither synced nor excluded (R-MI-04).
-  const missing: MenuItem[] =
-    channel.videos - channel.synced - channel.excluded > 0
-      ? [{ id: 'mirrorMissing', label: t('channel.menu.mirrorMissing'), icon: 'download' }]
-      : []
+  const missing: MenuItem[] = hasMissing(channel)
+    ? [{ id: 'mirrorMissing', label: t('channel.menu.mirrorMissing'), icon: 'download' }]
+    : []
   return [
     ...checks,
     ...missing,

@@ -24,6 +24,9 @@ from ytmirror.core.channels import ChannelStatus, CheckKind, VideoStatus
 from ytmirror.core.errors import AppError, ErrorCode
 from ytmirror.services.channels import NewChannel
 
+PLENTY_OF_ROOM = 500 * 10**9
+"""The free space the disk guard sees, so the test never depends on this Mac's disk (R-QU-10)."""
+
 FULLWIDTH_COLON = chr(0xFF1A)
 """How a colon of a title is stored in a file name (R-FN-02)."""
 
@@ -74,7 +77,7 @@ def app(paths: AppPaths, tmp_path: Path) -> Container:
     (world / "repair.json").write_text(json.dumps(channel), encoding="utf-8")
     container = build_container(
         dataclasses.replace(paths, fake_youtube=world, tool_dir=ffmpeg_dir().parent),
-        files=MacFileSystem(trash=lambda path: None),
+        files=MacFileSystem(trash=lambda path: None, free_bytes=lambda: PLENTY_OF_ROOM),
     )
     container.schema.bring_up_to_date()
     return container
@@ -155,7 +158,7 @@ def test_finder_sorts_the_folder_by_date_in_the_order_of_the_app(
     (world / "ordered.json").write_text(json.dumps(channel), encoding="utf-8")
     app = build_container(
         dataclasses.replace(paths, fake_youtube=world, tool_dir=ffmpeg_dir().parent),
-        files=MacFileSystem(trash=lambda path: None),
+        files=MacFileSystem(trash=lambda path: None, free_bytes=lambda: PLENTY_OF_ROOM),
     )
     app.schema.bring_up_to_date()
     app.channels.add(NewChannel(app.channels.lookup("@ordered").facts.channel_id))

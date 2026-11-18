@@ -6,6 +6,7 @@ import type {
   Channel,
   Counted,
   Download,
+  MenuCommand,
   Pause,
   Progress,
   Queue,
@@ -85,6 +86,16 @@ export class FakeEventSource {
   /** Play the event that tells how the queue stands (R-QU-02). */
   queueUpdated(queue: Queue): void {
     this.emit('queue.updated', { queue })
+  }
+
+  /** Play a command chosen in the menu bar (D-094). */
+  menuCommand(command: MenuCommand): void {
+    this.emit('menu.command', { command })
+  }
+
+  /** Play a quit that waits for the question (R-QU-12). */
+  quitAsked(): void {
+    this.emit('quit.asked', {})
   }
 
   breakAndReturn(): void {

@@ -18,7 +18,7 @@ from ytmirror import __version__
 from ytmirror.api import sse
 from ytmirror.api.errors import error_response, install_error_handlers
 from ytmirror.api.request_log import RequestLogMiddleware
-from ytmirror.api.routers import channels, health, queue, settings, state, tools, videos
+from ytmirror.api.routers import channels, health, queue, settings, state, tools, ui, videos
 from ytmirror.api.schemas import ErrorResponse
 from ytmirror.api.security import API_PREFIX, SESSION_COOKIE, SecurityMiddleware, SecurityPolicy
 from ytmirror.core.errors import ErrorCode
@@ -36,6 +36,7 @@ from ytmirror.services.repair import RepairService
 from ytmirror.services.state import StateService
 from ytmirror.services.thumbnails import ThumbnailService
 from ytmirror.services.toolchain import ToolchainService
+from ytmirror.services.ui_bridge import UiBridge
 from ytmirror.services.youtube_access import YouTubeAccess
 
 LOCAL_FRONTEND = "/"
@@ -81,6 +82,7 @@ class ApiServices:
         repair: Repairs the dates of files on demand.
         queue: The queue as the downloads panel shows it.
         auto_mirror: Auto-mirror and "Mirror everything missing".
+        ui: The state the interface reports, and the quit question.
     """
 
     diagnostics: DiagnosticsService
@@ -97,6 +99,7 @@ class ApiServices:
     repair: RepairService
     queue: QueueService
     auto_mirror: AutoMirrorService
+    ui: UiBridge
 
 
 def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAPI:
@@ -125,7 +128,10 @@ def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAP
     app.include_router(health.build_router(services.diagnostics), prefix=API_PREFIX)
     app.include_router(tools.build_router(services.toolchain), prefix=API_PREFIX)
     app.include_router(
-        sse.build_router(services.events, services.toolchain.setup_required), prefix=API_PREFIX
+        sse.build_router(
+            services.events, services.toolchain.setup_required, services.ui.window_connected
+        ),
+        prefix=API_PREFIX,
     )
     app.include_router(state.build_router(services.state, services.youtube), prefix=API_PREFIX)
     app.include_router(
@@ -145,6 +151,7 @@ def create_app(config: ApiConfig, services: ApiServices, clock: Clock) -> FastAP
     )
     app.include_router(settings.build_router(services.dates), prefix=API_PREFIX)
     app.include_router(queue.build_router(services.queue, services.downloader), prefix=API_PREFIX)
+    app.include_router(ui.build_router(services.ui), prefix=API_PREFIX)
     _add_favicon(app, config)
     _add_frontend(app, config)
     install_error_handlers(app)

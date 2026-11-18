@@ -66,6 +66,10 @@ export type FailedItem = components['schemas']['FailedItem']
 export type AutoMirrorAnswer = components['schemas']['AutoMirrorAnswer']
 /** List or grid (R-UI-03). */
 export type ViewKind = components['schemas']['ViewKind']
+/** A command of the menu bar, which the interface runs as its own control does (D-094). */
+export type MenuCommand = components['schemas']['MenuCommand']
+/** What the interface tells the app about itself, for the menu bar (R-NA-04). */
+export type UiState = components['schemas']['UiStateRequest']
 type ErrorResponse = components['schemas']['ErrorResponse']
 
 const API_PREFIX = '/api'
@@ -146,6 +150,10 @@ export interface EventHandlers {
   checksProgress: (checkingAll: Counted | null) => void
   /** The queue of downloads changed (R-QU-02). */
   queueUpdated: (queue: Queue) => void
+  /** A command was chosen in the menu bar (D-094). */
+  menuCommand: (command: MenuCommand) => void
+  /** A quit waits while downloads run: ask (R-QU-12). */
+  quitAsked: () => void
   /** The stream is connected again after a break: events may have been missed. */
   reconnected: () => void
 }
@@ -188,6 +196,10 @@ function openEvents(handlers: EventHandlers): () => void {
   on<components['schemas']['QueueUpdatedEvent']>('queue.updated', (event) =>
     handlers.queueUpdated(event.queue),
   )
+  on<components['schemas']['MenuCommandEvent']>('menu.command', (event) =>
+    handlers.menuCommand(event.command),
+  )
+  on<components['schemas']['QuitAskedEvent']>('quit.asked', () => handlers.quitAsked())
   source.addEventListener('error', () => {
     broken = true
   })
@@ -279,6 +291,14 @@ export const api = {
     send<Channel>('POST', `/channels/${channelId}/missing/leave`),
   /** Remember list or grid for the whole app (R-UI-03). */
   setView: (view: ViewKind): Promise<AppState> => send<AppState>('PUT', '/state/view', { view }),
+  /** Tell the app what applies now, for the menu bar (R-NA-04, D-094). */
+  reportUiState: async (state: UiState): Promise<void> => {
+    await send<unknown>('PUT', '/ui/state', state)
+  },
+  /** Quit although downloads run: "Quit" in the question (R-QU-12). */
+  confirmQuit: async (): Promise<void> => {
+    await send<unknown>('POST', '/ui/quit')
+  },
   /** Ask for the whole queue (R-QU-02). */
   getQueue: (): Promise<QueueAnswer> => request<QueueAnswer>('/queue'),
   /** Pause all downloads (R-QU-02). */

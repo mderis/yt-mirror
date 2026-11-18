@@ -436,7 +436,7 @@ Verified in milestone M3 against yt-dlp 2026.10.26 with a real download (Q-04, D
 - Other operations in this adapter: move to Trash (so deletes are recoverable, `NSFileManager.trashItemAtURL`), reveal in Finder (`open -R`), open with the default app (`open`), free space of a volume, a rename that never overwrites (`renamex_np` with `RENAME_EXCL`), whole-file writes through a hidden temp file, the size of a folder, whether a path leaves a folder through a symlink, the delete of the temp folder of one job, and the delete of one job log. Nothing else is ever deleted for good. A cross-volume move (copy, verify, delete) arrives with the milestone that moves folders.
 
 ### 7.6 Events and live updates
-- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, and from M4 `apikey.changed` (how the key stands, never the key) and `checks.progress` ("Checking channels: 3 of 5", R-CH-20). From M5, `queue.updated` carries how the queue stands (running, waiting and failed counts, the pause of all downloads, the number of places) after every change; the downloads panel loads `GET /queue` again when it hears it.
+- Services publish typed events to an in-process bus (`services/events.py`): `tool.updated` (from milestone M1: the state of a tool and the progress of its download), `channel.updated` (from milestone M2: one channel as the interface shows it, with its derived status and its totals. Published for every change of a channel and exactly once at the end of a check, never once per video), `task.progress` (from M2: how far a first listing or a full check has come), `video.updated`, `job.progress`, `queue.updated`, `activity.added`, `banner.changed`, and from M4 `apikey.changed` (how the key stands, never the key) and `checks.progress` ("Checking channels: 3 of 5", R-CH-20). From M5, `queue.updated` carries how the queue stands (running, waiting and failed counts, the pause of all downloads, the number of places) after every change; the downloads panel loads `GET /queue` again when it hears it. Also from M5, `menu.command` carries a command chosen in the menu bar, which the interface runs as its own control does (D-094), and `quit.asked` says that a quit waits for the question of R-QU-12. An open event stream counts as an interface that can be asked: without one, no quit is held.
 - `GET /api/events` is one Server-Sent Events stream per window. Progress events are coalesced. When the app stops, the bus is closed first: every stream ends, so an open window never holds up the shutdown.
 - On connect and after a reconnect the frontend refetches snapshots (`/api/state`, the open channel's videos), so a missed event can never leave the UI stale.
 - One store of the interface owns the stream (`stores/app.ts`) and passes every event on to the store it belongs to. What the events tell is newer than the answer of a call: the answer to "Check now" is not taken over, and the answer to adding a channel only when no event told about the channel yet (D-073).
@@ -499,15 +499,13 @@ Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-052. The experim
 - There is one quit path (D-052). It has two parts: a decision (may the app quit now?) and the shutdown work (stop the workers and the server, close the database, write the last log line), which runs exactly once, whoever asks.
 - **What exists when.** The two parts are built in different milestones:
 
-  | Part | Built in | State after M1 |
+  | Part | Built in | State after M5 |
   |---|---|---|
   | The shutdown work, for every way of quitting (R-PL-13) | M1 | Exists, with tests that use a real window |
   | Ctrl+C and a termination signal become a quit request | M1 | Exists |
-  | The decision: a handler of the `closing` event that can hold a quit | M5 | Does not exist. Nothing in the app listens to the `closing` event |
-  | The "quit while downloading" confirmation (R-NA-06, R-QU-12) | M5 | Does not exist. No quit is ever held, and the app never asks |
-  | Reading the reason of a quit request, so that a logout, a restart and a shutdown are never held for a question | M5 | Does not exist, and is not needed before a quit can be held: every quit gets the same shutdown work |
-
-  The M5 rows were shown to work in the experiment of Q-24 with throwaway code that is not in the repository. They are a design, not code.
+  | The decision: a handler of the `closing` event that can hold a quit | M5 | Exists (`services/ui_bridge.py`, wired in `app/window.py`), with tests that use a real window |
+  | The "quit while downloading" confirmation (R-NA-06, R-QU-12) | M5 | Exists (`QuitConfirmDialog.vue`) |
+  | Reading the reason of a quit request, so that a logout, a restart and a shutdown are never held for a question | M5 | Exists (`NativeApp.ending_session`). A real logout, restart and shutdown are on the manual checklist |
 
 *The shutdown work (built in M1):*
 - It is reached from two ends. Closing the window (the red window button, Cmd+W) ends the window loop, and the code after it runs. Quit ends the process inside AppKit, and the code after the window loop never runs: there the work hangs on AppKit's "will terminate" notification. This covers Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown.
@@ -515,10 +513,12 @@ Requirements R-NA-01 to R-NA-09. Decisions D-044 and D-048 to D-052. The experim
 - At a logout, a restart or a shutdown the app does its shutdown work at once, which holds macOS for that moment, and then lets it go on. This work must stay short: macOS does not wait for an app without limit.
 - A handler of an AppKit notification must return nothing. A returned value makes pyobjc raise inside AppKit, and AppKit then drops the event it was handling. In the experiment a logout hung on exactly this.
 
-*The decision (built in M5, not in the code yet):*
-- Every way of quitting will reach the decision through one public hook, the `closing` event of the pywebview window. The red window button, Cmd+W and "Close Window" reach it directly. Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown reach it because pywebview asks the same event when AppKit asks whether the app may terminate. Ctrl+C and a termination signal reach it as the quit request they were turned into.
-- The decision can hold the quit: the event answers no, the app and its workers keep running, and the interface asks. This is the place of the "quit while downloading" confirmation (R-NA-06, R-QU-12). When the user confirms, the app closes its window itself.
-- Logout, restart and shutdown must never be held for a question. The quit request of macOS carries its reason, and the decision lets these through to the shutdown work.
+*The decision (built in M5):*
+- Every way of quitting reaches the decision through one public hook, the `closing` event of the pywebview window. The red window button, Cmd+W and "Close Window" reach it directly. Cmd+Q, "Quit yt-mirror", Quit in the Dock icon's menu, logout, restart and shutdown reach it because pywebview asks the same event when AppKit asks whether the app may terminate. The handler runs on the main thread while macOS waits, so it decides from memory only: never from the database.
+- The decision holds the quit while at least one download runs and an interface is connected to the event stream: the event answers no, the app and its workers keep running, and the interface asks (`quit.asked`, R-NA-06, R-QU-12). Without a connected interface nothing is held, so the app can never be stuck with nobody to ask. A second quit while the question is open asks again.
+- "Quit" in the question (`POST /api/ui/quit`) lets the next quit through and asks the app to quit, which reaches the decision again and passes. "Keep running" closes the question and changes nothing.
+- Logout, restart and shutdown are never held for a question. The quit request of macOS is an Apple event whose parameter `kAEQuitReason` (`why?`) says why: `kAEQuitAll`, `kAEReallyLogOut`, `kAERestart` or `kAEShutDown` let the quit through to the shutdown work. Cmd+Q and the menu send no Apple event, and Quit in the Dock sends one without a reason: these may be held.
+- Ctrl+C and a termination signal are never held either: the app lets the next quit through before it turns the signal into the quit request.
 
 *Dock and single instance:*
 - A click on the Dock icon brings the window to the front (the app has one window, and closing it quits, D-020). This is what AppKit does by itself, also for a minimized window and for a hidden app.
@@ -562,6 +562,8 @@ All paths are under `/api`. Responses are JSON. Errors use one shape: `{ "error"
 | POST `/queue/pause`, `/queue/resume`, `/queue/reorder`, `/queue/clear-waiting` | Pause and resume all downloads (stored, so a restart keeps it), put the waiting ones in a new order, remove every waiting one (R-QU-02). From M5 |
 | POST `/queue/speed-limit`, `/queue/resume-anyway`, `/queue/folders/{channel_id}/try-again` | The limit of all downloads together (`mbps`: 0, 5, 2 or 1, R-QU-03); go on although the disk guard paused (R-QU-10); look again whether a channel folder can be reached (R-QU-11). From M5 |
 | POST `/jobs/{id}/cancel` | Cancel a job that waits or runs (R-QU-02). From M3 |
+| PUT `/ui/state` | What the interface tells the app about itself, for the menu bar: whether a channel is open, paused, checking, has videos to mirror and a folder that can be reached, the view, and whether any channel is not paused (R-NA-04, D-094). From M5 |
+| POST `/ui/quit` | Quit although downloads run: "Quit" in the question of R-QU-12. From M5 |
 | GET, PUT `/channels/{id}/exclude-rules` | Rules, with `POST .../preview` (R-EX-06) |
 | POST `/channels/{id}/adopt/scan`, GET `.../adopt`, POST `.../adopt/apply` | Adoption (R-AD-*) |
 | POST `/channels/{id}/repair-dates` | Repair the dates of a channel's synced files now (R-DT-09). From M4 |

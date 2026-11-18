@@ -17,9 +17,12 @@ import os
 import plistlib
 import re
 import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
+import urllib.request
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +39,11 @@ STARTUP_TIMEOUT_S = 60.0
 QUIT_TIMEOUT_S = 30
 CLONE_NAME = "yt-mirror (dev)"
 """The tests run from a clone, so the app names itself as a clone does (R-NA-01)."""
+TOKEN = "window-test-token"
+FAKE_YOUTUBE = Path(__file__).resolve().parents[4] / "e2e" / "fixtures" / "youtube"
+SMALL_ID = "UCsmallchannel0000000001"
+HELD_VIDEO = "small000009"
+"""A video of the fake YouTube that holds in the middle of its download (``hold_ms``)."""
 
 
 @dataclass
@@ -57,17 +65,20 @@ class RunningApp:
 
 
 @contextlib.contextmanager
-def started(command: list[str], tmp_path: Path) -> Generator[RunningApp]:
+def started(
+    command: list[str], tmp_path: Path, extra_env: dict[str, str] | None = None
+) -> Generator[RunningApp]:
     """Start the app with a window and wait until the window is up."""
     report = tmp_path / "window.json"
     env = {
         **os.environ,
         "YTM_HOME": str(tmp_path),
         "YTM_WINDOW_REPORT": str(report),
-        "YTM_SESSION_TOKEN": "window-test-token",
+        "YTM_SESSION_TOKEN": TOKEN,
     }
     for name in ("YTM_NO_WINDOW", "YTM_PORT", "YTM_DATA_DIR"):
         env.pop(name, None)
+    env.update(extra_env or {})
     process = subprocess.Popen(
         command,
         env=env,
@@ -129,7 +140,12 @@ def test_the_real_menu_bar_is_ours_and_nothing_of_the_window_library_is_left(
         (
             menu.title,
             [
-                (item.title, item.action.value, item.shortcut and item.shortcut.key)
+                (
+                    item.title,
+                    item.action.value,
+                    item.shortcut and item.shortcut.key,
+                    item.command and item.command.value,
+                )
                 for group in menu.groups
                 for item in group
             ],
@@ -141,7 +157,12 @@ def test_the_real_menu_bar_is_ours_and_nothing_of_the_window_library_is_left(
         (
             menu["title"],
             [
-                (item["title"], item["action"], item["shortcut"] and item["shortcut"]["key"])
+                (
+                    item["title"],
+                    item["action"],
+                    item["shortcut"] and item["shortcut"]["key"],
+                    item["command"],
+                )
                 for item in menu["items"]
                 if item["action"] is not None
             ],
@@ -186,6 +207,196 @@ def test_the_real_app_shuts_down_cleanly_however_it_is_asked_to_quit(
     assert app.events().count("app.stopping") == 1
 
 
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+@dataclass
+class Api:
+    """The HTTP API of the app in the child process, signed in with the session token."""
+
+    base: str
+
+    def send(self, method: str, path: str, body: object | None = None) -> Any:
+        """Send one request and return its JSON answer, or None for an empty one."""
+        data = None if body is None else json.dumps(body).encode()
+        request = urllib.request.Request(f"{self.base}/api{path}", data=data, method=method)
+        request.add_header("Authorization", f"Bearer {TOKEN}")
+        if data is not None:
+            request.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(request, timeout=30) as response:
+            text = response.read()
+        return json.loads(text) if text else None
+
+    def wait_for(self, path: str, holds: Callable[[Any], bool]) -> Any:
+        """Ask again until the answer holds, as a window waits for the app."""
+        deadline = time.monotonic() + STARTUP_TIMEOUT_S
+        while True:
+            answer = self.send("GET", path)
+            if holds(answer):
+                return answer
+            assert time.monotonic() < deadline, f"{path} did not get there: {answer}"
+            time.sleep(0.2)
+
+
+class EventStream:
+    """The event stream, read as the interface reads it: an interface the app can ask."""
+
+    def __init__(self, api: Api) -> None:
+        """Open the stream and wait until the app listens to it."""
+        self.names: list[str] = []
+        self._connected = threading.Event()
+        self._api = api
+        threading.Thread(target=self._read, daemon=True).start()
+        assert self._connected.wait(timeout=STARTUP_TIMEOUT_S), "The stream did not open"
+
+    def _read(self) -> None:
+        request = urllib.request.Request(f"{self._api.base}/api/events")
+        request.add_header("Authorization", f"Bearer {TOKEN}")
+        try:
+            with urllib.request.urlopen(request, timeout=QUIT_TIMEOUT_S) as response:
+                for raw in response:
+                    line = raw.decode().strip()
+                    if line.startswith(": connected"):
+                        self._connected.set()
+                    if line.startswith("event: "):
+                        self.names.append(line.removeprefix("event: "))
+        except OSError:
+            return  # The app ended.
+
+    def wait_for(self, name: str) -> None:
+        """Wait until an event of this name arrived."""
+        deadline = time.monotonic() + QUIT_TIMEOUT_S
+        while name not in self.names:
+            assert time.monotonic() < deadline, f"No {name} arrived: {self.names}"
+            time.sleep(0.1)
+
+
+@pytest.fixture
+def served_app(tmp_path: Path) -> Iterator[tuple[RunningApp, Api]]:
+    """The app with its window, on a port of the test, over the fake YouTube."""
+    port = _free_port()
+    free_space = tmp_path / "free-space"
+    free_space.write_text(str(500 * 10**9), encoding="utf-8")
+    extra = {
+        "YTM_PORT": str(port),
+        "YTM_FAKE_YOUTUBE": str(FAKE_YOUTUBE),
+        "YTM_FAKE_HOLD_DOWNLOADS": "1",
+        "YTM_LIBRARY_DIR": str(tmp_path / "library"),
+        "YTM_TRASH_DIR": str(tmp_path / "trash"),
+        "YTM_FAKE_FREE_SPACE_FILE": str(free_space),
+    }
+    command = [sys.executable, "-m", "ytmirror.app.main"]
+    with started(command, tmp_path, extra) as running:
+        yield running, Api(f"http://127.0.0.1:{port}")
+
+
+def _start_a_held_download(api: Api) -> None:
+    """Add the small channel and mirror the video that holds in the middle of its download."""
+    api.send("POST", "/channels/lookup", {"text": "@samplechannelone"})
+    api.send("POST", "/channels", {"channel_id": SMALL_ID, "auto_mirror": False})
+    api.wait_for(f"/channels/{SMALL_ID}", lambda channel: channel["status"] != "checking")
+    api.send("POST", "/videos/mirror", {"ids": [HELD_VIDEO]})
+    api.wait_for("/queue", lambda queue: queue["queue"]["downloading"] == 1)
+
+
+def test_a_quit_while_downloading_is_held_until_the_user_confirms_it(
+    served_app: tuple[RunningApp, Api],
+) -> None:
+    """R-NA-06, R-QU-12: the quit request of macOS waits for the question; "Quit" ends the app."""
+    running, api = served_app
+    _start_a_held_download(api)
+    stream = EventStream(api)
+
+    _quit_like_the_dock_does(running)
+    stream.wait_for("quit.asked")
+    time.sleep(1)
+
+    assert running.process.poll() is None, "The quit was not held"
+    assert api.send("GET", "/queue")["queue"]["downloading"] == 1, "The download stopped"
+    assert "app.quit_held" in running.events()
+
+    api.send("POST", "/ui/quit")
+    exit_code = running.process.wait(timeout=QUIT_TIMEOUT_S)
+
+    assert exit_code == 0
+    events = running.events()
+    assert "app.quit_confirmed" in events
+    assert events.count("app.stopping") == 1
+    # The download stops and keeps what it has, to continue at the next start (D-091).
+    assert events.index("download.stopped") > events.index("app.stopping")
+
+
+@pytest.mark.parametrize("stop", [signal.SIGINT, signal.SIGTERM], ids=["Ctrl+C", "SIGTERM"])
+def test_a_stop_signal_while_downloading_is_never_held(
+    served_app: tuple[RunningApp, Api], stop: signal.Signals
+) -> None:
+    """R-NA-06: Ctrl+C and a termination signal quit at once: there is nobody to ask."""
+    running, api = served_app
+    _start_a_held_download(api)
+    EventStream(api)
+
+    running.process.send_signal(stop)
+    exit_code = running.process.wait(timeout=QUIT_TIMEOUT_S)
+
+    assert exit_code == 0
+    events = running.events()
+    assert "app.quit_passed" in events
+    assert "app.quit_held" not in events
+    assert events.count("app.stopping") == 1
+    assert events.index("download.stopped") > events.index("app.stopping")
+
+
+def _read_report(running: RunningApp) -> dict[str, Any] | None:
+    try:
+        shown: dict[str, Any] = json.loads(
+            Path(running.env["YTM_WINDOW_REPORT"]).read_text(encoding="utf-8")
+        )
+    except OSError, ValueError:
+        return None  # Written right now.
+    return shown
+
+
+def test_the_real_menu_bar_follows_the_state_the_interface_reports(
+    served_app: tuple[RunningApp, Api],
+) -> None:
+    """R-NA-04, D-094: Check Now is off for a paused channel, which reads "Resume Channel"."""
+    running, api = served_app
+    state = {
+        "channel_open": True,
+        "paused": True,
+        "checking": False,
+        "has_missing": False,
+        "folder_available": True,
+        "view": "grid",
+        "any_unpaused": False,
+    }
+
+    api.send("PUT", "/ui/state", state)
+
+    deadline = time.monotonic() + QUIT_TIMEOUT_S
+    while True:
+        shown = _read_report(running)
+        items = {
+            item["command"]: item
+            for menu in (shown or {}).get("menu_bar", [])
+            for item in menu["items"]
+            if item["command"] is not None
+        }
+        if items.get("toggle_pause", {}).get("title") == "Resume Channel":
+            break
+        assert time.monotonic() < deadline, "The menu bar did not follow the report"
+        time.sleep(0.1)
+    assert items["check_now"]["enabled"] is False
+    assert items["check_all"]["enabled"] is False
+    assert items["mirror_missing"]["enabled"] is False
+    assert items["open_folder"]["enabled"] is True
+    assert items["view_grid"]["checked"] is True
+    assert items["add_channel"]["enabled"] is True
+
+
 def test_started_through_its_bundle_the_app_is_yt_mirror_to_macos(bundled_app: RunningApp) -> None:
     """R-NA-01: the running app appears under its own name, never as "Python".
 
@@ -226,7 +437,7 @@ def test_started_through_its_bundle_the_app_has_its_menu_bar_and_stops_cleanly(
     _quit_like_the_dock_does(bundled_app)
     exit_code = bundled_app.process.wait(timeout=QUIT_TIMEOUT_S)
 
-    assert titles == [CLONE_NAME, "Edit"]
+    assert titles == [CLONE_NAME, "File", "Edit", "View", "Channel", "Window", "Help"]
     assert exit_code == 0
     assert bundled_app.events()[-1] == "app.stopping"
 

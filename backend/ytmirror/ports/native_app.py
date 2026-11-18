@@ -10,7 +10,7 @@ Tests: backend/tests/integration/test_native_app_contract.py
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
-from ytmirror.core.models import AppIdentity, Menu, ShownMenu
+from ytmirror.core.models import AppIdentity, ItemState, Menu, MenuCommand, ShownMenu
 
 
 class NativeApp(Protocol):
@@ -20,11 +20,20 @@ class NativeApp(Protocol):
         """Return the name and the bundle identifier under which macOS knows this process."""
         ...
 
-    def show_menu_bar(self, menus: Sequence[Menu]) -> None:
+    def show_menu_bar(
+        self,
+        menus: Sequence[Menu],
+        state_of: Callable[[MenuCommand], ItemState] | None = None,
+        on_command: Callable[[MenuCommand], None] | None = None,
+    ) -> None:
         """Replace the whole menu bar of the app. Call it on the main thread.
 
         Args:
             menus: The menus, from left to right. The first one is the app menu.
+            state_of: Says, each time macOS is about to show or trigger a command
+                item, whether it is enabled, its title and its check mark (R-NA-04).
+                Without it every command item is enabled.
+            on_command: Runs the command of a chosen item (D-094). Main thread.
         """
         ...
 
@@ -57,6 +66,14 @@ class NativeApp(Protocol):
 
     def request_quit(self) -> None:
         """Ask the app to quit, exactly as "Quit" in its menu does. Main thread only."""
+        ...
+
+    def ending_session(self) -> bool:
+        """Tell whether the quit macOS asks for now comes from a logout, a restart or a shutdown.
+
+        Such a quit is never held for a question (R-NA-06, ARCHITECTURE 7.10).
+        Main thread only, while macOS asks whether the app may quit.
+        """
         ...
 
     def show_alert(self, title: str, text: str) -> None:

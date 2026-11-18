@@ -188,6 +188,18 @@ export const en = {
     failed:
       'Dates checked: {failed} files of {channel} could not be set. They are tried again at the next check.',
   },
+  /** The question before a quit while downloads run (R-QU-12, design: QuitConfirm.html). */
+  quit: {
+    title: 'Quit yt-mirror?',
+    running:
+      '{downloading} video is downloading and {waiting} are waiting. | {downloading} videos are downloading and {waiting} are waiting.',
+    ifQuit: 'If you quit now',
+    stop: 'Downloads stop. Nothing is lost.',
+    resume: 'They continue from where they stopped the next time you open yt-mirror.',
+    noChecks: 'Channels are not checked for new videos while the app is closed.',
+    keep: 'Keep running',
+    confirm: 'Quit',
+  },
   /** The list of keyboard shortcuts (R-UI-13, docs/DESIGN.md section 7.3, design: Shortcuts.html). */
   shortcuts: {
     title: 'Keyboard shortcuts',
@@ -669,6 +681,8 @@ export const en = {
       '{count} file ({size}) goes to the Trash, so you can still get it back. Other files in the folder stay where they are. | {count} files ({size}) go to the Trash, so you can still get them back. Other files in the folder stay where they are.',
     cancel: 'Cancel',
     remove: 'Remove channel',
+    stopping: 'Stopping {count} download... | Stopping {count} downloads...',
+    stoppingSome: 'Stopping the downloads of this channel...',
     close: 'Close',
   },
   /** Files a removal could not move to the Trash (R-CH-32). */

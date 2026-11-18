@@ -16,7 +16,7 @@ import pytest
 from tests.fixtures.fakes.native_app import FakeNativeApp
 from ytmirror.adapters.native_app_mac import MacNativeApp
 from ytmirror.app.menus import menu_bar
-from ytmirror.core.models import Menu, MenuAction, MenuItem, Shortcut
+from ytmirror.core.models import ItemState, Menu, MenuAction, MenuCommand, MenuItem, Shortcut
 from ytmirror.ports.native_app import NativeApp
 
 
@@ -27,12 +27,25 @@ class Subject:
     app: NativeApp
     turn_loop: Callable[[], None]
     end: Callable[[], None]
+    choose: Callable[[MenuCommand], None]
 
 
 def _turn_the_real_loop() -> None:
     foundation: Any = importlib.import_module("Foundation")
     until: Any = foundation.NSDate.dateWithTimeIntervalSinceNow_(0.2)
     foundation.NSRunLoop.currentRunLoop().runUntilDate_(until)
+
+
+def _choose_in_appkit(command: MenuCommand) -> None:
+    """Choose a command item as a click does: AppKit sends its action to its target."""
+    appkit: Any = importlib.import_module("AppKit")
+    application: Any = appkit.NSApplication.sharedApplication()
+    for holder in application.mainMenu().itemArray():
+        for item in holder.submenu().itemArray():
+            if item.representedObject() == command.value:
+                assert application.sendAction_to_from_(item.action(), item.target(), item)
+                return
+    raise AssertionError(f"No item for {command}")
 
 
 def _announce_the_end() -> None:
@@ -47,13 +60,13 @@ def subject(request: pytest.FixtureRequest) -> Iterator[Subject]:
     """The fake, and the real adapter on the AppKit of this Mac."""
     if request.param == "fake":
         fake = FakeNativeApp()
-        yield Subject(fake, fake.turn_loop, fake.end)
+        yield Subject(fake, fake.turn_loop, fake.end, fake.choose)
         return
     appkit: Any = importlib.import_module("AppKit")
     application: Any = appkit.NSApplication.sharedApplication()
     before: Any = application.mainMenu()
     mac = MacNativeApp()
-    yield Subject(mac, _turn_the_real_loop, _announce_the_end)
+    yield Subject(mac, _turn_the_real_loop, _announce_the_end, _choose_in_appkit)
     mac.stop_observing()
     application.setMainMenu_(before)
 
@@ -110,6 +123,56 @@ def test_shift_and_option_are_part_of_a_shortcut(subject: Subject) -> None:
     assert shortcuts["Undo"] == Shortcut("z")
     assert shortcuts["Hide Others"] == Shortcut("h", option=True)
     assert shortcuts["Show All"] is None
+
+
+def _state_of(command: MenuCommand) -> ItemState:
+    if command is MenuCommand.TOGGLE_PAUSE:
+        return ItemState(enabled=True, title="Resume Channel")
+    return ItemState(
+        enabled=command is not MenuCommand.CHECK_NOW, checked=command is MenuCommand.VIEW_GRID
+    )
+
+
+def test_command_items_are_enabled_titled_and_marked_from_the_state(subject: Subject) -> None:
+    """R-NA-04: macOS asks before it shows an item; the answer enables, titles and marks it."""
+    subject.app.show_menu_bar(menu_bar("yt-mirror"), _state_of, lambda _command: None)
+
+    items = {item.command: item for menu in subject.app.shown_menu_bar() for item in menu.items}
+
+    assert items[MenuCommand.CHECK_NOW].enabled is False
+    assert items[MenuCommand.ADD_CHANNEL].enabled is True
+    assert items[MenuCommand.TOGGLE_PAUSE].title == "Resume Channel"
+    assert items[MenuCommand.VIEW_GRID].checked is True
+    assert items[MenuCommand.VIEW_LIST].checked is False
+
+
+def test_a_chosen_command_item_runs_its_command(subject: Subject) -> None:
+    """R-NA-03, D-094: a command item sends its command, nothing else."""
+    chosen: list[MenuCommand] = []
+    subject.app.show_menu_bar(menu_bar("yt-mirror"), _state_of, chosen.append)
+
+    subject.choose(MenuCommand.SHOW_DOWNLOADS)
+
+    assert chosen == [MenuCommand.SHOW_DOWNLOADS]
+
+
+def test_a_quit_without_a_reason_is_not_the_end_of_a_session(subject: Subject) -> None:
+    """R-NA-06: outside a logout, a restart or a shutdown, a quit may be held for a question."""
+    assert subject.app.ending_session() is False
+
+
+def test_the_window_and_help_menus_are_the_ones_macos_fills() -> None:
+    """R-NA-03: macOS adds the window list to Window and the search field to Help."""
+    appkit: Any = importlib.import_module("AppKit")
+    application: Any = appkit.NSApplication.sharedApplication()
+    before: Any = application.mainMenu()
+    try:
+        MacNativeApp().show_menu_bar(menu_bar("yt-mirror"))
+
+        assert str(application.windowsMenu().title()) == "Window"
+        assert str(application.helpMenu().title()) == "Help"
+    finally:
+        application.setMainMenu_(before)
 
 
 def test_the_app_has_a_name_under_which_macos_knows_it(subject: Subject) -> None:
